@@ -1,0 +1,6 @@
+pnpm-lock.yaml
+dist/
+apps/server/drizzle/
+playwright-report/
+test-results/
+data/

@@ -1,0 +1,9 @@
+packages:
+  - apps/*
+  - packages/*
+
+engineStrict: true
+
+# pnpm 12: dependency build scripts must be reviewed and allowed explicitly.
+allowBuilds:
+  esbuild: true
