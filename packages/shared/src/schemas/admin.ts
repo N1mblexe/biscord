@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { IsoDate, Uuid } from '../ids.js';
+import { IsoDate, MessageId, Uuid } from '../ids.js';
 import { LIMITS } from '../limits.js';
 import { Role } from './common.js';
 
@@ -49,3 +49,15 @@ export type ResetCodeResponse = z.infer<typeof ResetCodeResponse>;
 /** POST `/__test__/reset` (test mode only). */
 export const TestResetResponse = z.object({ adminInviteCode: z.string() });
 export type TestResetResponse = z.infer<typeof TestResetResponse>;
+
+/** POST `/__test__/seed-messages` (test mode only). Inserts messages directly, without broadcasts or rate limits. */
+export const TestSeedMessagesRequest = z.object({
+  channelId: Uuid,
+  authorId: Uuid,
+  count: z.number().int().min(1).max(500),
+  prefix: z.string().min(1).max(32).default('msg'),
+});
+export type TestSeedMessagesRequest = z.infer<typeof TestSeedMessagesRequest>;
+
+export const TestSeedMessagesResponse = z.object({ firstId: MessageId, lastId: MessageId });
+export type TestSeedMessagesResponse = z.infer<typeof TestSeedMessagesResponse>;
