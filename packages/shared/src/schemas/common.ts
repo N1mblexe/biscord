@@ -43,7 +43,8 @@ export const VoiceParticipantParams = z.object({ channelId: Uuid, userId: Uuid }
 export type VoiceParticipantParams = z.infer<typeof VoiceParticipantParams>;
 
 /** `/invites/:code/check` */
-export const InviteCodeParams = z.object({ code: z.string().min(1).max(32) });
+// Lenient on purpose: an unknown or overlong code is answered with `{ valid: false }`, not VALIDATION.
+export const InviteCodeParams = z.object({ code: z.string().min(1).max(128) });
 export type InviteCodeParams = z.infer<typeof InviteCodeParams>;
 
 /** `/attachments/:id/:filename` */

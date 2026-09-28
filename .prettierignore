@@ -4,3 +4,4 @@ apps/server/drizzle/
 playwright-report/
 test-results/
 data/
+.claude/

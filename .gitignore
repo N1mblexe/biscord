@@ -11,3 +11,5 @@ playwright/.cache/
 *.log
 .DS_Store
 *.tsbuildinfo
+# Git worktrees created by Claude Code sessions
+.claude/worktrees/

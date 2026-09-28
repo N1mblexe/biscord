@@ -10,7 +10,8 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
     "db:generate": "drizzle-kit generate",
-    "db:migrate": "tsx --conditions=hearth-src --env-file-if-exists=../../.env src/db/migrate.ts"
+    "db:migrate": "tsx --conditions=hearth-src --env-file-if-exists=../../.env src/db/migrate.ts",
+    "bootstrap": "tsx --conditions=hearth-src --env-file-if-exists=../../.env src/cli/bootstrap.ts"
   },
   "dependencies": {
     "@fastify/cookie": "11.1.2",

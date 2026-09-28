@@ -1,5 +1,6 @@
 import { HealthResponse } from '@hearth/shared';
 import { afterAll, describe, expect, it } from 'vitest';
+import { redactUrl } from '../src/app.js';
 import { createDb } from '../src/db/client.js';
 import { makeApp } from './helpers/app.js';
 import { closeTestDb } from './helpers/db.js';
@@ -32,5 +33,12 @@ describe('GET /api/health', () => {
       await app.close();
       await unreachable.pool.end();
     }
+  });
+});
+
+describe('request logging', () => {
+  it('redacts invite codes from logged URLs', () => {
+    expect(redactUrl('/api/invites/ABCDEFGH12345678/check')).toBe('/api/invites/[redacted]/check');
+    expect(redactUrl('/api/me')).toBe('/api/me');
   });
 });

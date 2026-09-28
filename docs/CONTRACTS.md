@@ -269,7 +269,7 @@ HTTP status per code:
 - **500:** INTERNAL (no internals leaked)
 - **503:** LIVEKIT_UNAVAILABLE
 
-A socket handshake failure is a `connect_error` with `err.data = { code: 'UNAUTHENTICATED' }`.
+A socket handshake failure is a `connect_error` with `err.data = { code }`: `UNAUTHENTICATED` (missing, invalid or expired session), `FORBIDDEN` (`Origin` not in `APP_ORIGIN`) or `INTERNAL` (server error during the handshake).
 
 ### B.4 REST endpoints (prefix `/api`, JSON)
 
@@ -327,7 +327,7 @@ Mentions are parsed server-side from `(?<![\w@])@([a-z0-9_]{3,32})` against acti
 
 ### B.5 Socket.IO events (`packages/shared/src/socket.ts`)
 
-- **Connection:** path `/socket.io`, same origin.
+- **Connection:** path `/socket.io`, same origin, **websocket transport only** (`transports: ['websocket']`). Browsers omit `Origin` on same-origin polling requests, so a polling handshake would fail the Origin check.
   - `io.use` checks `Origin ∈ APP_ORIGIN` and the session cookie.
   - The socket joins the rooms `all`, `user:<userId>` and `session:<sessionId>`.
 - **Audience** (`realtime/audience.ts`): text/voice channel → room `all`; DM → `user:<a>` and `user:<b>`.
@@ -420,7 +420,7 @@ Reconnect protocol: on every `connect`, the client refetches `GET /bootstrap`, p
   - `extra_hosts: host.docker.internal:host-gateway`.
   - `webhook.urls` lists both :3000 and :3100 (a failed delivery to whichever server isn't running is harmless). Missed webhooks are covered by a 60 s reconcile loop.
 - **Env (`.env.example`):**
-  - App: `NODE_ENV, PORT=3000, APP_ORIGIN=http://localhost:5173, LOG_LEVEL=info, TRUST_PROXY=false` (`true` behind Caddy — full stack and prod — so rate limits key on the real client IP from `X-Forwarded-For`)
+  - App: `NODE_ENV, PORT=3000, APP_ORIGIN=http://localhost:5173, LOG_LEVEL=info, TRUST_PROXY=false` (`false`/empty = trust no proxy; otherwise a comma-separated list of proxy IPs/CIDRs whose `X-Forwarded-For` is trusted — the full stack sets Caddy's fixed IP `172.28.0.10`, so rate limits key on the real client IP and direct hits on :3000 cannot forge it)
   - Database: `POSTGRES_USER=hearth, POSTGRES_PASSWORD=hearth, POSTGRES_DB=hearth, DATABASE_URL=postgres://hearth:hearth@localhost:5432/hearth, DATABASE_URL_UNIT=…/hearth_unit, DATABASE_URL_E2E=…/hearth_e2e, MIGRATE_ON_START=false`
   - Accounts: `COOKIE_SECURE=false, SESSION_TTL_DAYS=30, MAX_USERS=25`
   - Uploads: `UPLOAD_DIR=./data/uploads`

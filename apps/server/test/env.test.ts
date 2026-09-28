@@ -55,6 +55,46 @@ describe('loadEnv', () => {
     expect(message).not.toContain(short);
   });
 
+  describe('TRUST_PROXY', () => {
+    it('false, empty or unset → trust no proxy', () => {
+      expect(loadEnv(base).TRUST_PROXY).toBe(false);
+      expect(loadEnv({ ...base, TRUST_PROXY: '' }).TRUST_PROXY).toBe(false);
+      expect(loadEnv({ ...base, TRUST_PROXY: 'false' }).TRUST_PROXY).toBe(false);
+      expect(loadEnv({ ...base, TRUST_PROXY: ' FALSE ' }).TRUST_PROXY).toBe(false);
+    });
+
+    it('parses a comma-separated list of IPs and CIDRs', () => {
+      expect(loadEnv({ ...base, TRUST_PROXY: '172.28.0.10' }).TRUST_PROXY).toEqual(['172.28.0.10']);
+      expect(
+        loadEnv({ ...base, TRUST_PROXY: ' 172.28.0.10, 10.0.0.0/8 ,::1, fd00::/8,' }).TRUST_PROXY,
+      ).toEqual(['172.28.0.10', '10.0.0.0/8', '::1', 'fd00::/8']);
+    });
+
+    it('refuses the literal true with a clear message', () => {
+      for (const value of ['true', 'TRUE', ' true ']) {
+        expect(() => loadEnv({ ...base, TRUST_PROXY: value })).toThrow(/TRUST_PROXY: "true" is not allowed/);
+      }
+    });
+
+    it('refuses anything that is not an IP or CIDR', () => {
+      for (const value of [
+        '1',
+        'yes',
+        'loopback',
+        'caddy',
+        '10.0.0.0/33',
+        '10.0.0.0/',
+        '10.0.0.0/8/8',
+        '::1/129',
+        '256.0.0.1',
+        '172.28.0.10,nope',
+        ',',
+      ]) {
+        expect(() => loadEnv({ ...base, TRUST_PROXY: value }), value).toThrow(/TRUST_PROXY/);
+      }
+    });
+  });
+
   it('lists every invalid key', () => {
     expect(() => loadEnv({ ...base, LOG_LEVEL: 'loud', PORT: 'abc', DATABASE_URL: undefined })).toThrow(
       /LOG_LEVEL[\s\S]*PORT|PORT[\s\S]*LOG_LEVEL/,

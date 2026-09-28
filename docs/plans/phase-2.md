@@ -37,10 +37,10 @@ People can get in, stay in, and be kicked out cleanly:
 - **Sessions:**
   - 32 random bytes (base64url) go in cookie `hearth_session`, with `HttpOnly`, `SameSite=Lax`, `Path=/`, and `Secure` when `COOKIE_SECURE` is set.
   - The DB stores only the sha256 hex of the token.
-  - Sliding expiry: `lastSeenAt` and `expiresAt` are bumped at most once per hour.
+  - Sliding expiry: `lastSeenAt` and `expiresAt` are bumped at most once per hour, and a bumped request re-sends the cookie (same token, full `Max-Age`) so the browser's expiry slides too.
   - Expired sessions are deleted lazily when they're used.
-- **Passwords:** `@node-rs/argon2` argon2id with the library defaults. Login always runs one verify, against a dummy hash when the user is unknown, so response timing doesn't reveal which usernames exist.
-- **Registration is one transaction:**
+- **Passwords:** `@node-rs/argon2` argon2id with the library defaults. Login always runs one verify, against a dummy hash when the user is unknown, so response timing doesn't reveal which usernames exist. The dummy hash is computed at startup (`onReady`), so the first unknown-user login is not slower than the rest.
+- **Registration:** a cheap read of the invite first (`INVITE_INVALID` early, before any argon2 work), then the password hash, then one transaction that re-checks the invite atomically:
   1. `pg_advisory_xact_lock(HEARTH_REGISTER)`.
   2. Count active users: at or above `MAX_USERS` → `USER_LIMIT`.
   3. Conditional `UPDATE invites SET uses = uses + 1 WHERE code = $1 AND revoked_at IS NULL AND expires_at > now() AND uses < max_uses RETURNING grants_role`. Zero rows → `INVITE_INVALID`.
@@ -58,8 +58,8 @@ People can get in, stay in, and be kicked out cleanly:
   | Reset password  | all of the user's sessions          | `password_reset`   |
 
 - **Socket.IO:** attached in `buildApp` via `new Server(app.server, …)`, and closed in `onClose`. No `fastify-socket.io` dependency. Every client→server event goes through a shared zod-validation wrapper (no client events yet besides the existing contract ones).
-- **Rate limits:** `@fastify/rate-limit` with `global: false`. Login, reset-password and the invite check get 10/min/IP. 429 uses the shared `RATE_LIMITED` body with `retryAfterMs`.
-- **New env `TRUST_PROXY`** (bool, default `false`; compose and prod set `true`) so rate limits see the real client IP behind Caddy or the Vite proxy. **Contract change:** added to CONTRACTS B.8 and `.env.example`.
+- **Rate limits:** `@fastify/rate-limit` with `global: false`. Register, login, reset-password and the invite check get 10/min/IP. 429 uses the shared `RATE_LIMITED` body with `retryAfterMs`.
+- **New env `TRUST_PROXY`** (default `false` = trust no proxy; otherwise a comma-separated list of proxy IPs/CIDRs passed to Fastify's `trustProxy`; the literal `true` is refused at boot). Compose sets Caddy's fixed IP `172.28.0.10`, so rate limits key on the real client IP behind Caddy and a direct hit on :3000 cannot forge `X-Forwarded-For`. **Contract change:** added to CONTRACTS B.8 and `.env.example`.
 - **Test reset (row 39):**
   - Registered only when `HEARTH_TEST_MODE=true`.
   - Checks `X-Test-Token` with `timingSafeEqual`.
@@ -95,7 +95,15 @@ People can get in, stay in, and be kicked out cleanly:
 | `/admin/invites`            | admin  | form (**Max uses**, **Expires in (hours)**, button **Create invite**); table rows `data-testid="invite-row"` showing code (`data-testid="invite-code"`), uses, expiry, and a **Revoke** button         |
 | `/admin/users/reset` (tiny) | admin  | `<select>` labelled **User** (option text = username, value = user id), button **Generate reset code**, then the code in `data-testid="reset-code"`                                                    |
 
-Form errors show in `role="alert"` with the server's message. Field errors come from `VALIDATION` details.
+Form errors show in a single `role="alert"` per page. Known codes are mapped to fixed UI strings (below); all other errors show the server's message. Field errors come from `VALIDATION` details.
+
+| Code                  | Where                     | UI string                                              |
+| --------------------- | ------------------------- | ------------------------------------------------------ |
+| `INVITE_INVALID`      | everywhere (`/register`)  | This invite is invalid, expired, or already used.      |
+| `INVALID_CREDENTIALS` | default (`/login`)        | Wrong username or password.                            |
+| `INVALID_CREDENTIALS` | `/settings` password form | Your current password is wrong.                        |
+| `INVALID_CREDENTIALS` | `/reset-password`         | Wrong username or reset code, or the code has expired. |
+| (network / non-API)   | everywhere                | Something went wrong. Please try again.                |
 
 ## Execution (tech lead + subagents)
 

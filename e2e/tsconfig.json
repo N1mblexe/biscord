@@ -2,7 +2,12 @@
   "extends": "../tsconfig.base.json",
   "compilerOptions": {
     "noEmit": true,
-    "types": ["node"]
+    "types": ["node"],
+    // e2e is not a workspace package, so `@hearth/shared` is mapped to its source here.
+    // Only `import type` from it: Playwright's loader does not resolve this mapping at runtime.
+    "paths": {
+      "@hearth/shared": ["../packages/shared/src/index.ts"]
+    }
   },
   "include": ["**/*.ts"]
 }

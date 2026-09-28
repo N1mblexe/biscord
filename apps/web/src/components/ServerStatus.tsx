@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { fetchHealth, type ServerHealth } from './lib/health';
+import { fetchHealth, type ServerHealth } from '../lib/health';
 
 type Status = ServerHealth | 'checking';
 
@@ -17,7 +17,8 @@ const DOT: Record<Status, string> = {
   unreachable: 'bg-danger',
 };
 
-export function App() {
+/** The Phase 1 health indicator (`data-testid="server-status"`). */
+export function ServerStatus() {
   const [status, setStatus] = useState<Status>('checking');
 
   useEffect(() => {
@@ -31,18 +32,11 @@ export function App() {
   }, []);
 
   return (
-    <main className="flex min-h-screen items-center justify-center p-6">
-      <div className="w-full max-w-sm rounded-2xl bg-surface p-8 text-center shadow-lg ring-1 ring-white/5">
-        <h1 data-testid="app-title" className="text-3xl font-semibold tracking-tight">
-          Hearth
-        </h1>
-        <p className="mt-4 flex items-center justify-center gap-2 text-sm text-muted">
-          <span aria-hidden="true" className={`size-2 rounded-full ${DOT[status]}`} />
-          <span data-testid="server-status" role="status">
-            {LABELS[status]}
-          </span>
-        </p>
-      </div>
-    </main>
+    <p className="flex items-center justify-center gap-2 text-sm text-muted">
+      <span aria-hidden="true" className={`size-2 rounded-full ${DOT[status]}`} />
+      <span data-testid="server-status" role="status">
+        {LABELS[status]}
+      </span>
+    </p>
   );
 }

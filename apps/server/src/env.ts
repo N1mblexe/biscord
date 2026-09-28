@@ -1,8 +1,53 @@
+import { isIP } from 'node:net';
 import { z } from 'zod';
 
 const bool = (fallback: boolean) => z.stringbool().default(fallback);
 const int = (fallback: number, min: number, max: number) =>
   z.coerce.number().int().min(min).max(max).default(fallback);
+/** `1.2.3.4`, `::1`, `10.0.0.0/8` or `fd00::/8` (prefix within the address family's width). */
+export function isIpOrCidr(value: string): boolean {
+  const slash = value.indexOf('/');
+  const address = slash === -1 ? value : value.slice(0, slash);
+  const version = isIP(address);
+  if (version === 0) return false;
+  if (slash === -1) return true;
+  const prefix = value.slice(slash + 1);
+  return /^\d{1,3}$/.test(prefix) && Number(prefix) <= (version === 4 ? 32 : 128);
+}
+
+/**
+ * TRUST_PROXY (CONTRACTS B.8): unset / `false` → trust no proxy; otherwise a comma-separated list of proxy
+ * IPs/CIDRs whose X-Forwarded-For is honoured. `true` is refused: it would let any client forge its IP.
+ */
+const trustProxy = z
+  .string()
+  .optional()
+  .transform((raw, ctx): false | string[] => {
+    const value = raw?.trim() ?? '';
+    if (value === '' || value.toLowerCase() === 'false') return false;
+    if (value.toLowerCase() === 'true') {
+      ctx.addIssue({
+        code: 'custom',
+        message:
+          '"true" is not allowed (it would trust X-Forwarded-For from any client); use false or a comma-separated list of proxy IPs/CIDRs',
+      });
+      return z.NEVER;
+    }
+    const entries = value
+      .split(',')
+      .map((entry) => entry.trim())
+      .filter((entry) => entry.length > 0);
+    const badPositions = entries.flatMap((entry, i) => (isIpOrCidr(entry) ? [] : [i + 1]));
+    if (entries.length === 0 || badPositions.length > 0) {
+      ctx.addIssue({
+        code: 'custom',
+        message: `Expected false or a comma-separated list of IP addresses/CIDRs (e.g. 172.28.0.10 or 10.0.0.0/8); invalid entry at position ${badPositions.join(', ') || '1'}`,
+      });
+      return z.NEVER;
+    }
+    return entries;
+  });
+
 const postgresUrl = z.string().regex(/^postgres(ql)?:\/\/.+/, 'Expected a postgres:// connection URL');
 
 const EnvSchema = z
@@ -11,6 +56,8 @@ const EnvSchema = z
     NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
     PORT: int(3000, 0, 65_535),
     LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).default('info'),
+    // Proxies (Caddy) whose X-Forwarded-For sets `request.ip`; `false` = use the socket address.
+    TRUST_PROXY: trustProxy,
     APP_ORIGIN: z
       .string()
       .transform((value) =>

@@ -46,7 +46,7 @@ async function main(): Promise<void> {
     if (shuttingDown) return;
     shuttingDown = true;
     app.log.info({ signal }, 'shutting down');
-    // Don't hang forever on open connections (sockets arrive in phase 2).
+    // Don't hang forever on open connections (sockets are closed in the preClose hook).
     setTimeout(() => {
       app.log.error('shutdown timed out, forcing exit');
       process.exit(1);
@@ -72,7 +72,23 @@ async function main(): Promise<void> {
   }
 }
 
+/** Flattens an error and its `cause` chain (drizzle wraps driver errors, e.g. ENOTFOUND). */
+function describeError(err: unknown): string {
+  const parts: string[] = [];
+  let current: unknown = err;
+  for (let depth = 0; current !== undefined && depth < 5; depth += 1) {
+    if (current instanceof Error) {
+      parts.push(current.message);
+      current = current.cause;
+    } else {
+      parts.push(typeof current === 'string' ? current : JSON.stringify(current));
+      break;
+    }
+  }
+  return parts.join(' <- caused by: ');
+}
+
 main().catch((err: unknown) => {
-  console.error('Fatal startup error:', err instanceof Error ? err.message : err);
+  console.error('Fatal startup error:', describeError(err));
   process.exit(1);
 });

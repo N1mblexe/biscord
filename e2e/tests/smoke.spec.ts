@@ -2,8 +2,9 @@ import { expect, test } from '../fixtures.js';
 import { LIVEKIT_HTTP_URL } from '../env.js';
 
 test.describe('smoke @smoke', () => {
-  test('page shows the app title and server status', async ({ page }) => {
-    await page.goto('/');
+  // Phase 2: anonymous `/` redirects to `/login`, which keeps the Phase 1 title and server status.
+  test('login page shows the app title and server status', async ({ page }) => {
+    await page.goto('/login');
     await expect(page.getByTestId('app-title')).toHaveText('Hearth');
     await expect(page.getByTestId('server-status')).toHaveText('Server: ok');
   });
