@@ -48,6 +48,7 @@ services:
       LIVEKIT_URL: http://livekit:7880
       LIVEKIT_PUBLIC_URL: ws://localhost:7880
       APP_ORIGIN: http://localhost:8080
+      TRUST_PROXY: 'true'
       MIGRATE_ON_START: 'true'
       UPLOAD_DIR: /data/uploads
       COOKIE_SECURE: 'false'

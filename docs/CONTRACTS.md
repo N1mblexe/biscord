@@ -420,7 +420,7 @@ Reconnect protocol: on every `connect`, the client refetches `GET /bootstrap`, p
   - `extra_hosts: host.docker.internal:host-gateway`.
   - `webhook.urls` lists both :3000 and :3100 (a failed delivery to whichever server isn't running is harmless). Missed webhooks are covered by a 60 s reconcile loop.
 - **Env (`.env.example`):**
-  - App: `NODE_ENV, PORT=3000, APP_ORIGIN=http://localhost:5173, LOG_LEVEL=info`
+  - App: `NODE_ENV, PORT=3000, APP_ORIGIN=http://localhost:5173, LOG_LEVEL=info, TRUST_PROXY=false` (`true` behind Caddy — full stack and prod — so rate limits key on the real client IP from `X-Forwarded-For`)
   - Database: `POSTGRES_USER=hearth, POSTGRES_PASSWORD=hearth, POSTGRES_DB=hearth, DATABASE_URL=postgres://hearth:hearth@localhost:5432/hearth, DATABASE_URL_UNIT=…/hearth_unit, DATABASE_URL_E2E=…/hearth_e2e, MIGRATE_ON_START=false`
   - Accounts: `COOKIE_SECURE=false, SESSION_TTL_DAYS=30, MAX_USERS=25`
   - Uploads: `UPLOAD_DIR=./data/uploads`
