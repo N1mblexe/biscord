@@ -19,7 +19,7 @@ People can get in, stay in, and be kicked out cleanly:
 | ------ | ---------------------------------------------------------------------------------------------------------------------------- |
 | Auth   | 2 register · 3 login · 4 logout · 5 reset-password · 6 invite check                                                          |
 | Me     | 7 GET /me · 8 PATCH /me · 9 POST /me/password                                                                                |
-| Admin  | 32–34 invites list/create/revoke · 38 reset-code                                                                             |
+| Admin  | 32–34 invites list/create/revoke · 38 reset-code · 13 GET /users (moved up from Phase 3: the reset-code UI needs user ids)   |
 | Test   | 39 `POST /api/__test__/reset` (test mode only; truncates the DB, drops sockets, returns a fresh admin invite)                |
 | Socket | handshake auth (cookie + Origin), rooms `all` / `user:<id>` / `session:<id>`, `session:revoked`, `user:updated` on PATCH /me |
 
@@ -28,7 +28,7 @@ People can get in, stay in, and be kicked out cleanly:
 | Deferred item                                                      | Moves to |
 | ------------------------------------------------------------------ | -------- |
 | Avatars (rows 10–11)                                               | Phase 5  |
-| `/bootstrap`, `/users`                                             | Phase 3  |
+| `/bootstrap`                                                       | Phase 3  |
 | Role change, deactivate, reactivate (35–37) and the admin users UI | Phase 8  |
 | Presence                                                           | Phase 4  |
 
@@ -93,7 +93,7 @@ People can get in, stay in, and be kicked out cleanly:
 | `/` index                   | user   | `data-testid="home-welcome"` "Welcome, {displayName}" (channels arrive in Phase 3)                                                                                                                     |
 | `/settings`                 | user   | profile form (**Display name**, button **Save profile**); password form (**Current password**, **New password**, button **Change password**)                                                           |
 | `/admin/invites`            | admin  | form (**Max uses**, **Expires in (hours)**, button **Create invite**); table rows `data-testid="invite-row"` showing code (`data-testid="invite-code"`), uses, expiry, and a **Revoke** button         |
-| `/admin/users/reset` (tiny) | admin  | label **Username**, button **Generate reset code**, then the code in `data-testid="reset-code"`                                                                                                        |
+| `/admin/users/reset` (tiny) | admin  | `<select>` labelled **User** (option text = username, value = user id), button **Generate reset code**, then the code in `data-testid="reset-code"`                                                    |
 
 Form errors show in `role="alert"` with the server's message. Field errors come from `VALIDATION` details.
 
