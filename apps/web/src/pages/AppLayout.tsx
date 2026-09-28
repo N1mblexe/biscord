@@ -3,8 +3,11 @@ import { useEffect, useRef } from 'react';
 import { Link, NavLink, Outlet, useNavigate } from 'react-router';
 import { logout, meQuery } from '../api/auth';
 import { isUnauthenticated } from '../api/errors';
+import { Sidebar } from '../components/Sidebar';
 import { secondaryButton } from '../components/styles';
 import { loginPathForReason } from '../lib/authNotice';
+import { clearSessionState } from '../lib/session';
+import { useNoticeStore } from '../stores/notice';
 import { useSocket } from '../socket/context';
 import { SocketProvider } from '../socket/SocketProvider';
 
@@ -33,7 +36,7 @@ function AppShell() {
   const logoutMutation = useMutation({
     mutationFn: logout,
     onSettled: () => {
-      queryClient.clear();
+      clearSessionState(queryClient);
       void navigate('/login', { replace: true });
     },
   });
@@ -50,16 +53,16 @@ function AppShell() {
     if (leavingRef.current || !isUnauthenticated(error)) return;
     leavingRef.current = true;
     socket.disconnect();
-    queryClient.clear();
+    clearSessionState(queryClient);
     void navigate(loginPathForReason('unauthenticated'), { replace: true });
   }, [error, socket, queryClient, navigate]);
 
   const connected = status === 'connected';
 
   return (
-    <div className="flex min-h-screen flex-col">
-      <header className="border-b border-white/5 bg-surface">
-        <div className="mx-auto flex max-w-5xl flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3">
+    <div className="flex h-screen flex-col">
+      <header className="shrink-0 border-b border-white/5 bg-surface">
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3">
           <Link to="/" className="text-lg font-semibold tracking-tight">
             Hearth
           </Link>
@@ -95,9 +98,33 @@ function AppShell() {
           </div>
         </div>
       </header>
-      <main className="mx-auto w-full max-w-5xl flex-1 px-4 py-8">
-        <Outlet />
-      </main>
+      <div className="flex min-h-0 flex-1">
+        <Sidebar />
+        <main className="flex min-w-0 flex-1 flex-col">
+          <AppNotice />
+          <Outlet />
+        </main>
+      </div>
+    </div>
+  );
+}
+
+/** The app-wide notice (e.g. "This channel was deleted."), until dismissed or a channel is opened. */
+function AppNotice() {
+  const notice = useNoticeStore((s) => s.notice);
+  const clearNotice = useNoticeStore((s) => s.clearNotice);
+  if (!notice) return null;
+  return (
+    <div
+      role="status"
+      className="flex shrink-0 items-center gap-3 border-b border-accent/20 bg-accent/10 px-4 py-2 text-sm text-accent"
+    >
+      <p data-testid="app-notice" className="flex-1">
+        {notice}
+      </p>
+      <button type="button" className="text-xs font-medium hover:underline" onClick={clearNotice}>
+        Dismiss
+      </button>
     </div>
   );
 }

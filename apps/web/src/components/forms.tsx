@@ -63,3 +63,23 @@ export function formString(data: FormData, name: string): string {
   const value = data.get(name);
   return typeof value === 'string' ? value : '';
 }
+
+/** A page's single `role="alert"` with a dismiss button. Renders nothing without a message. */
+export function PageAlert({ message, onDismiss }: { message: string | null; onDismiss: () => void }) {
+  if (!message) return null;
+  return (
+    <div className="flex items-start gap-2">
+      <div className="flex-1">
+        <FormAlert message={message} />
+      </div>
+      <button
+        type="button"
+        aria-label="Dismiss error"
+        className="rounded-md px-2 py-1.5 text-sm text-muted hover:bg-white/5 hover:text-text"
+        onClick={onDismiss}
+      >
+        ×
+      </button>
+    </div>
+  );
+}

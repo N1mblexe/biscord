@@ -2,7 +2,8 @@ import { ApiErrorBody, CSRF_HEADER, CSRF_HEADER_VALUE } from '@hearth/shared';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { afterAll, afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { AppError } from '../src/lib/errors.js';
+import { DrizzleQueryError } from 'drizzle-orm';
+import { AppError, loggableError } from '../src/lib/errors.js';
 import { parse } from '../src/lib/validate.js';
 import { makeApp } from './helpers/app.js';
 import { closeTestDb } from './helpers/db.js';
@@ -150,5 +151,44 @@ describe('error format', () => {
     });
     expect(res.statusCode).toBe(404);
     expect(errorBody(res.payload).error.code).toBe('NOT_FOUND');
+  });
+});
+
+describe('loggableError', () => {
+  it('drops the bound parameters and the row detail from Drizzle query errors', () => {
+    const driverError = Object.assign(
+      new Error('new row for relation "messages" violates check constraint'),
+      {
+        code: '23514',
+        constraint: 'messages_content_len_ck',
+        detail: 'Failing row contains (1, secret message content)',
+      },
+    );
+    const err = new DrizzleQueryError(
+      'insert into "messages" values ($1)',
+      ['secret message content'],
+      driverError,
+    );
+    const safe = loggableError(err);
+    expect(safe).toBeInstanceOf(Error);
+    const serialized = JSON.stringify(safe, [
+      'name',
+      'message',
+      'stack',
+      'cause',
+      'code',
+      'constraint',
+      'detail',
+    ]);
+    expect(serialized).not.toContain('secret message content');
+    expect(serialized).toContain('insert into \\"messages\\"');
+    expect(serialized).toContain('23514');
+    expect(serialized).toContain('messages_content_len_ck');
+    expect((safe as Error).stack).not.toContain('secret');
+  });
+
+  it('passes other errors through unchanged', () => {
+    const err = new Error('boom');
+    expect(loggableError(err)).toBe(err);
   });
 });

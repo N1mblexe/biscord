@@ -8,6 +8,9 @@ export type Queryable = PgDatabase<NodePgQueryResultHKT, typeof schema>;
 export type UserRow = typeof schema.users.$inferSelect;
 export type SessionRow = typeof schema.sessions.$inferSelect;
 export type InviteRow = typeof schema.invites.$inferSelect;
+export type ChannelRow = typeof schema.channels.$inferSelect;
+export type DmChannelRow = typeof schema.dmChannels.$inferSelect;
+export type MessageRow = typeof schema.messages.$inferSelect;
 
 interface PgErrorLike {
   code?: unknown;

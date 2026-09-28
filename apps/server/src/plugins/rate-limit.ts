@@ -6,6 +6,11 @@ import { AppError } from '../lib/errors.js';
 export interface RateLimiter {
   /** Route `config` for the auth endpoints (register, login, reset-password, invite check): 10/min/IP. */
   readonly authRoute: FastifyContextConfig;
+  /**
+   * Route `config` for sending messages: 10 per 10 s per **user**. Runs as a preHandler, after
+   * `requireUser`, so the key is the authenticated user id (anonymous requests are refused before it).
+   */
+  readonly messageSend: FastifyContextConfig;
   /** Forgets every counter (test reset). Old keys simply age out of the in-memory store. */
   reset(): void;
 }
@@ -31,6 +36,14 @@ export function registerRateLimit(app: FastifyInstance): RateLimiter {
   return {
     authRoute: {
       rateLimit: { max: LIMITS.rateLimits.login.max, timeWindow: LIMITS.rateLimits.login.windowMs },
+    },
+    messageSend: {
+      rateLimit: {
+        max: LIMITS.rateLimits.messageSend.max,
+        timeWindow: LIMITS.rateLimits.messageSend.windowMs,
+        hook: 'preHandler',
+        keyGenerator: (request) => `${generation}|user:${request.auth?.user.id ?? request.ip}`,
+      },
     },
     reset: () => {
       generation += 1;

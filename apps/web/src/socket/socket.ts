@@ -23,6 +23,8 @@ export function createSocket(): HearthSocket {
     withCredentials: true,
     autoConnect: false,
     transports: ['websocket'],
+    // Retry at least every 2 s so a client that was offline catches up quickly (phase-3 plan, risk 2).
+    reconnectionDelayMax: 2000,
   });
 }
 

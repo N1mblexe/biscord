@@ -19,7 +19,7 @@ import {
 } from '@hearth/shared';
 import type { Db } from '../db/client.js';
 import type { Env } from '../env.js';
-import { AppError } from '../lib/errors.js';
+import { AppError, loggableError } from '../lib/errors.js';
 import { sessionTokenFromCookieHeader } from '../plugins/auth.js';
 import { resolveSession } from '../services/sessions.js';
 
@@ -43,6 +43,12 @@ export interface Realtime {
   /** Emit to room `user:<id>` (every socket of that user). */
   emitToUser<E extends ServerEventName>(
     userId: string,
+    event: E,
+    ...args: Parameters<ServerToClientEvents[E]>
+  ): void;
+  /** Emit once to the rooms `user:<id>` of every listed user (a socket in several rooms gets it once). */
+  emitToUsers<E extends ServerEventName>(
+    userIds: readonly string[],
     event: E,
     ...args: Parameters<ServerToClientEvents[E]>
   ): void;
@@ -103,7 +109,7 @@ export function createRealtime(app: FastifyInstance, { db, env }: RealtimeDeps):
         next();
       },
       (err: unknown) => {
-        app.log.error({ err }, 'socket handshake failed');
+        app.log.error({ err: loggableError(err) }, 'socket handshake failed');
         next(new HandshakeError({ code: 'INTERNAL' }));
       },
     );
@@ -126,6 +132,11 @@ export function createRealtime(app: FastifyInstance, { db, env }: RealtimeDeps):
     emitToUser(userId, event, ...args) {
       check(event, args[0]);
       io.to(userRoom(userId)).emit(event, ...args);
+    },
+    emitToUsers(userIds, event, ...args) {
+      check(event, args[0]);
+      if (userIds.length === 0) return;
+      io.to(userIds.map(userRoom)).emit(event, ...args);
     },
     revokeSessions(sessionIds, reason) {
       if (sessionIds.length === 0) return;
@@ -166,7 +177,7 @@ export type ClientEventHandler<E extends ClientEventName> = (
 
 function toAckError(err: unknown, log: FastifyBaseLogger | undefined): Ack<never> {
   if (err instanceof AppError) return ackErr(err.code, err.message, err.details);
-  log?.error({ err }, 'socket event handler failed');
+  log?.error({ err: loggableError(err) }, 'socket event handler failed');
   return ackErr('INTERNAL', 'Internal server error');
 }
 

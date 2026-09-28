@@ -16,6 +16,9 @@ export function AdminLayout() {
         <NavLink to="/admin/users/reset" className={tabClass}>
           Reset codes
         </NavLink>
+        <NavLink to="/admin/channels" className={tabClass}>
+          Channels
+        </NavLink>
       </nav>
       <Outlet />
     </div>

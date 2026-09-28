@@ -1,3 +1,4 @@
+import { DrizzleQueryError } from 'drizzle-orm';
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import { ERROR_STATUS, type ApiErrorBody, type ApiErrorPayload, type ErrorCode } from '@hearth/shared';
 
@@ -49,6 +50,47 @@ const FASTIFY_CODE: Partial<Record<string, ErrorCode>> = {
   FST_ERR_VALIDATION: 'VALIDATION',
 };
 
+/** Driver-error fields that never carry row data (unlike `detail`, e.g. "Failing row contains (...)"). */
+const SAFE_DRIVER_FIELDS = [
+  'code',
+  'severity',
+  'schema',
+  'table',
+  'column',
+  'constraint',
+  'routine',
+] as const;
+
+function safeDriverCause(cause: unknown): unknown {
+  if (!(cause instanceof Error)) return undefined;
+  const safe = new Error(cause.message);
+  safe.name = cause.name;
+  for (const field of SAFE_DRIVER_FIELDS) {
+    const value: unknown = Reflect.get(cause, field);
+    if (typeof value === 'string') Reflect.set(safe, field, value);
+  }
+  safe.stack = `${cause.name}: ${cause.message}`;
+  return safe;
+}
+
+/**
+ * Drizzle's `DrizzleQueryError` puts every bound parameter (message content, password hashes, tokens) into
+ * its `message`, and the pg error's `detail` can echo the failing row. Loggers get a copy with the SQL text
+ * and the driver's code/constraint/message only.
+ */
+export function loggableError(error: unknown): unknown {
+  if (!(error instanceof DrizzleQueryError)) return error;
+  const safe = new Error(`Failed query: ${error.query}`, { cause: safeDriverCause(error.cause) });
+  safe.name = 'DrizzleQueryError';
+  // The stack starts with "<name>: <message>" (params included): keep only the frames after it.
+  const header = `${error.name}: ${error.message}`;
+  safe.stack =
+    error.stack?.startsWith(header) === true
+      ? `${safe.name}: ${safe.message}${error.stack.slice(header.length)}`
+      : `${safe.name}: ${safe.message}`;
+  return safe;
+}
+
 interface ErrorLike {
   code?: unknown;
   statusCode?: unknown;
@@ -73,7 +115,7 @@ function retryAfterDetails(reply: FastifyReply): { retryAfterMs: number } | unde
 export function registerErrorHandlers(app: FastifyInstance): void {
   app.setErrorHandler((error: unknown, request, reply) => {
     if (error instanceof AppError) {
-      if (error.statusCode >= 500) request.log.error({ err: error }, 'request failed');
+      if (error.statusCode >= 500) request.log.error({ err: loggableError(error) }, 'request failed');
       return sendError(reply, error.code, error.message, error.details);
     }
 
@@ -92,7 +134,7 @@ export function registerErrorHandlers(app: FastifyInstance): void {
       return sendError(reply, 'VALIDATION', 'Request could not be processed');
     }
 
-    request.log.error({ err: error }, 'unhandled error');
+    request.log.error({ err: loggableError(error) }, 'unhandled error');
     return sendError(reply, 'INTERNAL', 'Internal server error');
   });
 

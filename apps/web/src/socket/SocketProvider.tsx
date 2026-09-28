@@ -5,13 +5,16 @@ import { useNavigate } from 'react-router';
 import { usersQuery } from '../api/admin';
 import { meQuery } from '../api/auth';
 import { loginPathForReason, type LoginReason } from '../lib/authNotice';
+import { installEventLog } from '../lib/eventLog';
+import { clearSessionState } from '../lib/session';
+import { registerChatEvents } from './chatEvents';
 import { SocketContext } from './context';
 import { connectErrorReason, createSocket, revokedReason, type SocketStatus } from './socket';
 
 /**
  * Owns the app socket for the lifetime of the protected layout: connects on mount, disconnects on
  * unmount. A revoked or rejected session clears all cached server state and sends the user to
- * `/login?reason=<reason>`.
+ * `/login?reason=<reason>`. Chat events and reconnect catch-up are wired in `chatEvents.ts`.
  */
 export function SocketProvider({ children }: { children: ReactNode }) {
   const [socket] = useState(createSocket);
@@ -23,7 +26,7 @@ export function SocketProvider({ children }: { children: ReactNode }) {
     const endSession = (reason: LoginReason) => {
       socket.disconnect();
       // Clear before navigating so the /login loader doesn't find a cached user and bounce back.
-      queryClient.clear();
+      clearSessionState(queryClient);
       void navigate(loginPathForReason(reason), { replace: true });
     };
 
@@ -54,9 +57,18 @@ export function SocketProvider({ children }: { children: ReactNode }) {
     socket.on('connect_error', onConnectError);
     socket.on('session:revoked', onSessionRevoked);
     socket.on('user:updated', onUserUpdated);
+    const uninstallEventLog = installEventLog(socket);
+    const unregisterChat = registerChatEvents(socket, {
+      queryClient,
+      navigate: (to) => {
+        void navigate(to);
+      },
+    });
     socket.connect();
 
     return () => {
+      uninstallEventLog();
+      unregisterChat();
       socket.off('connect', onConnect);
       socket.off('disconnect', onDisconnect);
       socket.off('connect_error', onConnectError);

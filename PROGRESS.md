@@ -2,6 +2,55 @@
 
 Updated at the end of every phase (see CLAUDE.md → Workflow).
 
+## Phase 3 — Text channels, DMs, messaging ✅ (2026-09-29)
+
+### Built
+
+- **Server:**
+  - A single access function (`loadChannelForUser`) decides who can use a channel. A single audience helper (`emitToChannel`) sends text/voice channel events to everyone and DM events to the two members only. Every emit happens after the transaction commits.
+  - Channel create, rename, reorder and delete (admin only). The 50-channel cap and the exact-set reorder check hold under concurrency (advisory lock).
+  - DM get-or-create, race-safe.
+  - Messages: history pages by `before`/`after`, returned in ascending order, with ids as strings (no precision loss). Send, with the nonce echoed back. Edit and delete: admins can delete in text channels but not in DMs.
+  - The send rate limit is 10 per 10 s **per user**.
+  - `/bootstrap` is staged: channels, DMs and users are real; read states, presence and voice are still empty.
+  - The test-only `seed-messages` endpoint.
+  - `loggableError` keeps query parameters and row data out of logs.
+- **Web:**
+  - Sidebar (text channels, voice placeholders, DMs), channel view, composer, inline edit and delete.
+  - Safe Markdown: raw HTML turned into plain text, a small allowlist of elements, and safe links.
+  - Members panel with a button to open DMs, and an admin channels page (rename, move, delete with a typed confirmation).
+  - A zustand message store:
+    - merges by id, in order;
+    - replaces the optimistic copy by nonce, whichever arrives first;
+    - remembers deleted ids so they can't come back;
+    - `message:updated` only replaces messages already loaded.
+  - Reconnect catch-up:
+    - a per-channel `syncedThrough` cursor;
+    - runs on every connect, including the first;
+    - retries channels whose first load failed.
+  - A channel deleted while offline sends the user to `/` with a notice.
+  - An event log in e2e builds only.
+- **e2e:** the `socketSwitch` WebSocket kill switch (Chromium's offline mode doesn't close WebSockets), chat fixture helpers, and 9 chat scenarios.
+
+### Tested (run for real on 2026-09-29)
+
+- `pnpm typecheck` ✅ · `pnpm lint` ✅ · `pnpm format:check` ✅
+- `pnpm test` ✅: 300 tests (shared 66, web 75, server 159), run with shared `dist/` deleted.
+- `pnpm test:e2e --repeat-each=3` ✅: 54/54 (18 specs × 3), no flakes.
+- `docker compose up --build` ✅: `@smoke` passes against :8080. Manual Caddy check: a message sent over REST reached another user's WebSocket; a DM reached both members and not a third user; that third user reading the DM got 403.
+- A fresh review found 0 blockers, 2 major and 8 minor issues. The 2 major and 4 minor were fixed with tests, the docs drift was fixed, and 3 were accepted as known issues (below).
+
+### Known issues / notes
+
+- Retry after a failed send reuses the nonce, but the server doesn't deduplicate by nonce. If the first attempt actually committed, you get a duplicate message.
+- Catch-up only fetches new messages. Edits and deletes made while you were offline show up after a reload.
+- The list of deleted-message ids on the client grows until logout. That's negligible for this group size.
+- Deleting a voice channel only removes the DB row for now; the LiveKit `deleteRoom` step comes in Phase 6. `TODO(phase 5)` markers show where attachment files will be cleaned up.
+
+### Next step
+
+Phase 4: presence, typing, unread, reactions, mentions, notifications. The approved plan is in `docs/plans/phase-4.md`.
+
 ## Phase 2 — Accounts & auth ✅ (2026-09-28)
 
 ### Built
@@ -55,7 +104,7 @@ Updated at the end of every phase (see CLAUDE.md → Workflow).
 
 ### Next step
 
-Phase 3: text channels, DMs, messaging. The plan is in `docs/plans/phase-3.md`, waiting for approval.
+Phase 3: text channels, DMs, messaging (`docs/plans/phase-3.md`).
 
 ## Phase 1 — Skeleton, infrastructure, contracts in code ✅ (2026-09-28)
 

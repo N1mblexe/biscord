@@ -1,9 +1,16 @@
-import { LIMITS, TestResetResponse, UserResponse } from '@hearth/shared';
+import {
+  LIMITS,
+  ListMessagesResponse,
+  TestResetResponse,
+  TestSeedMessagesResponse,
+  UserResponse,
+} from '@hearth/shared';
 import type { FastifyInstance } from 'fastify';
 import { afterAll, afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { invites, users } from '../src/db/schema.js';
+import { invites, messages, users } from '../src/db/schema.js';
 import { makeApp, testEnv } from './helpers/app.js';
-import { api, expectError, insertInvite, insertUser, registerViaApi } from './helpers/auth.js';
+import { api, expectError, insertInvite, insertUser, login, registerViaApi } from './helpers/auth.js';
+import { insertChannel } from './helpers/chat.js';
 import { closeTestDb, testDb, truncateAll } from './helpers/db.js';
 
 const TOKEN = 'unit-test-token';
@@ -81,5 +88,94 @@ describe('POST /api/__test__/reset', () => {
     expectError(await api(app, 'POST', '/api/auth/login', { body }), 429, 'RATE_LIMITED');
     expect((await reset(app, TOKEN)).statusCode).toBe(200);
     expectError(await api(app, 'POST', '/api/auth/login', { body }), 401, 'INVALID_CREDENTIALS');
+  });
+
+  it('clears the per-user message send counters', async () => {
+    const alice = await insertUser('alice');
+    const general = await insertChannel('general');
+    const cookie = await login(app, 'alice');
+    const send = () =>
+      api(app, 'POST', `/api/channels/${general.id}/messages`, { cookie, body: { content: 'hi' } });
+    for (let i = 0; i < LIMITS.rateLimits.messageSend.max; i++) expect((await send()).statusCode).toBe(201);
+    expectError(await send(), 429, 'RATE_LIMITED');
+
+    expect((await reset(app, TOKEN)).statusCode).toBe(200);
+    // The reset truncated users too: recreate the same fixtures and send again.
+    const again = await insertUser('alice');
+    expect(again.id).not.toBe(alice.id);
+    const channel = await insertChannel('general');
+    const res = await api(app, 'POST', `/api/channels/${channel.id}/messages`, {
+      cookie: await login(app, 'alice'),
+      body: { content: 'hi' },
+    });
+    expect(res.statusCode, res.payload).toBe(201);
+  });
+});
+
+describe('POST /api/__test__/seed-messages', () => {
+  function seed(target: FastifyInstance, body: unknown, token: string | null = TOKEN) {
+    return api(
+      target,
+      'POST',
+      '/api/__test__/seed-messages',
+      token === null ? { body } : { body, headers: { 'x-test-token': token } },
+    );
+  }
+
+  it('is a 404 when test mode is off', async () => {
+    const normal = makeApp();
+    try {
+      const body = {
+        channelId: '00000000-0000-4000-8000-000000000000',
+        authorId: '00000000-0000-4000-8000-000000000000',
+        count: 1,
+      };
+      expectError(await seed(normal, body), 404, 'NOT_FOUND');
+    } finally {
+      await normal.close();
+    }
+  });
+
+  it('403 with a wrong or missing token (checked before anything else)', async () => {
+    expectError(await seed(app, { nonsense: true }, 'wrong'), 403, 'FORBIDDEN');
+    expectError(await seed(app, { nonsense: true }, null), 403, 'FORBIDDEN');
+  });
+
+  it('NOT_FOUND for an unknown channel or author; VALIDATION for a bad count', async () => {
+    const alice = await insertUser('alice');
+    const general = await insertChannel('general');
+    const unknown = '00000000-0000-4000-8000-000000000000';
+    expectError(await seed(app, { channelId: unknown, authorId: alice.id, count: 1 }), 404, 'NOT_FOUND');
+    expectError(await seed(app, { channelId: general.id, authorId: unknown, count: 1 }), 404, 'NOT_FOUND');
+    for (const count of [0, 501, 1.5]) {
+      expectError(await seed(app, { channelId: general.id, authorId: alice.id, count }), 400, 'VALIDATION');
+    }
+    expect(await testDb().db.select().from(messages)).toHaveLength(0);
+  });
+
+  it('inserts "<prefix> 1".."<prefix> n" in id order, beyond the send rate limit, and returns first/last ids', async () => {
+    const alice = await insertUser('alice');
+    const general = await insertChannel('general');
+    const res = await seed(app, { channelId: general.id, authorId: alice.id, count: 120, prefix: 'seed' });
+    expect(res.statusCode, res.payload).toBe(200);
+    const { firstId, lastId } = TestSeedMessagesResponse.parse(res.json());
+    expect(Number(lastId) - Number(firstId)).toBe(119);
+
+    const cookie = await login(app, 'alice');
+    const page = await api(app, 'GET', `/api/channels/${general.id}/messages?limit=100`, { cookie });
+    const listed = ListMessagesResponse.parse(page.json()).messages;
+    expect(listed.at(-1)).toMatchObject({ id: lastId, content: 'seed 120', authorId: alice.id });
+    expect(listed[0]?.content).toBe('seed 21');
+
+    const def = await seed(app, { channelId: general.id, authorId: alice.id, count: 2 });
+    const second = TestSeedMessagesResponse.parse(def.json());
+    expect(Number(second.firstId)).toBe(Number(lastId) + 1);
+    const rows = await testDb().db.select().from(messages);
+    expect(
+      rows
+        .filter((m) => m.content.startsWith('msg '))
+        .map((m) => m.content)
+        .sort(),
+    ).toEqual(['msg 1', 'msg 2']);
   });
 });
