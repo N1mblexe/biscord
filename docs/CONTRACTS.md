@@ -363,6 +363,32 @@ Server → client (schemas also exported, for types and dev-mode assertion):
 
 Reconnect protocol: on every `connect`, the client refetches `GET /bootstrap`, plus `GET messages?after=<lastSeenId>` for each loaded channel. All client stores upsert by id, so events are idempotent.
 
+### B.5a Presence, typing, reads, reactions, mentions (Phase 4 rules)
+
+1. **DM mentions:** every DM message creates a mention row for the other member, so `mentionUserIds` contains them. Mention counting and notifications then work the same way for channels and DMs.
+2. **Mention parsing:**
+   - Regex `(?<![\w@])@([a-z0-9_]{3,32})`, case-insensitive, deduplicated.
+   - Only active users who can access the channel count (everyone for text channels, the two members for a DM). Self-mentions are ignored.
+   - Editing a message recomputes its mentions. Only `message:created` triggers notifications.
+3. **Read state (row 26):**
+   - `messageId` must be a message in that channel, otherwise `VALIDATION`.
+   - Forward-only (`GREATEST`).
+   - `unread` means a message from **someone else** exists after `lastReadMessageId`.
+   - `mentionCount` counts my mention rows after `lastReadMessageId`.
+   - Sending a message moves the sender's read state forward to it and emits `readstate:updated` to the sender.
+4. **Reactions (rows 24–25):**
+   - Only changes are broadcast: a PUT for an existing reaction or a DELETE for a missing one returns 204 with no event.
+   - A read-only DM (the other member is deactivated) gives `FORBIDDEN`.
+   - `Reaction[]` is ordered by each emoji's first reaction time, and `userIds` by reaction time.
+5. **Typing:**
+   - Voice channel → ack `VALIDATION`. No access → ack `FORBIDDEN`.
+   - The server broadcasts at most once per user+channel every 2 s. Extra events get an ok ack and are dropped.
+   - Clients expire the indicator 5 s after the last `typing` event, and clear it immediately on a `message:created` from that user.
+6. **Presence:**
+   - Online while the user has at least one connected socket.
+   - After the last socket disconnects, `online:false` is broadcast only after a 3 s grace period; a reconnect within it cancels the broadcast.
+   - `presence` is emitted only on an actual change. The test reset clears presence state.
+
 ### B.6 LiveKit token and room contract
 
 - **Room name:** `voice_<channelId>`.
