@@ -4,6 +4,7 @@ Full spec: see PLAN.md. It is the source of truth. If something in PLAN.md is am
 Binding API/DB/event contracts: docs/CONTRACTS.md. Change it in the same commit as the code that changes a contract.
 
 ## Non-negotiable rules
+
 - TypeScript strict everywhere. No `any` without a justifying comment
   (`// eslint-disable-next-line @typescript-eslint/no-explicit-any -- <reason>`).
 - pnpm workspaces: apps/web, apps/server, packages/shared. Shared types and zod schemas live in packages/shared.
@@ -14,6 +15,7 @@ Binding API/DB/event contracts: docs/CONTRACTS.md. Change it in the same commit 
 - Ask before adding any dependency not listed in PLAN.md.
 
 ## Workflow
+
 - Work ONE phase at a time from PLAN.md section 5.
 - Before coding a phase, write a short plan and wait for approval.
 - A phase is done only when its acceptance tests pass. Run them yourself; do not claim success without running them.
@@ -23,15 +25,17 @@ Binding API/DB/event contracts: docs/CONTRACTS.md. Change it in the same commit 
 - After each phase: update PROGRESS.md (built / tested / known issues / next step), then make one git commit with the message "phase N: <summary>".
 
 ## Commands (keep this section updated)
+
 - Infra for dev and e2e (Postgres and LiveKit): `pnpm infra:up`
 - Dev: `pnpm dev` (web on :5173 → server on :3000)
 - DB: `pnpm db:generate` (after editing schema.ts), `pnpm db:migrate`
 - Checks: `pnpm typecheck`, `pnpm lint`, `pnpm format`
 - Test: `pnpm test` (unit, DB `hearth_unit`), `pnpm test:e2e` (Playwright; boots its own server on :3100 and web on :5273, DB `hearth_e2e`)
-- First-time e2e setup: `pnpm exec playwright install --with-deps chromium`
+- First-time e2e setup: `pnpm exec playwright install chromium` (add `--with-deps` only on Debian/Ubuntu; it uses apt)
 - Full stack: `docker compose up --build` (web on :8080); smoke-test it with `E2E_BASE_URL=http://localhost:8080 pnpm test:e2e`
 
 ## Pinned versions (verified against the registry on 2026-09-28; change deliberately, one at a time)
+
 - **Runtime and tooling:**
   - node 26 (local and images `node:26-alpine`), pnpm 12.6.0
   - typescript 7.0.2 in each workspace; typescript 6.0.3 in the root, for ESLint only
@@ -51,6 +55,7 @@ Binding API/DB/event contracts: docs/CONTRACTS.md. Change it in the same commit 
 - **Images:** postgres:17-alpine, caddy:2.11.4-alpine, livekit/livekit-server:v1.13.7
 
 ## Gotchas
+
 - Mic and screen capture require HTTPS in production. In dev, localhost is fine.
 - LiveKit needs TCP 7881 plus a UDP port range open. On Oracle Cloud, open ports in BOTH the VCN security list and the VM's iptables.
 - **TypeScript 7 and ESLint:** TypeScript 7 is the native (Go) compiler and has no classic JS API, and typescript-eslint needs that API.

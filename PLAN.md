@@ -4,7 +4,9 @@ This is the source of truth for what Hearth is and the order it gets built in. B
 contracts live in [docs/CONTRACTS.md](docs/CONTRACTS.md). Working rules live in [CLAUDE.md](CLAUDE.md).
 
 ## 1. Goal
+
 Hearth is self-hosted, private chat plus voice for one friend group:
+
 - 6–8 people, with a hard cap of 25 accounts.
 - One community ("the hearth"), invite-only.
 - Runs on a single small VM (Oracle Cloud Always Free, arm64) behind Caddy with HTTPS.
@@ -14,6 +16,7 @@ per-channel permissions, `@everyone`, message search, link previews/embeds, bots
 native/mobile apps, end-to-end encryption, federation, off-box backups.
 
 ## 2. Users and roles
+
 - There are two roles: `admin` and `member`. A bootstrap CLI creates the first admin by printing a one-time admin invite.
 - Registration works only with an invite code. Admins create them; `maxUses` defaults to 1, `expiresAt` to 7 days, and they can be revoked.
 - Invariant: there is always at least one active admin. The last admin cannot demote or deactivate themselves (409 `LAST_ADMIN`).
@@ -33,6 +36,7 @@ native/mobile apps, end-to-end encryption, federation, off-box backups.
   - the username stays reserved.
 
 ## 3. Features
+
 1. **Accounts:**
    - Username `^[a-z0-9_]{3,32}$`, display name 1–32 characters, password 10–128 characters (hashed with argon2id).
    - Avatar: png/jpeg/webp up to 2 MB.
@@ -65,6 +69,7 @@ native/mobile apps, end-to-end encryption, federation, off-box backups.
 10. **Admin panel:** invites, users (role, deactivate/reactivate, reset code), channels.
 
 ## 4. Stack (exact versions are pinned in CLAUDE.md)
+
 - **Tooling:** Node 26 (local and in images), pnpm 12 workspaces (`apps/web`, `apps/server`, `packages/shared`), TypeScript 7 strict (ESLint runs on TypeScript 6; see CLAUDE.md).
 - **Server:** Fastify 5, @fastify/cookie, @fastify/multipart, @fastify/rate-limit, Socket.IO 4, Drizzle ORM + drizzle-kit (stable 0.x line), `pg`, zod 4, @node-rs/argon2, livekit-server-sdk 2, file-type, tsx (dev), pino-pretty (dev).
 - **Web:** React 19, Vite 8, Tailwind CSS 4 (@tailwindcss/vite), react-router, @tanstack/react-query 5, zustand 5, socket.io-client 4, livekit-client 2, @livekit/components-react 2 (hooks only), react-markdown, remark-gfm.
@@ -74,10 +79,12 @@ native/mobile apps, end-to-end encryption, federation, off-box backups.
 - **Lint/format:** ESLint (flat config) + typescript-eslint + react-hooks, Prettier, globals.
 
 ## 5. Phases
+
 Every phase ends with three things: its acceptance tests pass (run for real), PROGRESS.md is updated, and one commit
 `phase N: <summary>` is made. Before coding a phase, write a short plan and get approval.
 
 ### Phase 1 — Skeleton, infrastructure, contracts in code
+
 - **Scope:**
   - git repo and pnpm workspaces; strict TypeScript, ESLint and Prettier.
   - `packages/shared` with every contract schema from CONTRACTS.md.
@@ -91,6 +98,7 @@ Every phase ends with three things: its acceptance tests pass (run for real), PR
   - `pnpm test:e2e` passes in dev-server mode and against the containers (the page shows "Hearth" and "Server: ok"; LiveKit answers).
 
 ### Phase 2 — Accounts & auth
+
 - **Scope:** bootstrap CLI, invites (admin), register/login/logout, sessions, profile, change password, reset codes, authenticated Socket.IO handshake.
 - **Acceptance (e2e):**
   - Reset, then register the admin via the invite.
@@ -99,6 +107,7 @@ Every phase ends with three things: its acceptance tests pass (run for real), PR
   - Anonymous API calls get 401, and a socket without a cookie is refused.
 
 ### Phase 3 — Text channels, DMs, messaging
+
 - **Scope:** channel CRUD and reorder (admin), send/edit/delete, history pagination, DMs, audience routing, reconnect catch-up, Markdown.
 - **Acceptance (two browsers):**
   - A posts and B sees it within 1 s; edit and delete propagate.
@@ -107,6 +116,7 @@ Every phase ends with three things: its acceptance tests pass (run for real), PR
   - A client that was offline catches up after reconnecting.
 
 ### Phase 4 — Presence, typing, unread, reactions, mentions, notifications
+
 - **Acceptance:**
   - B closes the tab and A sees B go offline within 5 s; the typing indicator shows and clears.
   - Unread and mention badges appear and clear on view, and stay in sync across two tabs.
@@ -114,6 +124,7 @@ Every phase ends with three things: its acceptance tests pass (run for real), PR
   - A mention while the tab is hidden triggers `Notification`.
 
 ### Phase 5 — Uploads & avatars
+
 - **Acceptance:**
   - A uploads an image and a PDF; B sees the image inline and the PDF as a download link.
   - 26 MB → 413; an anonymous file URL → 401; C cannot read a DM attachment.
@@ -121,6 +132,7 @@ Every phase ends with three things: its acceptance tests pass (run for real), PR
   - An avatar change reaches other users.
 
 ### Phase 6 — Voice (LiveKit)
+
 - **Scope:** token endpoint, webhook receiver, reconcile loop, voice state broadcast, mute/deafen, speaking indicator, per-user volume.
 - **Acceptance:**
   - Two fake-media users join the same channel and see each other.
@@ -129,12 +141,14 @@ Every phase ends with three things: its acceptance tests pass (run for real), PR
   - Mute state is visible to the others, and switching channels leaves the old one.
 
 ### Phase 7 — Camera & screen share
+
 - **Acceptance:**
   - A turns the camera on and B receives the video (`videoWidth > 0`).
   - A shares the (fake) screen and B receives it; stopping the share removes it for B.
   - C sees a LIVE badge in the sidebar.
 
 ### Phase 8 — Admin, moderation, hardening
+
 - **Scope:** admin panel, lifecycle rules (CONTRACTS.md B.7), disconnect-from-voice, rate-limit tuning, CSP and security headers, upload GC schedule.
 - **Acceptance (one e2e per edge case):**
   - Deactivating a user who is in voice kicks them from voice, closes their socket, blocks their login, and shows their messages as "Deleted user".
@@ -143,6 +157,7 @@ Every phase ends with three things: its acceptance tests pass (run for real), PR
   - Reactivating a user respects the account cap.
 
 ### Phase 9 — Production deployment
+
 - **Scope:** `docker-compose.prod.yml`, `Caddyfile.prod`, `livekit.prod.yaml` (host network, UDP 50000–50100, TURN on UDP 3478), backup/restore scripts, and `docs/DEPLOY.md` (OCI security list + iptables, DNS, arm64 notes).
 - **Acceptance:**
   - HTTPS works on the VM.
@@ -150,17 +165,18 @@ Every phase ends with three things: its acceptance tests pass (run for real), PR
   - Backup → wipe volumes → restore brings the data back.
 
 ## 6. Limits & security
-| Item | Limit |
-|---|---|
-| Active accounts | 25 |
-| Channels (text + voice) | 50 |
-| Message length | 4000 characters |
-| Attachments per message | 10 |
-| Upload size | 25 MB (avatar 2 MB) |
-| Distinct reactions per message | 20 |
-| Message send | 10 per 10 s per user |
-| Login / reset attempts | 10 per minute per IP |
-| Uploads | 20 per minute per user |
+
+| Item                           | Limit                  |
+| ------------------------------ | ---------------------- |
+| Active accounts                | 25                     |
+| Channels (text + voice)        | 50                     |
+| Message length                 | 4000 characters        |
+| Attachments per message        | 10                     |
+| Upload size                    | 25 MB (avatar 2 MB)    |
+| Distinct reactions per message | 20                     |
+| Message send                   | 10 per 10 s per user   |
+| Login / reset attempts         | 10 per minute per IP   |
+| Uploads                        | 20 per minute per user |
 
 - **Cookies:** `HttpOnly; SameSite=Lax`, plus `Secure` in production.
 - **Origin and CSRF:**
@@ -172,17 +188,21 @@ Every phase ends with three things: its acceptance tests pass (run for real), PR
 - **Backups:** nightly `pg_dump` plus an uploads tarball, keeping the last 7.
 
 ## 7. Deployment
+
 The production setup is a single VM running `docker-compose.prod.yml` with these services:
+
 - caddy
 - server (runs migrations on start)
 - postgres
 - livekit (host network)
 
 Domains:
+
 - `hearth.<domain>` → the web app plus `/api` and `/socket.io`.
 - `lk.hearth.<domain>` → LiveKit signaling (wss through Caddy).
 
 Ports to open: TCP 80/443, TCP 7881, UDP 50000–50100 and UDP 3478. On Oracle Cloud, open them in **both** the VCN security list and the VM's iptables.
 
 ## 8. Contracts
+
 [docs/CONTRACTS.md](docs/CONTRACTS.md) is binding. Any change to it goes in the same commit as the code that implements the change.
