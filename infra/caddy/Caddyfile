@@ -1,0 +1,25 @@
+# Local full stack (docker compose up --build): plain HTTP on :8080.
+# Production config with HTTPS lives in Caddyfile.prod (phase 9).
+{
+	admin off
+}
+
+:8080 {
+	request_body {
+		max_size 26MB
+	}
+
+	handle /api/* {
+		reverse_proxy server:3000
+	}
+
+	handle /socket.io/* {
+		reverse_proxy server:3000
+	}
+
+	handle {
+		root * /srv
+		try_files {path} /index.html
+		file_server
+	}
+}

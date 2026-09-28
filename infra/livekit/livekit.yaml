@@ -1,0 +1,23 @@
+# LiveKit config for dev, e2e and the local full stack (NOT production — see livekit.prod.yaml in phase 9).
+# API keys come from the LIVEKIT_KEYS environment variable ("<key>: <secret>").
+port: 7880
+logging:
+  level: info
+rtc:
+  tcp_port: 7881
+  # Single-port UDP mux: only one UDP port needs mapping out of the container.
+  udp_port: 7882
+  use_external_ip: false
+  # Browsers run on the host, so advertise loopback instead of the container IP.
+  node_ip: 127.0.0.1
+room:
+  auto_create: true
+  empty_timeout: 60
+  max_participants: 25
+webhook:
+  api_key: devkey
+  # :3000 = dev server / full-stack server container; :3100 = e2e server.
+  # Delivery to whichever is not running fails harmlessly; the server reconciles every 60 s.
+  urls:
+    - http://host.docker.internal:3000/api/livekit/webhook
+    - http://host.docker.internal:3100/api/livekit/webhook

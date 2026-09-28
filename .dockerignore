@@ -1,0 +1,14 @@
+**/node_modules
+**/dist
+**/*.tsbuildinfo
+.git
+.env
+.env.*
+!.env.example
+data
+e2e
+playwright-report
+test-results
+blob-report
+docs
+*.md

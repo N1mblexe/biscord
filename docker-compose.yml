@@ -1,0 +1,80 @@
+# Local stack. Dev/e2e use only `postgres` + `livekit` (pnpm infra:up);
+# `docker compose up --build` runs everything, with the web app on http://localhost:8080.
+name: hearth
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-hearth}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-hearth}
+      POSTGRES_DB: ${POSTGRES_DB:-hearth}
+    ports:
+      - '5432:5432'
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./infra/postgres/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}"']
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  livekit:
+    image: livekit/livekit-server:v1.13.7
+    command: --config /etc/livekit.yaml
+    environment:
+      LIVEKIT_KEYS: ${LIVEKIT_KEYS:?set LIVEKIT_KEYS in .env (see .env.example)}
+    ports:
+      - '7880:7880'
+      - '7881:7881'
+      - '7882:7882/udp'
+    volumes:
+      - ./infra/livekit/livekit.yaml:/etc/livekit.yaml:ro
+    extra_hosts:
+      - 'host.docker.internal:host-gateway'
+
+  server:
+    build:
+      context: .
+      dockerfile: apps/server/Dockerfile
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      NODE_ENV: production
+      PORT: '3000'
+      DATABASE_URL: postgres://${POSTGRES_USER:-hearth}:${POSTGRES_PASSWORD:-hearth}@postgres:5432/${POSTGRES_DB:-hearth}
+      LIVEKIT_URL: http://livekit:7880
+      LIVEKIT_PUBLIC_URL: ws://localhost:7880
+      APP_ORIGIN: http://localhost:8080
+      MIGRATE_ON_START: 'true'
+      UPLOAD_DIR: /data/uploads
+      COOKIE_SECURE: 'false'
+      HEARTH_TEST_MODE: 'false'
+    ports:
+      - '3000:3000'
+    volumes:
+      - uploads:/data/uploads
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ['CMD-SHELL', 'wget -qO- http://127.0.0.1:3000/api/health || exit 1']
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+    ports:
+      - '8080:8080'
+    depends_on:
+      server:
+        condition: service_healthy
+
+volumes:
+  pgdata:
+  uploads:
