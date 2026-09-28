@@ -104,12 +104,34 @@ Phase 6 still wires `deleteRoom`, with a server-side test.
 | Volume        | A participant's context button **Volume** opens a slider labelled **Volume for <displayName>** (0–100).                                                                                                                                                 |
 | Audio blocked | A `data-testid="audio-unblock"` button **Click to enable audio**, shown only when playback is blocked.                                                                                                                                                  |
 
+## LAN test profile (voice with devices on the same Wi-Fi)
+
+The goal is to test voice between this PC and a phone or laptop on the same network before deploying to Oracle. The normal local setup can't do it for two reasons:
+
+- **Browsers block the mic without HTTPS.** They allow `getUserMedia` only on `https://` or `localhost`.
+- **LiveKit advertises the wrong address.** `infra/livekit/livekit.yaml` advertises `127.0.0.1`, which other devices can't reach.
+
+The LAN profile fixes both. It's a compose **override**, so the normal dev, e2e and full-stack setups are unchanged.
+
+| Piece                       | What it does                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| --------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `docker-compose.lan.yml`    | An override merged on top of `docker-compose.yml`. **web (Caddy):** uses `infra/caddy/Caddyfile.lan`, publishes `8443/tcp` and `7443/tcp`, and keeps its CA in a named volume `caddy_data` so the root certificate survives restarts. **livekit:** starts with `--node-ip ${LAN_IP}` so browsers on other devices get a reachable address (7881/tcp and 7882/udp are already published on all interfaces). **server:** `APP_ORIGIN=https://${LAN_IP}:8443`, `LIVEKIT_PUBLIC_URL=wss://${LAN_IP}:7443`, `COOKIE_SECURE=true`. |
+| `infra/caddy/Caddyfile.lan` | `https://{$LAN_IP}:8443` with `tls internal` (Caddy's local CA issues a certificate for the IP address, so no DNS is needed). It has the same routes as the local Caddyfile (`/api`, `/socket.io`, SPA). `https://{$LAN_IP}:7443` with `tls internal` proxies to `livekit:7880`, giving browsers **wss** signaling: an https page can't open `ws://`.                                                                                                                                                                        |
+| `infra/scripts/lan-up.sh`   | Detects the LAN IP (`ip -4 route get 1.1.1.1`, overridable with `LAN_IP=`) and runs `docker compose -f docker-compose.yml -f docker-compose.lan.yml up --build -d --wait`. It then exports Caddy's root certificate to `data/lan/hearth-lan-root.crt` (`docker compose cp web:/data/caddy/pki/authorities/local/root.crt`), prints the URLs, the certificate path and a bootstrap invite link, and warns if a host firewall (nftables/ufw/firewalld) is active, listing the ports to open.                                   |
+| Root `package.json` scripts | `lan:up` → `infra/scripts/lan-up.sh`, `lan:down` → `docker compose -f docker-compose.yml -f docker-compose.lan.yml down`.                                                                                                                                                                                                                                                                                                                                                                                                    |
+| Docs                        | A "LAN testing" section in `docs/DEPLOY.md` (created here, extended in Phase 9) with a per-device checklist. **Desktop:** import `hearth-lan-root.crt` into the browser or OS trust store, or accept the warning on **both** `https://IP:8443` and `https://IP:7443`, because wss can't show a click-through prompt. **Android:** Settings → Security → Install certificate → CA. **iOS:** install the profile, then turn on full trust in Settings → General → About → Certificate Trust Settings.                          |
+
+Ports on the host: 8443/tcp (app), 7443/tcp (LiveKit signaling), 7881/tcp (media fallback), 7882/udp (media). This is only for a trusted home network: the local CA's key lives in the `caddy_data` volume.
+
+**Contract changes:** a B.8 row for the LAN profile (the env values above). CLAUDE.md commands: `pnpm lan:up` / `pnpm lan:down`, plus a gotcha: open `https://IP:7443` once, or install the root certificate, before joining voice from a new device.
+
 ## Execution
 
 1. **Lead:**
    - Connectivity spike: from the container, `wget` host :3100 during a tiny throwaway listener; then a two-page fake-media join by hand.
    - Pin `livekit-server-sdk@2.19.1` (server) and `livekit-client@2.22.3` + `@livekit/components-react@2.9.24` (+ `tslib` once approved) (web).
    - Contract clarifications 1–6, plus the `VOICE_RECONCILE_MS` env var in B.8 and `.env.example`.
+   - After the parallel agents land: the **LAN profile** (`docker-compose.lan.yml`, `Caddyfile.lan`, `lan-up.sh`, scripts, DEPLOY.md section), since it only touches lead-owned root and infra files.
 2. **Parallel:**
    - **server agent:** token, webhook, voice state, reconcile, voice delete, health, test reset, Vitest.
    - **web agent:** VoiceProvider, sidebar, voice panel, deafen/volume, speaking ring, debug hook.
@@ -144,6 +166,21 @@ Phase 6 still wires `deleteRoom`, with a server-side test.
 
 **Full stack:** the `@smoke` specs plus a manual two-browser join through Caddy on :8080 (LiveKit at ws://localhost:7880). `/api/health` shows `livekit: 'ok'`.
 
+**LAN profile:**
+
+- **Automated (lead, on this machine):**
+  - `pnpm lan:up`, then run a small Playwright script against `https://<LAN_IP>:8443` with `ignoreHTTPSErrors: true`, going through the LAN IP rather than localhost.
+  - Two users register and join `Lounge`. Both reach `connected`, and `audioBytesReceived` > 0 for each.
+  - This proves HTTPS, wss signaling, the advertised node IP and the UDP/TCP media ports all line up.
+  - Then `pnpm lan:down`.
+- **Manual (you, with a second device on the same Wi-Fi):**
+  1. Install the root certificate.
+  2. Open `https://<LAN_IP>:8443` and register via an invite.
+  3. Join voice with the PC.
+  4. Both of you hear each other, and mute/deafen and the speaking ring work.
+
+  Record the result in PROGRESS.md. This check doesn't block the phase commit, because it needs your device.
+
 ## Dependencies
 
 - **server:** `livekit-server-sdk@2.19.1`.
@@ -154,4 +191,5 @@ Phase 6 still wires `deleteRoom`, with a server-side test.
 
 1. **Container → host webhooks** (host firewall, `host-gateway`) and the shared container serving two servers. Handled by the spike first, ignoring foreign rooms, idempotent handling and the reconcile loop, with the fast interval in e2e.
 2. **Flaky media assertions.** Fake devices plus the autoplay flag, byte counters polled with `expect.poll` rather than audio analysis, one worker, and a reset that deletes this test DB's rooms.
-3. **State drift** from out-of-order webhooks when switching channels. Handled by sid-keyed participants, event-id dedupe, and the boot plus periodic reconcile.
+3. **LAN profile trust and firewall friction:** installing the certificate on phones (iOS full-trust step), wss certificate errors that can't be clicked through, and an active host firewall. Handled by the checklist in `docs/DEPLOY.md`, the script's firewall warning, and the automated same-machine LAN-IP check that proves the server side before any device is involved.
+4. **State drift** from out-of-order webhooks when switching channels. Handled by sid-keyed participants, event-id dedupe, and the boot plus periodic reconcile.
