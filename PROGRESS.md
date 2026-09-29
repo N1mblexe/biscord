@@ -2,6 +2,68 @@
 
 Updated at the end of every phase (see CLAUDE.md → Workflow).
 
+## Phase 9 — Production deployment (Oracle Cloud + DuckDNS) 🟡 artifacts done, VM deploy pending (2026-09-30)
+
+### Built
+
+- **`docker-compose.prod.yml`** (project `hearth-prod`, arm64):
+  - Services:
+    - Caddy: ports 80/443 tcp and 443/udp; non-root, using Docker's default unprivileged-port setting;
+    - server: bound to `127.0.0.1:3000` only;
+    - Postgres: no published port;
+    - LiveKit: host network;
+    - a backup sidecar.
+  - Network `172.29.0.0/24` with the bridge named `hearth-prod0` and Caddy pinned at `.10` (= `TRUST_PROXY`).
+  - Config is mounted as read-only directories, so a deploy picks up changes.
+  - Healthchecks, restart policies and log caps. Each service gets only the env it needs; Caddy never sees the database secrets.
+- **`infra/caddy/Caddyfile.prod`:** Let's Encrypt for `$HEARTH_DOMAIN` and `lk.$HEARTH_DOMAIN`, HSTS on both, the Phase 8 per-header CSP with `wss://lk.` and `https://lk.`, and the 26 MiB body cap.
+- **`infra/livekit/livekit.prod.yaml`:**
+  - TCP 7881, UDP 50000–50100, TURN/UDP 3478, and 7880 bound to loopback plus the prod bridge gateway only.
+  - `rtc.ips.excludes` for Docker's address pools. **The dry run found that without this LiveKit advertised the docker0 bridge as the public mapping, so media would never have reached the VM.**
+  - Optional `NODE_IP` to skip STUN.
+- **Scripts:**
+  - `gen-secrets.sh`: hex secrets, mode 600, refuses to overwrite.
+  - `backup.sh`:
+    - nightly `pg_dump` plus an uploads tarball, with `SHA256SUMS` and row counts taken from the dump itself;
+    - keeps 7 nightly, and 3 each of pre-deploy and pre-restore backups;
+    - checks free disk space first and cleans up after a failure.
+  - `restore.sh`: typed confirmation, a pre-restore backup, drop and re-create, row-count check, and a trap on failure that prints the recovery command.
+  - `deploy.sh`: pre-deploy backup, pull, build, recreate the services whose config changed, deploy tags, rollback instructions.
+  - `status.sh`.
+- **Server:** `livekit-test-token` CLI for LiveKit's public connection test. Its rooms are `connection-test-*`, never `voice_*`.
+- **`docs/DEPLOY.md` → "Production on Oracle Cloud":**
+  - Creating the VM (A1, 2 OCPU / 12 GB, reserved IP), with Pay-As-You-Go recommended because of idle reclamation.
+  - DuckDNS setup.
+  - Both firewall layers: the security list, and iptables inserted before the REJECT rule, then `netfilter-persistent` and a reboot check.
+  - Docker, secrets, first deploy, bootstrap, and verification with curl, nc and the connection test.
+  - Backups copied weekly to a PC, a restore drill, updates and rollback, troubleshooting, and SSH lockout recovery.
+
+### Tested (run for real on 2026-09-30, locally)
+
+- `pnpm typecheck` ✅ · `pnpm lint` ✅ · `pnpm format:check` ✅ · `pnpm test` ✅: 747 (shared 66, web 288, server 393).
+- The prod compose config is valid, `caddy validate` passes, and shellcheck is clean. arm64 is published for every base image.
+- **Local prod dry run** (hostname `localhost`, Caddy's internal TLS):
+  - All 5 services healthy, and LiveKit starts cleanly with the prod config.
+  - HSTS and the CSP present; HTTP gets a 308 redirect; 27 MiB gets 413.
+  - `@smoke` passes 9/9, including a logged-in voice join with 0 CSP violations.
+  - Backup → wipe the volumes → restore: all 11 tables match, and the message and attachment SHA-256 are identical.
+  - A deploy with a config change → the container is recreated; rollback works.
+- Two reviews (a fresh reviewer, then the dry run): 0 blockers. The 4 major and ~12 minor issues and 4 bugs found in the dry run are all fixed.
+
+### Pending (needs you)
+
+- Create the Oracle VM and the DuckDNS name, then follow `docs/DEPLOY.md`. The real-VM acceptance from `docs/plans/phase-9.md`:
+  - HTTPS with a valid certificate;
+  - two devices on different networks (one on mobile data) using voice, camera and screen share;
+  - LiveKit's connection test;
+  - the restore drill;
+  - surviving a reboot.
+- Check on the VM that LiveKit logs `using external IPs <public>/10.0.0.x`. TURN through Oracle's NAT may not work, which is documented.
+
+### Next step
+
+A detailed test and bug-hunt pass across the whole app, then a polish pass (both with subagents).
+
 ## Phase 8 — Admin, moderation, hardening ✅ (2026-09-30)
 
 ### Built

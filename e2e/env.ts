@@ -30,6 +30,15 @@ export const E2E_USERNAME: string | undefined = optional('E2E_USERNAME');
 export const E2E_PASSWORD: string | undefined = optional('E2E_PASSWORD');
 /** Optional name of an existing voice channel on the full stack, for the voice-under-CSP check. */
 export const E2E_VOICE_CHANNEL: string | undefined = optional('E2E_VOICE_CHANNEL');
+/**
+ * LiveKit origin(s) the full stack's CSP `connect-src` must allow, comma- or space-separated. Defaults to the local
+ * full stack; e.g. `wss://<LAN_IP>:7443 https://<LAN_IP>:7443` (LAN) or `wss://lk.<domain> https://lk.<domain>` (prod).
+ */
+export const E2E_LIVEKIT_ORIGINS: readonly string[] = (
+  optional('E2E_LIVEKIT_ORIGIN') ?? 'ws://localhost:7880'
+)
+  .split(/[\s,]+/)
+  .filter((origin) => origin.length > 0);
 
 export const WEB_PORT = 5273;
 export const API_PORT = 3100;

@@ -3,6 +3,7 @@ dist/
 .env
 .env.*
 !.env.example
+!.env.prod.example
 data/
 test-results/
 playwright-report/

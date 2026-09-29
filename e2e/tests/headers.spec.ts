@@ -9,7 +9,7 @@ import {
   tinyPng,
   uploadAttachmentOk,
 } from '../fixtures.js';
-import { E2E_PASSWORD, E2E_USERNAME, E2E_VOICE_CHANNEL, isFullStack } from '../env.js';
+import { E2E_LIVEKIT_ORIGINS, E2E_PASSWORD, E2E_USERNAME, E2E_VOICE_CHANNEL, isFullStack } from '../env.js';
 
 // Phase 8 scenario 6 (docs/plans/phase-8.md "Key decisions → Security headers", CONTRACTS B.7a rule 4,
 // B.7b). Full-stack mode only: Caddy (infra/caddy/Caddyfile) sets these headers, and the Vite dev
@@ -82,7 +82,10 @@ test.describe('security headers', { tag: ['@smoke', '@headers'] }, () => {
       expect(csp.get('default-src')).toEqual(["'self'"]);
       expect(csp.get('frame-ancestors')).toEqual(["'none'"]);
       expect(csp.get('connect-src')).toContain("'self'");
-      expect(csp.get('connect-src')).toContain('ws://localhost:7880');
+      // The LiveKit signalling origin(s): E2E_LIVEKIT_ORIGIN, default ws://localhost:7880 (local full stack).
+      for (const origin of E2E_LIVEKIT_ORIGINS) {
+        expect(csp.get('connect-src')).toContain(origin);
+      }
       // No inline or eval'd script is allowed anywhere.
       for (const directive of ['script-src', 'default-src']) {
         expect(csp.get(directive) ?? []).not.toContain("'unsafe-inline'");

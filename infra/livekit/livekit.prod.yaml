@@ -1,0 +1,59 @@
+# LiveKit config for production (docker-compose.prod.yml, host networking). Keys verified against v1.13.7.
+# API keys come from the LIVEKIT_KEYS environment variable ("<key>: <secret>"); the webhook signing key is set by
+# LIVEKIT_WEBHOOK_API_KEY in the compose file (it overrides webhook.api_key below).
+
+# Signalling/API port. NOT opened in any firewall: Caddy terminates TLS on lk.<domain> and proxies here.
+port: 7880
+# Listen only on loopback (healthcheck, local checks) and on the docker-compose.prod.yml network gateway (Caddy and
+# the server reach LiveKit via host.docker.internal = 172.29.0.1). This only affects :7880; the RTC and TURN ports
+# below listen on all interfaces. If the gateway address doesn't exist yet (network not created), LiveKit exits and
+# `restart: unless-stopped` retries.
+bind_addresses:
+  - 127.0.0.1
+  - 172.29.0.1
+
+logging:
+  level: info
+
+rtc:
+  # ICE over TCP fallback for networks that block UDP. Must be open in both Oracle firewall layers.
+  tcp_port: 7881
+  # One UDP port per media connection; 101 ports is plenty for 8 friends. Open in both firewall layers.
+  port_range_start: 50000
+  port_range_end: 50100
+  # Oracle VMs sit behind 1:1 NAT: discover the public IP via STUN and advertise it.
+  use_external_ip: true
+  # By default LiveKit also "self-pings" the discovered public IP, which needs hairpin NAT. Oracle's NAT is not
+  # guaranteed to hairpin, and the reserved public IP is static, so the STUN answer is trusted as is.
+  skip_external_ip_validation: true
+  # With host networking LiveKit also sees the Docker bridges (docker0 172.17.0.1, this stack's 172.29.0.1, ...).
+  # Without validation, whichever local IP answers STUN first gets the public IP; the dry run showed docker0 winning,
+  # which would advertise the public IP on a socket that never receives Internet traffic. Docker's default address
+  # pools are 172.17-31.x and 192.168.x, so exclude them and only the VCN NIC (10.0.0.0/16 by default) is used.
+  # If your VCN uses one of these ranges, replace this with `ips: {includes: [<your subnet CIDR>]}`.
+  ips:
+    excludes:
+      - 172.16.0.0/12
+      - 192.168.0.0/16
+
+# Embedded TURN over UDP only (no tls_port → no certificate or turn.domain needed; TURN/UDP URLs are advertised by
+# IP). TURN/TLS on 5349/443 is deferred (known limitation: networks that block all UDP use ICE/TCP 7881 instead).
+turn:
+  enabled: true
+  udp_port: 3478
+  # Relay sockets for TURN allocations; pinned so it's a known range. Relayed media reaches the SFU on the public
+  # IP and comes back as return traffic, so this range is normally NOT opened in the firewalls (see DEPLOY.md).
+  relay_range_start: 40000
+  relay_range_end: 40100
+
+room:
+  auto_create: true
+  empty_timeout: 60
+  max_participants: 25
+
+webhook:
+  # Overridden by LIVEKIT_WEBHOOK_API_KEY (= LIVEKIT_API_KEY in .env.prod); gen-secrets.sh uses this name.
+  api_key: hearth-prod
+  urls:
+    # LiveKit runs with host networking; the server publishes :3000 on loopback only.
+    - http://127.0.0.1:3000/api/livekit/webhook

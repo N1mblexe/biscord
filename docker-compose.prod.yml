@@ -1,0 +1,194 @@
+# Production stack for one VM (docs/DEPLOY.md → Production on Oracle Cloud).
+# Always run it with the generated env file, for example:
+#   docker compose -f docker-compose.prod.yml --env-file .env.prod up -d --wait
+# (`--env-file` feeds the ${...} below; every secret comes from .env.prod, written by infra/scripts/gen-secrets.sh.)
+# The project name, network and volumes are separate from the dev/LAN stack (`hearth`), so both can share one Docker host.
+# Config files are mounted as read-only DIRECTORIES, not single files: `git pull` replaces a file with a new inode,
+# which a single-file bind mount would never see. infra/scripts/deploy.sh also recreates caddy/livekit/backup when
+# anything under infra/ or this file changed.
+name: hearth-prod
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: 10m
+    max-file: '3'
+
+services:
+  # Caddy: TLS (Let's Encrypt), the SPA, and the reverse proxy for /api, /socket.io and lk.<domain> → LiveKit.
+  caddy:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+    restart: unless-stopped
+    command: ['caddy', 'run', '--config', '/etc/hearth-caddy/Caddyfile.prod', '--adapter', 'caddyfile']
+    environment:
+      HEARTH_DOMAIN: ${HEARTH_DOMAIN:?run with --env-file .env.prod (see infra/scripts/gen-secrets.sh)}
+      ACME_EMAIL: ${ACME_EMAIL:?set ACME_EMAIL in .env.prod}
+    ports:
+      # Caddy stays unprivileged (Phase 8): Docker sets net.ipv4.ip_unprivileged_port_start=0 in container
+      # network namespaces, so the non-root caddy user can bind 80/443 without extra capabilities.
+      - '80:80'
+      - '443:443'
+      - '443:443/udp' # HTTP/3
+    volumes:
+      - ./infra/caddy:/etc/hearth-caddy:ro
+      - caddy_data:/data # certificates and ACME account: keep this volume
+      - caddy_config:/config
+    extra_hosts:
+      # LiveKit runs with host networking and listens on this network's gateway (livekit.prod.yaml → bind_addresses).
+      - 'host.docker.internal:172.29.0.1'
+    networks:
+      default:
+        ipv4_address: 172.29.0.10 # = TRUST_PROXY below
+    depends_on:
+      server:
+        condition: service_healthy
+    healthcheck:
+      # Loopback-only listener in Caddyfile.prod (not published).
+      test: ['CMD-SHELL', 'wget -qO- http://127.0.0.1:8081/ | grep -q ok']
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
+    logging: *logging
+
+  server:
+    build:
+      context: .
+      dockerfile: apps/server/Dockerfile
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: '3000'
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      APP_ORIGIN: https://${HEARTH_DOMAIN:?run with --env-file .env.prod}
+      # Only Caddy's fixed IP may set X-Forwarded-For (never `true`).
+      TRUST_PROXY: 172.29.0.10
+      DATABASE_URL: postgres://${POSTGRES_USER:?set POSTGRES_USER in .env.prod}:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env.prod}@postgres:5432/${POSTGRES_DB:?set POSTGRES_DB in .env.prod}
+      MIGRATE_ON_START: 'true'
+      COOKIE_SECURE: 'true'
+      SESSION_TTL_DAYS: ${SESSION_TTL_DAYS:-30}
+      MAX_USERS: ${MAX_USERS:-25}
+      UPLOAD_DIR: /data/uploads
+      UPLOAD_GC_INTERVAL_MINUTES: ${UPLOAD_GC_INTERVAL_MINUTES:-60}
+      UPLOAD_MIN_FREE_MB: ${UPLOAD_MIN_FREE_MB:-2048}
+      LIVEKIT_URL: http://host.docker.internal:7880
+      LIVEKIT_PUBLIC_URL: wss://lk.${HEARTH_DOMAIN}
+      LIVEKIT_API_KEY: ${LIVEKIT_API_KEY:?set LIVEKIT_API_KEY in .env.prod}
+      LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET:?set LIVEKIT_API_SECRET in .env.prod}
+      VOICE_RECONCILE_MS: ${VOICE_RECONCILE_MS:-60000}
+      HEARTH_TEST_MODE: 'false'
+      HEARTH_DOMAIN: ${HEARTH_DOMAIN}
+    ports:
+      # Loopback only: LiveKit (host network) posts its webhooks here; the Internet goes through Caddy.
+      - '127.0.0.1:3000:3000'
+    volumes:
+      - uploads:/data/uploads
+    extra_hosts:
+      - 'host.docker.internal:172.29.0.1'
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ['CMD-SHELL', 'wget -qO- http://127.0.0.1:3000/api/health || exit 1']
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 60s # first boot runs the migrations
+    logging: *logging
+
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:?set POSTGRES_USER in .env.prod}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env.prod}
+      POSTGRES_DB: ${POSTGRES_DB:?set POSTGRES_DB in .env.prod}
+    # No published port: only the compose network reaches it.
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}"']
+      interval: 5s
+      timeout: 3s
+      retries: 30
+    logging: *logging
+
+  # LiveKit with host networking: WebRTC needs the real public IP and 101 UDP ports, which Docker's port
+  # publishing handles badly. Signalling (:7880) listens only on loopback and this network's gateway; Caddy
+  # terminates TLS for it on lk.<domain>. Media: 7881/tcp, 50000-50100/udp; TURN: 3478/udp.
+  livekit:
+    image: livekit/livekit-server:v1.13.7
+    restart: unless-stopped
+    network_mode: host
+    # NODE_IP (optional, in .env.prod) = the reserved public IP: advertise it directly instead of discovering it via
+    # STUN at every start (with use_external_ip, a STUN outage at boot keeps LiveKit from starting).
+    command: --config /etc/livekit/livekit.prod.yaml ${NODE_IP:+--node-ip ${NODE_IP} --rtc.use_external_ip=false}
+    environment:
+      # "<key>: <secret>", derived so it can never drift from what the server signs tokens with.
+      LIVEKIT_KEYS: '${LIVEKIT_API_KEY:?set LIVEKIT_API_KEY in .env.prod}: ${LIVEKIT_API_SECRET:?set LIVEKIT_API_SECRET in .env.prod}'
+      # Webhooks are signed with this key (overrides webhook.api_key in the file).
+      LIVEKIT_WEBHOOK_API_KEY: ${LIVEKIT_API_KEY}
+    volumes:
+      - ./infra/livekit:/etc/livekit:ro
+    healthcheck:
+      test: ['CMD-SHELL', 'wget -qO- http://127.0.0.1:7880/ || exit 1']
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 15s
+    logging: *logging
+
+  # Nightly backups (infra/scripts/backup.sh --schedule): pg_dump -Fc + uploads tarball into ./data/backups/<UTC>/,
+  # keeping the newest BACKUP_KEEP; pre-deploy-*/pre-restore-* backups keep BACKUP_KEEP_EXTRA each. Run one now with:
+  # infra/scripts/backup.sh
+  backup:
+    image: postgres:17-alpine # same pg_dump/pg_restore major version as the database
+    restart: unless-stopped
+    entrypoint: ['bash', '/scripts/backup.sh', '--schedule'] # the postgres image ships bash
+    environment:
+      HEARTH_BACKUP_SIDECAR: '1'
+      PGHOST: postgres
+      PGUSER: ${POSTGRES_USER:?set POSTGRES_USER in .env.prod}
+      PGPASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env.prod}
+      PGDATABASE: ${POSTGRES_DB:?set POSTGRES_DB in .env.prod}
+      BACKUP_AT: ${BACKUP_AT:-03:30} # UTC, HH:MM
+      BACKUP_KEEP: ${BACKUP_KEEP:-7}
+      BACKUP_KEEP_EXTRA: ${BACKUP_KEEP_EXTRA:-3}
+      # A backup is refused (with a log line) unless the disk keeps at least max(1.5 x (DB + uploads), this) free.
+      BACKUP_MIN_FREE_MB: ${BACKUP_MIN_FREE_MB:-2048}
+    volumes:
+      - ./infra/scripts:/scripts:ro
+      - ./data/backups:/backups
+      - uploads:/uploads:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      # A background loop touches this file every 30 s, also while a long backup runs; infra/scripts/status.sh
+      # reports the last backup's age.
+      test: ['CMD-SHELL', 'test -n "$$(find /tmp/hearth-backup.heartbeat -mmin -3 2>/dev/null)"']
+      interval: 60s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+      start_interval: 5s
+    logging: *logging
+
+networks:
+  default:
+    driver_opts:
+      # A fixed host interface name, so the VM firewall rule for LiveKit's :7880 can be scoped to it (DEPLOY.md 3b).
+      com.docker.network.bridge.name: hearth-prod0
+    ipam:
+      config:
+        # Not 172.28.0.0/24 (the dev/LAN stack), so both can run on one machine during a local dry run.
+        - subnet: 172.29.0.0/24
+          gateway: 172.29.0.1
+
+volumes:
+  pgdata:
+  uploads:
+  caddy_data:
+  caddy_config:

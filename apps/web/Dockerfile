@@ -17,8 +17,9 @@ COPY apps/web apps/web
 RUN pnpm --filter @hearth/web build
 
 FROM caddy:2.11.4-alpine AS runtime
-# Run as an unprivileged user. Every listener is above 1024 (8080 locally, 8443/7443 in the LAN profile),
-# so no cap_net_bind_service is needed here; the prod image (Phase 9) handles 80/443.
+# Run as an unprivileged user. Locally every listener is above 1024 (8080; 8443/7443 in the LAN profile). The same
+# image serves production on 80/443 (docker-compose.prod.yml): Docker sets net.ipv4.ip_unprivileged_port_start=0 in
+# each container's network namespace by default, so no setcap/cap_net_bind_service step is needed.
 RUN addgroup -S caddy && adduser -S -D -H -G caddy caddy && chown -R caddy:caddy /data /config
 COPY --from=build /app/apps/web/dist /srv
 COPY infra/caddy/Caddyfile /etc/caddy/Caddyfile

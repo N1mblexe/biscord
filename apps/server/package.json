@@ -11,7 +11,8 @@
     "test": "vitest run",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx --conditions=hearth-src --env-file-if-exists=../../.env src/db/migrate.ts",
-    "bootstrap": "tsx --conditions=hearth-src --env-file-if-exists=../../.env src/cli/bootstrap.ts"
+    "bootstrap": "tsx --conditions=hearth-src --env-file-if-exists=../../.env src/cli/bootstrap.ts",
+    "livekit-test-token": "tsx --conditions=hearth-src --env-file-if-exists=../../.env src/cli/livekit-test-token.ts"
   },
   "dependencies": {
     "@fastify/cookie": "11.1.2",

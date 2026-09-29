@@ -32,8 +32,9 @@ Binding API/DB/event contracts: docs/CONTRACTS.md. Change it in the same commit 
 - Checks: `pnpm typecheck`, `pnpm lint`, `pnpm format`
 - Test: `pnpm test` (unit, DB `hearth_unit`), `pnpm test:e2e` (Playwright; boots its own server on :3100 and web on :5273, DB `hearth_e2e`)
 - First-time e2e setup: `pnpm exec playwright install chromium` (add `--with-deps` only on Debian/Ubuntu; it uses apt)
-- Full stack: `docker compose up --build` (web on :8080); smoke-test it with `E2E_BASE_URL=http://localhost:8080 pnpm test:e2e`
+- Full stack: `docker compose up --build` (web on :8080); smoke-test it with `E2E_BASE_URL=http://localhost:8080 pnpm test:e2e --grep @smoke` (add `E2E_USERNAME`/`E2E_PASSWORD`/`E2E_VOICE_CHANNEL` for the logged-in CSP checks, and `E2E_LIVEKIT_ORIGIN` when LiveKit isn't `ws://localhost:7880`)
 - LAN test profile (voice from other devices on the same Wi-Fi): `pnpm lan:up` / `pnpm lan:down` (see docs/DEPLOY.md → LAN testing)
+- Production (on the VM; see docs/DEPLOY.md → Production on Oracle Cloud): `alias hc='docker compose -f docker-compose.prod.yml --env-file .env.prod'`; `infra/scripts/gen-secrets.sh`, `hc build && hc up -d --wait`, `hc exec server node dist/cli/bootstrap.js`, `hc exec server node dist/cli/livekit-test-token.js`, `infra/scripts/{status,backup,restore,deploy}.sh`
 
 ## Pinned versions (verified against the registry on 2026-09-28; change deliberately, one at a time)
 
