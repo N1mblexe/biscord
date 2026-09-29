@@ -1,6 +1,6 @@
 # Phase 5 plan — Uploads & avatars
 
-Status: **awaiting approval**. Source: PLAN.md §3.1, §3.7, §5 Phase 5 and §6, CONTRACTS.md B.1 (`attachments`, `users.avatar_key`), B.4 rows 10, 11, 14, 27 and 28, B.7 (upload lifecycle), B.8 (`UPLOAD_DIR`).
+Status: **approved 2026-09-29** (no per-user storage quota in v1; Phase 8 candidate). Source: PLAN.md §3.1, §3.7, §5 Phase 5 and §6, CONTRACTS.md B.1 (`attachments`, `users.avatar_key`), B.4 rows 10, 11, 14, 27 and 28, B.7 (upload lifecycle), B.8 (`UPLOAD_DIR`).
 Starts only after Phase 4 is committed.
 
 ## Goal

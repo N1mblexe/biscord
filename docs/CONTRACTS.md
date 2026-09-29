@@ -435,6 +435,35 @@ Reconnect protocol: on every `connect`, the client refetches `GET /bootstrap`, p
 
 ---
 
+### B.7a Uploads and avatars (Phase 5 rules)
+
+1. **B.8 `UPLOAD_DIR`:** a relative path is resolved against the **repo root**, not the process working directory (Docker keeps the absolute `/data/uploads`). The server creates `tmp/` and `avatars/` at startup and fails fast if they aren't writable.
+2. **Storage layout (B.7):**
+   - attachments: `<UPLOAD_DIR>/yyyy/mm/<uuid>`
+   - avatars: `<UPLOAD_DIR>/avatars/<uuid>`
+   - temp: `<UPLOAD_DIR>/tmp/<uuid>`
+   - Storage keys are always server-generated. The client's filename never touches the path.
+3. **Row 27:**
+   - Exactly one multipart part, named `file`, is accepted (`limits: { files: 1, fields: 0, parts: 1 }`); anything else gets `VALIDATION`. A 0-byte file also gets `VALIDATION`.
+   - Any type is accepted. `mimeType` is **sniffed** from the content, falling back to `application/octet-stream`; the client-declared type is ignored.
+   - The filename is sanitized: basename only (both `/` and `\`), no control characters, at most 255 UTF-8 bytes, defaulting to `file`.
+4. **Row 28:**
+   - Anonymous → 401. No access, or someone else's unattached upload → **404 `NOT_FOUND`**, not 403, so existence isn't revealed. The `:filename` segment is cosmetic and ignored for lookup.
+   - Response headers:
+     - `Content-Type` = the stored `mimeType`
+     - `X-Content-Type-Options: nosniff`
+     - `Content-Security-Policy: default-src 'none'; sandbox`
+     - `Cache-Control: private, max-age=31536000, immutable`
+     - `Content-Disposition`: `inline` only for the `INLINE_IMAGE_MIME_TYPES` allowlist, otherwise `attachment`, always with `filename="<ascii fallback>"; filename*=UTF-8''<percent-encoded>` (RFC 5987/6266).
+   - SVG and HTML are never sniffed as images (file-type doesn't detect text formats), so they're always served as `application/octet-stream` downloads.
+5. **Rows 10, 11, 14:**
+   - The sniffed type must be in `AVATAR_MIME_TYPES`, otherwise `415 UNSUPPORTED_MEDIA`. Over 2 MB → `413`.
+   - `avatarUrl` = `/api/avatars/<userId>?v=<first 8 chars of the storage uuid>`, or `null`.
+   - A replaced or deleted avatar file is unlinked after commit.
+   - Deactivated users' avatars are still served, so old messages render.
+6. **New env `UPLOAD_GC_INTERVAL_MINUTES`** (default `60`, `0` disables) in B.8 and `.env.example`.
+7. **Web error mapping:** an HTTP 413 whose body isn't an `ApiErrorBody` (Caddy's own 413 when a body exceeds `max_size 26MB`) is mapped to `PAYLOAD_TOO_LARGE`.
+
 ### B.8 Runtime topology (ports, URLs, env)
 
 |                                              | web (browser URL)                             | server                                         | Postgres DB               | LiveKit (browser)                  | LiveKit (server→LK)              | LK webhook → server                                  |
@@ -459,7 +488,7 @@ Reconnect protocol: on every `connect`, the client refetches `GET /bootstrap`, p
   - App: `NODE_ENV, PORT=3000, APP_ORIGIN=http://localhost:5173, LOG_LEVEL=info, TRUST_PROXY=false` (`false`/empty = trust no proxy; otherwise a comma-separated list of proxy IPs/CIDRs whose `X-Forwarded-For` is trusted — the full stack sets Caddy's fixed IP `172.28.0.10`, so rate limits key on the real client IP and direct hits on :3000 cannot forge it)
   - Database: `POSTGRES_USER=hearth, POSTGRES_PASSWORD=hearth, POSTGRES_DB=hearth, DATABASE_URL=postgres://hearth:hearth@localhost:5432/hearth, DATABASE_URL_UNIT=…/hearth_unit, DATABASE_URL_E2E=…/hearth_e2e, MIGRATE_ON_START=false`
   - Accounts: `COOKIE_SECURE=false, SESSION_TTL_DAYS=30, MAX_USERS=25`
-  - Uploads: `UPLOAD_DIR=./data/uploads`
+  - Uploads: `UPLOAD_DIR=./data/uploads` (a relative path resolves against the repo root), `UPLOAD_GC_INTERVAL_MINUTES=60` (`0` disables the upload GC)
   - LiveKit: `LIVEKIT_URL=http://localhost:7880, LIVEKIT_PUBLIC_URL=ws://localhost:7880, LIVEKIT_API_KEY=devkey, LIVEKIT_API_SECRET=<≥32 chars>, LIVEKIT_KEYS="devkey: <same secret>"`
   - Testing: `HEARTH_TEST_MODE=false, HEARTH_TEST_TOKEN=`
   - Production: `HEARTH_DOMAIN=` (P9)
