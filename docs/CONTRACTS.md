@@ -416,6 +416,29 @@ Reconnect protocol: on every `connect`, the client refetches `GET /bootstrap`, p
 - **Duplicate identity** (second device): LiveKit drops the older connection. This is the accepted behaviour.
 - **Publish presets:** camera 720p30, screen 1080p30. Screen-share audio is allowed.
 
+### B.6a Voice rules (Phase 6)
+
+1. **Health (row 1):**
+   - LiveKit reachability is a `listRooms` call with a 2 s timeout, cached for 10 s.
+   - LiveKit down with the DB up gives **200** and `{status:'degraded', db:'ok', livekit:'down'}`. Only a DB outage returns 503.
+2. **Token (row 29):**
+   - Minting is local, so `LIVEKIT_UNAVAILABLE` comes back only when the cached health says LiveKit is down.
+   - Rate limit: 30 per minute per user.
+   - The response `url` is `LIVEKIT_PUBLIC_URL`.
+3. **Webhook (row 30):**
+   - The body is read as raw text: a Fastify content-type parser for `application/webhook+json` returns the string unparsed.
+   - Handling is idempotent:
+     - the last 1000 event `id`s are remembered and repeats are ignored;
+     - participants are keyed by `(userId, participant.sid)`, so a stale `participant_left` for an older sid never removes a newer join;
+     - `participant_connection_aborted` counts as left;
+     - an event for a room whose channel isn't in **this** server's DB is ignored.
+   - Ignoring foreign rooms matters because the dev server (:3000) and the e2e server (:3100) both get every webhook from the shared container.
+4. **Voice state:**
+   - The server keeps an in-memory `Map<channelId, Map<userId, VoiceParticipant>>`. `voice:state` from a client is stored per user and applied, via `voice:updated`, only while that user is in that channel. Otherwise the ack is `VALIDATION`.
+   - Reconcile runs at boot and every 60 s: `listRooms` → Hearth rooms → `listParticipants`, compared against memory, emitting joined/left for any differences.
+5. **One channel at a time:** a `participant_joined` for a user already in another room triggers `removeParticipant` on the old room (a 404 counts as success). The client also disconnects the old room before joining a new one.
+6. **Test reset (row 39):** before truncating, it collects this DB's voice channel ids, `deleteRoom`s each one (404 is fine), and clears voice memory and the webhook id cache. Rooms from other databases on the shared container are left alone.
+
 ### B.7 Lifecycle rules (ordered, idempotent)
 
 - **Deactivate user:**
@@ -497,6 +520,7 @@ Reconnect protocol: on every `connect`, the client refetches `GET /bootstrap`, p
   - Accounts: `COOKIE_SECURE=false, SESSION_TTL_DAYS=30, MAX_USERS=25`
   - Uploads: `UPLOAD_DIR=./data/uploads` (a relative path resolves against the repo root), `UPLOAD_GC_INTERVAL_MINUTES=60` (`0` disables the upload GC), `UPLOAD_MIN_FREE_MB=2048` (uploads refused with `STORAGE_FULL` below this much free space)
   - LiveKit: `LIVEKIT_URL=http://localhost:7880, LIVEKIT_PUBLIC_URL=ws://localhost:7880, LIVEKIT_API_KEY=devkey, LIVEKIT_API_SECRET=<≥32 chars>, LIVEKIT_KEYS="devkey: <same secret>"`
+  - Voice: `VOICE_RECONCILE_MS=60000` (optional; how often the server reconciles its voice state with LiveKit; the e2e server uses 5000)
   - Testing: `HEARTH_TEST_MODE=false, HEARTH_TEST_TOKEN=`
   - Production: `HEARTH_DOMAIN=` (P9)
 - The server parses env with zod in `env.ts` and exits on anything invalid. It refuses to boot when `NODE_ENV=production` and `HEARTH_TEST_MODE=true`.

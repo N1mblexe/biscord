@@ -1,6 +1,6 @@
 # Phase 6 plan — Voice (LiveKit)
 
-Status: **awaiting approval**. Source: PLAN.md §3.8 and §5 Phase 6, CONTRACTS.md B.4 rows 1, 18 and 29–30, B.5 voice events, B.6, B.7.
+Status: **approved 2026-09-29** (incl. `tslib@2.8.1`). Spikes passed: LiveKit container → host :3100 webhooks OK; two fake-media Chromium peers exchange audio through the real container.. Source: PLAN.md §3.8 and §5 Phase 6, CONTRACTS.md B.4 rows 1, 18 and 29–30, B.5 voice events, B.6, B.7.
 Starts only after Phase 5 is committed.
 
 ## Goal
