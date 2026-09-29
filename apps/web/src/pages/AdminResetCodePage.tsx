@@ -2,8 +2,9 @@ import { useMutation, useQuery } from '@tanstack/react-query';
 import { useState, type SubmitEvent } from 'react';
 import { generateResetCode, usersQuery } from '../api/admin';
 import { errorMessage } from '../api/errors';
-import { FormAlert, FormSuccess, formString } from '../components/forms';
+import { FormAlert, FormSuccess, formString, PageAlert } from '../components/forms';
 import { card, inputClass, primaryButton } from '../components/styles';
+import { usePageAlert } from '../components/usePageAlert';
 
 export function AdminResetCodePage() {
   const users = useQuery(usersQuery);
@@ -31,6 +32,8 @@ export function AdminResetCodePage() {
       : users.isError
         ? errorMessage(users.error)
         : null;
+  // The page's single alert slot, shared with the app-wide camera and screen share errors.
+  const slot = usePageAlert(alert);
 
   return (
     <section className={card} aria-labelledby="reset-code-heading">
@@ -41,6 +44,11 @@ export function AdminResetCodePage() {
         Generate a one-time code a user can enter on the reset password page. It is shown once and expires
         after 24 hours; generating a new one invalidates older codes.
       </p>
+      {slot.shared && (
+        <div className="mt-4">
+          <PageAlert message={slot.message} onDismiss={slot.dismiss} />
+        </div>
+      )}
       <form className="mt-4 flex max-w-sm flex-col gap-4" onSubmit={onSubmit} noValidate>
         <div className="flex flex-col gap-1.5">
           <label htmlFor="reset-user" className="text-sm font-medium text-text">
@@ -63,7 +71,7 @@ export function AdminResetCodePage() {
             ))}
           </select>
         </div>
-        <FormAlert message={alert} />
+        <FormAlert message={slot.shared ? null : slot.message} />
         <div>
           <button type="submit" className={primaryButton} disabled={mutation.isPending}>
             Generate reset code

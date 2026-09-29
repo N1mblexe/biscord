@@ -1,12 +1,22 @@
-import { ParticipantInfo_State, RoomServiceClient, ServerError } from 'livekit-server-sdk';
+import { ParticipantInfo_State, RoomServiceClient, ServerError, type TrackSource } from 'livekit-server-sdk';
 import type { Env } from '../env.js';
 
-/** A participant as the server needs it: identity (= Hearth user id), connection sid and join time. */
+/** A track a participant has published (`ParticipantInfo.tracks[]`); muted tracks are still published. */
+export interface BackendTrack {
+  source: TrackSource;
+  muted: boolean;
+}
+
+/**
+ * A participant as the server needs it: identity (= Hearth user id), connection sid, join time and the
+ * tracks it publishes (B.6b rule 1: the reconcile checks the client's `camera`/`screen` flags against them).
+ */
 export interface BackendParticipant {
   identity: string;
   sid: string;
   /** Unix ms; 0 when LiveKit didn't report it. */
   joinedAtMs: number;
+  tracks: BackendTrack[];
 }
 
 /**
@@ -47,6 +57,7 @@ export function createLiveKitBackend(
           identity: p.identity,
           sid: p.sid,
           joinedAtMs: p.joinedAtMs > 0n ? Number(p.joinedAtMs) : Number(p.joinedAt) * 1000,
+          tracks: p.tracks.map((t) => ({ source: t.source, muted: t.muted })),
         }));
     },
     removeParticipant: (room, identity) => client.removeParticipant(room, identity),

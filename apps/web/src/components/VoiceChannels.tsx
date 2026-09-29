@@ -63,6 +63,34 @@ function DeafenedIcon() {
   );
 }
 
+function CameraIcon() {
+  return (
+    <svg
+      role="img"
+      aria-label="Camera on"
+      viewBox="0 0 16 16"
+      className="size-3.5 shrink-0 text-accent"
+      fill="none"
+    >
+      <title>Camera on</title>
+      <rect x="1.5" y="4" width="9" height="8" rx="1.5" stroke="currentColor" strokeWidth="1.3" />
+      <path d="m10.5 7 4-2.5v7l-4-2.5" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+/** The screen-share badge (`data-live="screen"` on the row). */
+function LiveBadge() {
+  return (
+    <span
+      title="Sharing their screen"
+      className="shrink-0 rounded bg-danger px-1 py-px text-[10px] leading-none font-bold tracking-wide text-white"
+    >
+      LIVE
+    </span>
+  );
+}
+
 function VolumeIcon() {
   return (
     <svg aria-hidden="true" viewBox="0 0 16 16" className="size-3.5" fill="none">
@@ -131,7 +159,9 @@ function VolumeControl({
 /**
  * One `voice-participant` row: `data-user-id`, `data-muted` / `data-deafened` ("true"/"false", from
  * the server's `voice:state`), and `data-speaking` only for people in our own room (docs/plans/
- * phase-6.md, "Web UI contract"). Right-click or **Volume** opens the local volume slider.
+ * phase-6.md, "Web UI contract"). Phase 7: `data-camera` ("true"/"false") with a camera icon, and
+ * `data-live="screen"` with a **LIVE** badge while sharing. Right-click or **Volume** opens the local
+ * volume slider.
  */
 function VoiceParticipantRow({
   participant,
@@ -178,6 +208,8 @@ function VoiceParticipantRow({
       data-user-id={participant.userId}
       data-muted={participant.selfMute ? 'true' : 'false'}
       data-deafened={participant.selfDeaf ? 'true' : 'false'}
+      data-camera={participant.camera ? 'true' : 'false'}
+      data-live={participant.screen ? 'screen' : undefined}
       data-speaking={inMyRoom ? (speaking ? 'true' : 'false') : undefined}
       className="flex flex-wrap items-center gap-1.5 rounded-md px-2 py-0.5 text-sm text-muted hover:bg-white/5"
       onContextMenu={
@@ -195,6 +227,8 @@ function VoiceParticipantRow({
         <Avatar userId={participant.userId} name={name} avatarUrl={user?.avatarUrl ?? null} size="xs" />
       </span>
       <span className={`min-w-0 flex-1 truncate ${speaking ? 'text-text' : ''}`}>{name}</span>
+      {participant.screen && <LiveBadge />}
+      {participant.camera && <CameraIcon />}
       {participant.selfDeaf ? <DeafenedIcon /> : participant.selfMute ? <MicOffIcon /> : null}
       {!isMe && (
         <VolumeControl

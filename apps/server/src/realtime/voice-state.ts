@@ -16,12 +16,20 @@ export const WEBHOOK_ID_CACHE_SIZE = 1000;
 export const VOICE_STATE_BUCKET_MAX = 20;
 export const VOICE_STATE_BUCKET_WINDOW_MS = 5_000;
 
+/** Which of camera / screen share a participant publishes, according to LiveKit (B.6b rule 1). */
+export interface PublishedMedia {
+  camera: boolean;
+  screen: boolean;
+}
+
 /** A participant LiveKit reports (webhook or reconcile). */
 export interface ObservedParticipant {
   userId: string;
   /** LiveKit participant sid: one per connection. */
   sid: string;
   joinedAt: Date;
+  /** Its published tracks, when known (reconcile only); used to clear stale `camera`/`screen` flags. */
+  media?: PublishedMedia;
 }
 
 /** What LiveKit says is connected: channel id → user id → participant (one channel per user). */
@@ -31,6 +39,12 @@ interface Entry {
   participant: VoiceParticipant;
   sid: string;
   /** Value of the mutation counter when this membership was last written (see `mark`). */
+  seq: number;
+}
+
+/** The last `voice:state` a user sent, with the mutation counter when it arrived. */
+interface StoredClientState {
+  payload: VoiceStatePayload;
   seq: number;
 }
 
@@ -101,6 +115,9 @@ export interface VoiceState {
    * Makes memory match `desired` (LiveKit's view, already limited to this DB's voice channels), except
    * for memberships written after `since` and sids that left after `since`. A sid tombstoned before `since`
    * but still listed by LiveKit is live: LiveKit's listing is newer than the tombstone. Emits joined/left.
+   * B.6b rule 1: a `camera`/`screen` flag whose track LiveKit doesn't list (`media`) is cleared, emitting
+   * `voice:updated`, unless the client's `voice:state` carrying it arrived after `since` (the track may not
+   * be published yet). Flags are only ever cleared here, never set.
    */
   reconcile(desired: DesiredVoiceState, since: number): void;
   /** Drops a channel's participants without emitting (the channel was deleted; `channel:deleted` follows). */
@@ -121,7 +138,7 @@ export function createVoiceState({ realtime, backend, log }: VoiceStateDeps): Vo
   /** user id → the channel id they are in (the one-channel rule keeps this a function). */
   const userChannel = new Map<string, string>();
   /** user id → the last `voice:state` they sent. */
-  const clientStates = new Map<string, VoiceStatePayload>();
+  const clientStates = new Map<string, StoredClientState>();
   const seenEvents = new BoundedMap<true>(WEBHOOK_ID_CACHE_SIZE);
   /**
    * Tombstones: sid → the mutation counter when it was marked as left (or superseded). A sid never
@@ -145,9 +162,15 @@ export function createVoiceState({ realtime, backend, log }: VoiceStateDeps): Vo
 
   const entryOf = (channelId: string, userId: string): Entry | undefined => rooms.get(channelId)?.get(userId);
 
-  const flagsFor = (userId: string, channelId: string): VoiceFlags => {
+  /** The user's stored `voice:state`, if it is about `channelId`. */
+  const storedFor = (userId: string, channelId: string): StoredClientState | undefined => {
     const stored = clientStates.get(userId);
-    if (stored?.channelId !== channelId) return DEFAULT_FLAGS;
+    return stored?.payload.channelId === channelId ? stored : undefined;
+  };
+
+  const flagsFor = (userId: string, channelId: string): VoiceFlags => {
+    const stored = storedFor(userId, channelId)?.payload;
+    if (stored === undefined) return DEFAULT_FLAGS;
     return {
       selfMute: stored.selfMute,
       selfDeaf: stored.selfDeaf,
@@ -156,11 +179,43 @@ export function createVoiceState({ realtime, backend, log }: VoiceStateDeps): Vo
     };
   };
 
-  const add = (channelId: string, observed: ObservedParticipant): void => {
+  /**
+   * B.6b rule 1: `flags` with `camera`/`screen` cleared where LiveKit lists no such track, or null if
+   * nothing changes. A flag the client sent after `since` is kept (its track may not be published yet).
+   * The stored `voice:state` is corrected too, so a later join doesn't bring the stale flag back.
+   */
+  const withoutStaleMedia = (
+    userId: string,
+    channelId: string,
+    flags: VoiceFlags,
+    media: PublishedMedia | undefined,
+    since: number,
+  ): VoiceFlags | null => {
+    if (media === undefined) return null;
+    const stored = storedFor(userId, channelId);
+    if (stored !== undefined && stored.seq > since) return null;
+    const camera = flags.camera && media.camera;
+    const screen = flags.screen && media.screen;
+    if (camera === flags.camera && screen === flags.screen) return null;
+    if (stored !== undefined) {
+      stored.payload = {
+        ...stored.payload,
+        camera: stored.payload.camera && camera,
+        screen: stored.payload.screen && screen,
+      };
+    }
+    return { ...flags, camera, screen };
+  };
+
+  const add = (
+    channelId: string,
+    observed: ObservedParticipant,
+    flags: VoiceFlags = flagsFor(observed.userId, channelId),
+  ): void => {
     const participant: VoiceParticipant = {
       userId: observed.userId,
       joinedAt: observed.joinedAt.toISOString(),
-      ...flagsFor(observed.userId, channelId),
+      ...flags,
     };
     let room = rooms.get(channelId);
     if (room === undefined) {
@@ -181,7 +236,7 @@ export function createVoiceState({ realtime, backend, log }: VoiceStateDeps): Vo
     room.delete(userId);
     if (room.size === 0) rooms.delete(channelId);
     if (userChannel.get(userId) === channelId) userChannel.delete(userId);
-    if (clientStates.get(userId)?.channelId === channelId) clientStates.delete(userId);
+    if (storedFor(userId, channelId) !== undefined) clientStates.delete(userId);
     tombstone(entry.sid);
     if (emit) realtime.emitToAll('voice:left', { channelId, userId });
   };
@@ -271,7 +326,8 @@ export function createVoiceState({ realtime, backend, log }: VoiceStateDeps): Vo
     },
 
     setClientState(userId, state) {
-      clientStates.set(userId, state);
+      seq += 1;
+      clientStates.set(userId, { payload: state, seq });
       const entry = entryOf(state.channelId, userId);
       if (entry === undefined) throw new AppError('VALIDATION', 'You are not in this voice channel');
       entry.participant = {
@@ -303,10 +359,20 @@ export function createVoiceState({ realtime, backend, log }: VoiceStateDeps): Vo
         for (const [userId, entry] of [...room]) {
           if (entry.seq > since) continue;
           const wanted = desired.get(channelId)?.get(userId);
-          if (wanted === undefined) remove(channelId, userId);
-          else if (wanted.sid !== entry.sid && !leftSince(wanted.sid, since)) {
+          if (wanted === undefined) {
+            remove(channelId, userId);
+            continue;
+          }
+          if (wanted.sid !== entry.sid && !leftSince(wanted.sid, since)) {
             leftSids.delete(wanted.sid);
             entry.sid = wanted.sid;
+          }
+          // The listed tracks describe the listed connection only.
+          if (wanted.sid !== entry.sid) continue;
+          const flags = withoutStaleMedia(userId, channelId, entry.participant, wanted.media, since);
+          if (flags !== null) {
+            entry.participant = { ...entry.participant, camera: flags.camera, screen: flags.screen };
+            realtime.emitToAll('voice:updated', { channelId, participant: entry.participant });
           }
         }
       }
@@ -315,7 +381,8 @@ export function createVoiceState({ realtime, backend, log }: VoiceStateDeps): Vo
           // Present already, or somewhere else since the listing: memory is newer than LiveKit's view.
           if (userChannel.has(userId) || leftSince(wanted.sid, since)) continue;
           leftSids.delete(wanted.sid); // LiveKit lists it now: an older tombstone was wrong or superseded.
-          add(channelId, wanted);
+          const flags = flagsFor(userId, channelId);
+          add(channelId, wanted, withoutStaleMedia(userId, channelId, flags, wanted.media, since) ?? flags);
         }
       }
     },

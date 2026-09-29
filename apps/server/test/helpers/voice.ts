@@ -2,7 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { voiceRoomName } from '@hearth/shared';
 import type { FastifyInstance, LightMyRequestResponse } from 'fastify';
 import { AccessToken, ServerError } from 'livekit-server-sdk';
-import type { BackendParticipant, VoiceBackend } from '../../src/livekit/client.js';
+import type { BackendParticipant, BackendTrack, VoiceBackend } from '../../src/livekit/client.js';
 
 export type BackendCall =
   | { op: 'listRooms' }
@@ -33,18 +33,19 @@ export class FakeVoiceBackend implements VoiceBackend {
     if (error !== undefined) throw error;
   }
 
-  /** Puts a participant into the room of `channelId` (creating the room). */
+  /** Puts a participant, publishing `tracks`, into the room of `channelId` (creating the room). */
   put(
     channelId: string,
     userId: string,
     sid = `PA_${randomUUID().slice(0, 8)}`,
     joinedAtMs = Date.now(),
+    tracks: BackendTrack[] = [],
   ): string {
     const room = voiceRoomName(channelId);
     const list = this.rooms.get(room) ?? [];
     this.rooms.set(room, [
       ...list.filter((p) => p.identity !== userId),
-      { identity: userId, sid, joinedAtMs },
+      { identity: userId, sid, joinedAtMs, tracks },
     ]);
     return sid;
   }
@@ -62,7 +63,7 @@ export class FakeVoiceBackend implements VoiceBackend {
     await this.record({ op: 'listParticipants', room });
     const list = this.rooms.get(room);
     if (list === undefined) throw notFound();
-    return [...list];
+    return list.map((p) => ({ ...p, tracks: [...p.tracks] }));
   }
 
   async removeParticipant(room: string, identity: string): Promise<void> {

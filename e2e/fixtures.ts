@@ -696,6 +696,27 @@ export interface VoiceDebugRemote {
   volume: number;
   /** Whether this remote's audio is muted in local playback. */
   muted: boolean;
+  /** This remote's camera and screen-share video publications (Phase 7; empty when none). */
+  video: VoiceDebugVideo[];
+}
+
+/** LiveKit `Track.Source` of a video publication, as the web reports it (docs/plans/phase-7.md). */
+export type VideoSource = 'camera' | 'screen_share';
+
+/** One remote video publication in `remotes[].video` of `window.__hearthDebug.voice()`. */
+export interface VoiceDebugVideo {
+  source: VideoSource;
+  subscribed: boolean;
+  /** `videoWidth` of the attached `<video>` element (0 when not attached or no frame yet). */
+  videoWidth: number;
+  /** inbound-rtp `framesDecoded` from `getReceiverStats()` (0 when not subscribed). */
+  framesDecoded: number;
+}
+
+/** What this page itself publishes (`local` of `window.__hearthDebug.voice()`, Phase 7). */
+export interface VoiceDebugLocal {
+  camera: boolean;
+  screen: boolean;
 }
 
 /** `window.__hearthDebug.voice()` (e2e builds only), normalised: absent ids are `null`. */
@@ -708,6 +729,31 @@ export interface VoiceDebug {
   /** Deafened: every remote's audio is muted in local playback (the `RoomAudioRenderer` `muted` prop). */
   playbackMuted: boolean;
   remotes: VoiceDebugRemote[];
+  local: VoiceDebugLocal;
+}
+
+function isVoiceDebugVideo(value: unknown): value is VoiceDebugVideo {
+  if (typeof value !== 'object' || value === null) return false;
+  return (
+    'source' in value &&
+    (value.source === 'camera' || value.source === 'screen_share') &&
+    'subscribed' in value &&
+    typeof value.subscribed === 'boolean' &&
+    'videoWidth' in value &&
+    typeof value.videoWidth === 'number' &&
+    'framesDecoded' in value &&
+    typeof value.framesDecoded === 'number'
+  );
+}
+
+function isVoiceDebugLocal(value: unknown): value is VoiceDebugLocal {
+  if (typeof value !== 'object' || value === null) return false;
+  return (
+    'camera' in value &&
+    typeof value.camera === 'boolean' &&
+    'screen' in value &&
+    typeof value.screen === 'boolean'
+  );
 }
 
 function isVoiceDebugRemote(value: unknown): value is VoiceDebugRemote {
@@ -722,7 +768,11 @@ function isVoiceDebugRemote(value: unknown): value is VoiceDebugRemote {
     'volume' in value &&
     typeof value.volume === 'number' &&
     'muted' in value &&
-    typeof value.muted === 'boolean'
+    typeof value.muted === 'boolean' &&
+    // Strict (Phase 7): every remote reports its video publications, possibly none.
+    'video' in value &&
+    Array.isArray(value.video) &&
+    (value.video as unknown[]).every(isVoiceDebugVideo)
   );
 }
 
@@ -756,12 +806,14 @@ export async function voiceDebug(page: Page): Promise<VoiceDebug> {
   if (!('remotes' in value) || !Array.isArray(value.remotes)) throw malformed();
   const remotes: unknown[] = value.remotes;
   if (!remotes.every(isVoiceDebugRemote)) throw malformed();
+  if (!('local' in value) || !isVoiceDebugLocal(value.local)) throw malformed();
   return {
     state: value.state,
     roomName: roomName ?? null,
     localIdentity: localIdentity ?? null,
     playbackMuted: value.playbackMuted,
     remotes,
+    local: { camera: value.local.camera, screen: value.local.screen },
   };
 }
 
@@ -856,4 +908,125 @@ export async function expectHearing(page: Page, identity: string, who = identity
       { message: `audio from ${who} is flowing`, timeout: VOICE_MEDIA_TIMEOUT, intervals: [500] },
     )
     .toBe('flowing');
+}
+
+// ---- Phase 7 video helpers (CONTRACTS B.6b; docs/plans/phase-7.md "Web UI contract", "Debug hook") ----
+
+/** The main-area video stage (`data-testid="video-stage"`), shown while connected with any video. */
+export function videoStage(page: Page): Locator {
+  return page.getByTestId('video-stage');
+}
+
+/**
+ * Video tiles (`data-testid="video-tile"`), optionally narrowed to one publisher (`data-user-id`)
+ * and/or one source (`data-source`). The focused tile also carries `data-focused="true"`.
+ */
+export function videoTiles(page: Page, filter: { userId?: string; source?: VideoSource } = {}): Locator {
+  let selector = '[data-testid="video-tile"]';
+  if (filter.userId !== undefined) selector += `[data-user-id="${filter.userId}"]`;
+  if (filter.source !== undefined) selector += `[data-source="${filter.source}"]`;
+  return page.locator(selector);
+}
+
+/**
+ * Asserts that `page` shows and plays `userId`'s `source` video: exactly one matching tile is
+ * visible in the video stage, and the debug hook reports that publication subscribed with
+ * `videoWidth > 0` and `framesDecoded` > 0 and strictly increasing between two consecutive polls.
+ * Sizes are never asserted exactly: adaptive stream may pick a lower layer.
+ */
+export async function expectVideo(
+  page: Page,
+  userId: string,
+  source: VideoSource,
+  who = userId,
+): Promise<void> {
+  await expect(videoStage(page)).toBeVisible({ timeout: VOICE_MEDIA_TIMEOUT });
+  // Strict locator: a duplicate tile for the same publisher and source fails here.
+  await expect(videoTiles(page, { userId, source })).toBeVisible({ timeout: VOICE_MEDIA_TIMEOUT });
+  let previous = 0;
+  await expect
+    .poll(
+      async () => {
+        const remote = (await voiceDebug(page)).remotes.find((r) => r.identity === userId);
+        const video = remote?.video.find((v) => v.source === source);
+        let status: string;
+        if (remote === undefined) status = `no remote ${who}`;
+        else if (video === undefined) status = `no ${source} publication from ${who}`;
+        else if (!video.subscribed) status = `${who}'s ${source} not subscribed`;
+        else if (video.videoWidth <= 0) status = `${who}'s ${source} videoWidth = ${video.videoWidth}`;
+        else {
+          const frames = video.framesDecoded;
+          const growing = previous > 0 && frames > previous;
+          previous = frames;
+          return growing ? 'playing' : `${who}'s ${source} framesDecoded = ${frames}`;
+        }
+        previous = 0;
+        return status;
+      },
+      { message: `${source} video from ${who} is playing`, timeout: VOICE_MEDIA_TIMEOUT, intervals: [500] },
+    )
+    .toBe('playing');
+}
+
+/**
+ * Asserts that `page` no longer shows `userId`'s `source` video: no tile, and the debug hook lists no
+ * such publication for that remote (a remote that left counts as none).
+ */
+export async function expectNoVideo(
+  page: Page,
+  userId: string,
+  source: VideoSource,
+  who = userId,
+): Promise<void> {
+  await expect(videoTiles(page, { userId, source })).toHaveCount(0, { timeout: VOICE_MEDIA_TIMEOUT });
+  await expect
+    .poll(
+      async () => {
+        const remote = (await voiceDebug(page)).remotes.find((r) => r.identity === userId);
+        return remote?.video.some((v) => v.source === source) ?? false;
+      },
+      { message: `${who}'s ${source} publication is gone`, timeout: VOICE_MEDIA_TIMEOUT },
+    )
+    .toBe(false);
+}
+
+/**
+ * Makes every `getDisplayMedia` call in `context` reject with a `NotAllowedError` DOMException, as
+ * when the user cancels the picker or the permission is denied. Counts the calls in
+ * `window.__getDisplayMediaCalls` (read with `displayMediaCalls`). Call before the page loads the
+ * app: it is an init script, applied on every navigation of every page in the context.
+ */
+export async function forceDisplayMediaReject(context: BrowserContext): Promise<void> {
+  await context.addInitScript(() => {
+    // e2e has no DOM lib: reach the page globals through a typed view of globalThis.
+    const g = globalThis as unknown as {
+      DOMException: new (message: string, name: string) => Error;
+      MediaDevices?: { prototype: object };
+      navigator: { mediaDevices?: object };
+      __getDisplayMediaCalls?: number;
+    };
+    g.__getDisplayMediaCalls = 0;
+    const getDisplayMedia = (): Promise<never> => {
+      g.__getDisplayMediaCalls = (g.__getDisplayMediaCalls ?? 0) + 1;
+      return Promise.reject(new g.DOMException('Permission denied', 'NotAllowedError'));
+    };
+    // The prototype covers every MediaDevices; the instance too, in case something shadowed it.
+    for (const target of [g.MediaDevices?.prototype, g.navigator.mediaDevices]) {
+      if (target === undefined) continue;
+      Object.defineProperty(target, 'getDisplayMedia', {
+        value: getDisplayMedia,
+        configurable: true,
+        writable: true,
+      });
+    }
+  });
+}
+
+/** How many times the page called the `getDisplayMedia` installed by `forceDisplayMediaReject`. */
+export async function displayMediaCalls(page: Page): Promise<number> {
+  const calls = await page.evaluate(
+    () => (globalThis as unknown as { __getDisplayMediaCalls?: unknown }).__getDisplayMediaCalls ?? null,
+  );
+  if (typeof calls !== 'number') throw new Error('forceDisplayMediaReject was not installed');
+  return calls;
 }

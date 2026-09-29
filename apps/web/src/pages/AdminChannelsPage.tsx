@@ -10,8 +10,9 @@ import {
   reorderChannels,
 } from '../api/chat';
 import { errorMessage, fieldErrors } from '../api/errors';
-import { FormAlert, FormSuccess, formString, TextField } from '../components/forms';
+import { FormAlert, FormSuccess, formString, PageAlert, TextField } from '../components/forms';
 import { card, dangerButton, inputClass, primaryButton, secondaryButton } from '../components/styles';
+import { usePageAlert } from '../components/usePageAlert';
 import { removeChannel, replaceChannels, upsertChannel } from '../lib/bootstrapPatch';
 import { useMessageStore } from '../stores/messages';
 
@@ -118,11 +119,14 @@ export function AdminChannelsPage() {
     if (ok) setDeleting(null);
   };
 
-  const pageAlert = createMutation.isError ? errorMessage(createMutation.error) : alert;
+  // The page's single alert slot, shared with the app-wide camera and screen share errors. While the
+  // delete dialog is open (modal, the rest of the page is inert) it shows the slot instead.
+  const slot = usePageAlert(createMutation.isError ? errorMessage(createMutation.error) : alert);
   const errors = fieldErrors(createMutation.error);
 
   return (
     <div className="flex flex-col gap-6">
+      {deleting === null && slot.shared && <PageAlert message={slot.message} onDismiss={slot.dismiss} />}
       <section className={card} aria-labelledby="channels-create-heading">
         <h1 id="channels-create-heading" className="text-2xl font-semibold tracking-tight">
           Channels
@@ -150,7 +154,7 @@ export function AdminChannelsPage() {
               </select>
             </div>
           </div>
-          {deleting === null && <FormAlert message={pageAlert} />}
+          {deleting === null && !slot.shared && <FormAlert message={slot.message} />}
           {createMutation.isSuccess && (
             <FormSuccess>
               Created {createMutation.data.type === 'text' ? '#' : ''}
@@ -257,7 +261,7 @@ export function AdminChannelsPage() {
         <DeleteChannelDialog
           channel={deleting}
           busy={busy}
-          alert={alert}
+          alert={slot.message}
           onConfirm={() => {
             void onDelete(deleting);
           }}

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { allPlaybackMuted, remotePlaybackMuted } from './debug';
+import { Track } from 'livekit-client';
+import { allPlaybackMuted, attachedVideoWidth, remotePlaybackMuted, videoSourceName } from './debug';
 
 describe('voice debug: playback mute comes from the real publication state', () => {
   it('a remote is muted only when its microphone publication is disabled locally', () => {
@@ -16,5 +17,25 @@ describe('voice debug: playback mute comes from the real publication state', () 
     expect(allPlaybackMuted([{ muted: true }, { muted: true }])).toBe(true);
     expect(allPlaybackMuted([{ muted: true }, { muted: false }])).toBe(false);
     expect(allPlaybackMuted([{ muted: false }])).toBe(false);
+  });
+});
+
+describe('voice debug: video', () => {
+  it('videoWidth is the widest attached <video>, ignoring audio elements', () => {
+    expect(attachedVideoWidth([])).toBe(0);
+    expect(
+      attachedVideoWidth([
+        { tagName: 'AUDIO' },
+        { tagName: 'VIDEO', videoWidth: 320 },
+        { tagName: 'VIDEO', videoWidth: 960 },
+      ]),
+    ).toBe(960);
+  });
+
+  it('only camera and screen share are video sources', () => {
+    expect(videoSourceName(Track.Source.Camera)).toBe('camera');
+    expect(videoSourceName(Track.Source.ScreenShare)).toBe('screen_share');
+    expect(videoSourceName(Track.Source.Microphone)).toBeNull();
+    expect(videoSourceName(Track.Source.ScreenShareAudio)).toBeNull();
   });
 });

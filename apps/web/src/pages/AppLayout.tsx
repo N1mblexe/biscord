@@ -1,16 +1,19 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useEffect, useRef } from 'react';
-import { Link, NavLink, Outlet, useNavigate } from 'react-router';
+import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router';
 import { logout, meQuery } from '../api/auth';
 import { isUnauthenticated } from '../api/errors';
 import { Avatar } from '../components/Avatar';
+import { PageAlert } from '../components/forms';
 import { Sidebar } from '../components/Sidebar';
 import { secondaryButton } from '../components/styles';
 import { loginPathForReason } from '../lib/authNotice';
 import { clearSessionState } from '../lib/session';
 import { useNoticeStore } from '../stores/notice';
+import { usePageAlertStore } from '../stores/pageAlert';
 import { useSocket } from '../socket/context';
 import { SocketProvider } from '../socket/SocketProvider';
+import { VideoStage } from '../voice/VideoStage';
 import { VoiceProvider } from '../voice/VoiceProvider';
 
 /**
@@ -64,6 +67,12 @@ function AppShell() {
     void navigate(loginPathForReason('unauthenticated'), { replace: true });
   }, [error, socket, queryClient, navigate]);
 
+  // A camera or screen share error belongs to the page it happened on: gone once we navigate.
+  const { pathname } = useLocation();
+  useEffect(() => {
+    usePageAlertStore.getState().clear();
+  }, [pathname]);
+
   const connected = status === 'connected';
 
   return (
@@ -112,9 +121,27 @@ function AppShell() {
         <Sidebar />
         <main className="flex min-w-0 flex-1 flex-col">
           <AppNotice />
+          <FallbackAlert />
+          <VideoStage />
           <Outlet />
         </main>
       </div>
+    </div>
+  );
+}
+
+/**
+ * Camera and screen share errors while no page shows them itself: every page in this layout does,
+ * through its single alert slot (components/usePageAlert.ts), so this only covers a moment without a
+ * mounted page. Never a second `role="alert"`.
+ */
+function FallbackAlert() {
+  const message = usePageAlertStore((s) => (s.hosts === 0 ? (s.alert?.message ?? null) : null));
+  const clear = usePageAlertStore((s) => s.clear);
+  if (message === null) return null;
+  return (
+    <div className="shrink-0 px-4 pt-3">
+      <PageAlert message={message} onDismiss={clear} />
     </div>
   );
 }

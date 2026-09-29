@@ -30,6 +30,19 @@ interface HearthVoiceDebugRemote {
   muted: boolean;
   /** The remote muted their own microphone. */
   remoteMicMuted: boolean;
+  /** This remote's videos (empty when none); an unpublished or stopped video is not listed. */
+  video: HearthVoiceDebugVideo[];
+}
+
+/** One remote video in `window.__hearthDebug.voice()`: a published, unmuted camera or screen share. */
+interface HearthVoiceDebugVideo {
+  source: 'camera' | 'screen_share';
+  /** We are subscribed and have the track. */
+  subscribed: boolean;
+  /** `videoWidth` of the `<video>` element the track is attached to (0 when not attached). */
+  videoWidth: number;
+  /** `framesDecoded` from the track's `getReceiverStats()` (0 when unavailable). */
+  framesDecoded: number;
 }
 
 /** `window.__hearthDebug.voice()` (e2e builds only). */
@@ -53,6 +66,8 @@ interface HearthVoiceDebug {
   /** Identities the sidebar shows as speaking (`data-speaking="true"`). */
   speaking: string[];
   remotes: HearthVoiceDebugRemote[];
+  /** What this page publishes: camera on, screen shared. */
+  local: { camera: boolean; screen: boolean };
 }
 
 interface Window {

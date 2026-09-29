@@ -1,10 +1,10 @@
 import { useQuery } from '@tanstack/react-query';
-import { useState } from 'react';
 import { Link } from 'react-router';
 import { meQuery } from '../api/auth';
 import { bootstrapQuery } from '../api/chat';
 import { PageAlert } from '../components/forms';
 import { MembersPanel } from '../components/MembersPanel';
+import { usePageAlert } from '../components/usePageAlert';
 import { card, linkClass } from '../components/styles';
 
 /**
@@ -14,7 +14,7 @@ import { card, linkClass } from '../components/styles';
 export function HomePage() {
   const { data: me } = useQuery(meQuery);
   const { data: boot } = useQuery(bootstrapQuery);
-  const [alert, setAlert] = useState<string | null>(null);
+  const { message: alert, setAlert, dismiss: dismissAlert } = usePageAlert();
   if (!me) return null;
 
   const hasTextChannel = boot?.channels.some((c) => c.type === 'text') ?? false;
@@ -23,12 +23,7 @@ export function HomePage() {
     <div className="flex min-h-0 flex-1">
       <div className="min-h-0 flex-1 overflow-y-auto">
         <div className="mx-auto flex w-full max-w-3xl flex-col gap-4 px-4 py-8">
-          <PageAlert
-            message={alert}
-            onDismiss={() => {
-              setAlert(null);
-            }}
-          />
+          <PageAlert message={alert} onDismiss={dismissAlert} />
           <section className={card}>
             <h1 data-testid="home-welcome" className="text-2xl font-semibold tracking-tight">
               Welcome, {me.displayName}

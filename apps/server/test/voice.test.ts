@@ -10,7 +10,7 @@ import {
 } from '@hearth/shared';
 import { eq } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
-import { TokenVerifier } from 'livekit-server-sdk';
+import { TokenVerifier, TrackSource } from 'livekit-server-sdk';
 import { afterAll, afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { channels, users as usersTable } from '../src/db/schema.js';
 import type { ChannelRow, UserRow } from '../src/db/types.js';
@@ -579,6 +579,119 @@ describe('reconcile', () => {
       timeoutMs: 3_000,
       message: 'periodic reconcile',
     });
+  });
+});
+
+describe('reconcile: camera/screen flags against published tracks (B.6b rule 1)', () => {
+  const track = (source: TrackSource, muted = false) => ({ source, muted });
+  const mic = track(TrackSource.MICROPHONE);
+  const both = { ...flags, selfMute: true, camera: true, screen: true };
+
+  /** Alice in Lounge as `PA_a1` with `state`; LiveKit lists her with `tracks`. Carol's recorder is reset. */
+  async function aliceIn(state: typeof flags, tracks: { source: TrackSource; muted: boolean }[]) {
+    const alice = await connect('alice');
+    const carol = await connect('carol');
+    await join(lounge, 'alice', 'PA_a1');
+    expect(await sendVoiceState(alice, { channelId: lounge.id, ...state })).toEqual({ ok: true, data: null });
+    await carol.waitFor('voice:updated');
+    carol.events.length = 0;
+    backend.put(lounge.id, users.alice.id, 'PA_a1', Date.now(), tracks);
+    return { alice, carol };
+  }
+
+  /** Ends with a control event (bob joins Games), so `carol.events` holds everything emitted before it. */
+  async function control(carol: RecordingClient): Promise<string[]> {
+    backend.put(games.id, users.bob.id, 'PA_b1');
+    await join(games, 'bob', 'PA_b1');
+    await carol.waitFor('voice:joined');
+    return carol.events.map((e) => e.event);
+  }
+
+  it('clears flags LiveKit has no track for, with one voice:updated; a second pass emits nothing', async () => {
+    const { carol } = await aliceIn(both, [mic]);
+    await app.voice.reconciler.runNow();
+    await carol.waitFor('voice:updated');
+    const expected = { userId: users.alice.id, ...flags, selfMute: true };
+    expect(carol.of('voice:updated')).toEqual([
+      { channelId: lounge.id, participant: expect.objectContaining(expected) as unknown },
+    ]);
+    expect((await voiceOf())[lounge.id]).toEqual([expect.objectContaining(expected)]);
+
+    carol.events.length = 0;
+    await app.voice.reconciler.runNow();
+    expect(await control(carol)).toEqual(['voice:joined']);
+  });
+
+  it('keeps flags whose tracks are published, muted ones included; never sets a flag', async () => {
+    const { carol } = await aliceIn({ ...flags, screen: true }, [
+      mic,
+      track(TrackSource.SCREEN_SHARE, true),
+      track(TrackSource.CAMERA),
+    ]);
+    await app.voice.reconciler.runNow();
+    expect(await control(carol)).toEqual(['voice:joined']);
+    // camera stays false although LiveKit lists a camera track: `true` only ever comes from the client.
+    expect((await voiceOf())[lounge.id]).toEqual([
+      expect.objectContaining({ userId: users.alice.id, camera: false, screen: true }),
+    ]);
+  });
+
+  it('screen-share audio alone does not keep `screen`', async () => {
+    const { carol } = await aliceIn(both, [track(TrackSource.SCREEN_SHARE_AUDIO), track(TrackSource.CAMERA)]);
+    await app.voice.reconciler.runNow();
+    await carol.waitFor('voice:updated');
+    expect(carol.of('voice:updated')).toEqual([
+      {
+        channelId: lounge.id,
+        participant: expect.objectContaining({ camera: true, screen: false, selfMute: true }) as unknown,
+      },
+    ]);
+  });
+
+  it('a flag the client set after the pass began is left alone until the next pass', async () => {
+    const { alice, carol } = await aliceIn(flags, [mic]);
+    let sent = false;
+    backend.onCall = async (call) => {
+      if (call.op !== 'listParticipants' || sent) return;
+      sent = true;
+      // Mid-pass: alice turns her camera on; LiveKit's listing doesn't have the track yet.
+      expect(await sendVoiceState(alice, { channelId: lounge.id, ...flags, camera: true })).toEqual({
+        ok: true,
+        data: null,
+      });
+    };
+    await app.voice.reconciler.runNow();
+    expect(sent).toBe(true);
+    await carol.waitFor('voice:updated');
+    expect(await control(carol)).toEqual(['voice:updated', 'voice:joined']); // only the client's own update
+    expect((await voiceOf())[lounge.id]).toEqual([expect.objectContaining({ camera: true })]);
+
+    // Still no track on the next pass: now it is stale.
+    carol.events.length = 0;
+    await app.voice.reconciler.runNow();
+    await carol.waitFor('voice:updated');
+    expect(carol.of('voice:updated')).toEqual([
+      { channelId: lounge.id, participant: expect.objectContaining({ camera: false }) as unknown },
+    ]);
+  });
+
+  it('a user the reconcile adds gets no stale flag from a voice:state sent before the join', async () => {
+    const alice = await connect('alice');
+    const carol = await connect('carol');
+    // Not in the channel yet: acked VALIDATION but remembered as the starting flags (B.6a rule 7).
+    await sendVoiceState(alice, { channelId: lounge.id, ...both });
+    backend.put(lounge.id, users.alice.id, 'PA_a1', Date.now(), [track(TrackSource.CAMERA, true)]);
+    await app.voice.reconciler.runNow();
+    await carol.waitFor('voice:joined');
+    expect(carol.events).toEqual([
+      {
+        event: 'voice:joined',
+        payload: {
+          channelId: lounge.id,
+          participant: expect.objectContaining({ selfMute: true, camera: true, screen: false }) as unknown,
+        },
+      },
+    ]);
   });
 });
 

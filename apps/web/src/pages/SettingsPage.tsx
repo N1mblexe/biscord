@@ -12,8 +12,9 @@ import { bootstrapQueryKey } from '../api/chat';
 import { errorMessage, fieldErrors } from '../api/errors';
 import { removeAvatar, setAvatar } from '../api/uploads';
 import { Avatar } from '../components/Avatar';
-import { FormAlert, FormSuccess, formString, TextField } from '../components/forms';
+import { FormAlert, FormSuccess, formString, PageAlert, TextField } from '../components/forms';
 import { card, primaryButton, secondaryButton } from '../components/styles';
+import { usePageAlert } from '../components/usePageAlert';
 import { avatarUploadError, checkAvatarFile } from '../lib/avatar';
 import { upsertUser } from '../lib/bootstrapPatch';
 import {
@@ -59,15 +60,35 @@ export function SettingsPage() {
     avatarRemove.reset();
   };
 
+  // The page's single alert slot: at most one form has failed (see above), and the app-wide camera
+  // and screen share errors share the slot with it (the newer one is shown).
+  const avatarFailed = avatarSet.isError ? avatarSet.error : avatarRemove.isError ? avatarRemove.error : null;
+  const avatarMessage = avatarCheck ?? (avatarFailed ? avatarUploadError(avatarFailed) : null);
+  const own: { form: 'profile' | 'password' | 'avatar'; message: string } | null = profile.isError
+    ? { form: 'profile', message: errorMessage(profile.error) }
+    : password.isError
+      ? {
+          form: 'password',
+          message: errorMessage(password.error, { INVALID_CREDENTIALS: 'Your current password is wrong.' }),
+        }
+      : avatarMessage !== null
+        ? { form: 'avatar', message: avatarMessage }
+        : null;
+  const slot = usePageAlert(own?.message ?? null);
+  const alertFor = (form: 'profile' | 'password' | 'avatar') =>
+    !slot.shared && own?.form === form ? slot.message : null;
+
   if (!me) return null;
   return (
     <div className="flex flex-col gap-6">
       <h1 className="text-2xl font-semibold tracking-tight">Settings</h1>
+      {slot.shared && <PageAlert message={slot.message} onDismiss={slot.dismiss} />}
       {/* Keyed so a different signed-in user never sees stale form values. */}
       <ProfileForm
         key={me.id}
         me={me}
         mutation={profile}
+        alert={alertFor('profile')}
         onSubmitStart={() => {
           resetAllBut('profile');
         }}
@@ -76,7 +97,7 @@ export function SettingsPage() {
         me={me}
         setMutation={avatarSet}
         removeMutation={avatarRemove}
-        checkError={avatarCheck}
+        alert={alertFor('avatar')}
         onStart={(checkError) => {
           resetAllBut('avatar');
           setAvatarCheck(checkError);
@@ -84,6 +105,7 @@ export function SettingsPage() {
       />
       <PasswordForm
         mutation={password}
+        alert={alertFor('password')}
         onSubmitStart={() => {
           resetAllBut('password');
         }}
@@ -102,23 +124,18 @@ function AvatarSection({
   me,
   setMutation,
   removeMutation,
-  checkError,
+  alert,
   onStart,
 }: {
   me: Me;
   setMutation: AvatarMutation;
   removeMutation: RemoveAvatarMutation;
-  checkError: string | null;
+  /** This section's share of the page's single alert (the pre-check or upload error). */
+  alert: string | null;
   /** Resets the other forms' results; `checkError` is the pre-check alert (or `null` to go ahead). */
   onStart: (checkError: string | null) => void;
 }) {
   const busy = setMutation.isPending || removeMutation.isPending;
-  const failed = setMutation.isError
-    ? setMutation.error
-    : removeMutation.isError
-      ? removeMutation.error
-      : null;
-  const alert = checkError ?? (failed ? avatarUploadError(failed) : null);
 
   const onChange = (event: ChangeEvent<HTMLInputElement>) => {
     const input = event.currentTarget;
@@ -242,11 +259,13 @@ function NotificationsSection() {
 
 interface FormProps<M> {
   mutation: M;
+  /** This form's share of the page's single alert. */
+  alert: string | null;
   /** Called before this form's mutation starts (resets the other form's result). */
   onSubmitStart: () => void;
 }
 
-function ProfileForm({ me, mutation, onSubmitStart }: FormProps<ProfileMutation> & { me: Me }) {
+function ProfileForm({ me, mutation, alert, onSubmitStart }: FormProps<ProfileMutation> & { me: Me }) {
   const onSubmit = (event: SubmitEvent<HTMLFormElement>) => {
     event.preventDefault();
     const data = new FormData(event.currentTarget);
@@ -273,7 +292,7 @@ function ProfileForm({ me, mutation, onSubmitStart }: FormProps<ProfileMutation>
           autoComplete="nickname"
           errors={errors}
         />
-        <FormAlert message={mutation.isError ? errorMessage(mutation.error) : null} />
+        <FormAlert message={alert} />
         {mutation.isSuccess && <FormSuccess>Profile saved.</FormSuccess>}
         <div>
           <button type="submit" className={primaryButton} disabled={mutation.isPending}>
@@ -285,7 +304,7 @@ function ProfileForm({ me, mutation, onSubmitStart }: FormProps<ProfileMutation>
   );
 }
 
-function PasswordForm({ mutation, onSubmitStart }: FormProps<PasswordMutation>) {
+function PasswordForm({ mutation, alert, onSubmitStart }: FormProps<PasswordMutation>) {
   const onSubmit = (event: SubmitEvent<HTMLFormElement>) => {
     event.preventDefault();
     const form = event.currentTarget;
@@ -302,9 +321,6 @@ function PasswordForm({ mutation, onSubmitStart }: FormProps<PasswordMutation>) 
   };
 
   const errors = fieldErrors(mutation.error);
-  const message = mutation.isError
-    ? errorMessage(mutation.error, { INVALID_CREDENTIALS: 'Your current password is wrong.' })
-    : null;
 
   return (
     <section className={card} aria-labelledby="settings-password-heading">
@@ -330,7 +346,7 @@ function PasswordForm({ mutation, onSubmitStart }: FormProps<PasswordMutation>) 
           placeholder="at least 10 characters"
           errors={errors}
         />
-        <FormAlert message={message} />
+        <FormAlert message={alert} />
         {mutation.isSuccess && <FormSuccess>Password changed.</FormSuccess>}
         <div>
           <button type="submit" className={primaryButton} disabled={mutation.isPending}>

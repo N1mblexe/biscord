@@ -3,8 +3,9 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { SubmitEvent } from 'react';
 import { createInvite, invitesQuery, revokeInvite } from '../api/admin';
 import { errorMessage, fieldErrors } from '../api/errors';
-import { FormAlert, FormSuccess, formString, TextField } from '../components/forms';
+import { FormAlert, FormSuccess, formString, PageAlert, TextField } from '../components/forms';
 import { card, dangerButton, primaryButton } from '../components/styles';
+import { usePageAlert } from '../components/usePageAlert';
 
 function formatDate(iso: string): string {
   return new Date(iso).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
@@ -50,9 +51,12 @@ export function AdminInvitesPage() {
       : null;
   const errors = fieldErrors(createMutation.error);
   const created = createMutation.data;
+  // The page's single alert slot, shared with the app-wide camera and screen share errors.
+  const slot = usePageAlert(failed ? errorMessage(failed) : null);
 
   return (
     <div className="flex flex-col gap-6">
+      {slot.shared && <PageAlert message={slot.message} onDismiss={slot.dismiss} />}
       <section className={card} aria-labelledby="invites-create-heading">
         <h1 id="invites-create-heading" className="text-2xl font-semibold tracking-tight">
           Invites
@@ -82,7 +86,7 @@ export function AdminInvitesPage() {
               errors={errors}
             />
           </div>
-          <FormAlert message={failed ? errorMessage(failed) : null} />
+          <FormAlert message={slot.shared ? null : slot.message} />
           {created && (
             <FormSuccess>
               Invite created. Share this link:{' '}

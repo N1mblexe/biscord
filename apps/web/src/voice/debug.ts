@@ -1,5 +1,6 @@
 import {
   ConnectionState,
+  RemoteVideoTrack,
   Track,
   type RemoteParticipant,
   type RemoteTrackPublication,
@@ -37,11 +38,57 @@ export function allPlaybackMuted(remotes: readonly Pick<HearthVoiceDebugRemote, 
   return remotes.length > 0 && remotes.every((r) => r.muted);
 }
 
+/** The widest `<video>` a track is attached to (0 when none is, or none has a frame yet). */
+export function attachedVideoWidth(
+  elements: readonly (Pick<HTMLMediaElement, 'tagName'> & { videoWidth?: number })[],
+): number {
+  let width = 0;
+  for (const el of elements) {
+    if (el.tagName === 'VIDEO') width = Math.max(width, el.videoWidth ?? 0);
+  }
+  return width;
+}
+
+/** The debug `source` for a publication's source, or `null` when it isn't a video source. */
+export function videoSourceName(source: Track.Source): HearthVoiceDebugVideo['source'] | null {
+  if (source === Track.Source.Camera) return 'camera';
+  if (source === Track.Source.ScreenShare) return 'screen_share';
+  return null;
+}
+
+/**
+ * A remote's videos as the stage sees them: published camera and screen-share tracks that aren't
+ * muted (a stopped camera stays published but muted, and the stage drops it too).
+ */
+async function remoteVideos(p: RemoteParticipant): Promise<HearthVoiceDebugVideo[]> {
+  const pubs = [...p.trackPublications.values()].filter((pub) => !pub.isMuted);
+  const videos: (HearthVoiceDebugVideo | null)[] = await Promise.all(
+    pubs.map(async (pub) => {
+      const source = videoSourceName(pub.source);
+      if (source === null) return null;
+      const track = pub.track;
+      const subscribed = pub.isSubscribed && track !== undefined;
+      const stats =
+        track instanceof RemoteVideoTrack ? await track.getReceiverStats().catch(() => undefined) : undefined;
+      return {
+        source,
+        subscribed,
+        videoWidth: track ? attachedVideoWidth(track.attachedElements) : 0,
+        framesDecoded: stats?.framesDecoded ?? 0,
+      };
+    }),
+  );
+  return videos.filter((v) => v !== null);
+}
+
 async function remoteDebug(p: RemoteParticipant): Promise<HearthVoiceDebugRemote> {
   const pub = p.getTrackPublication(Track.Source.Microphone);
   const track = pub?.track;
   const audioSubscribed = pub?.isSubscribed === true && track !== undefined;
-  const report = track ? await track.getRTCStatsReport().catch(() => undefined) : undefined;
+  const [report, video] = await Promise.all([
+    track ? track.getRTCStatsReport().catch(() => undefined) : Promise.resolve(undefined),
+    remoteVideos(p),
+  ]);
   return {
     identity: p.identity,
     audioSubscribed,
@@ -49,6 +96,7 @@ async function remoteDebug(p: RemoteParticipant): Promise<HearthVoiceDebugRemote
     volume: p.getVolume() ?? volumeFor(p.identity),
     muted: remotePlaybackMuted(pub),
     remoteMicMuted: pub?.isMuted ?? true,
+    video,
   };
 }
 
@@ -68,12 +116,17 @@ async function voiceDebug(room: Room): Promise<HearthVoiceDebug> {
     activeSpeakers: room.activeSpeakers.map((p) => p.identity),
     speaking: Object.keys({ ...s.speaking, ...s.levelSpeaking }).sort(),
     remotes,
+    local: {
+      camera: inRoom && room.localParticipant.isCameraEnabled,
+      screen: inRoom && room.localParticipant.isScreenShareEnabled,
+    },
   };
 }
 
 /**
  * E2E builds only (`VITE_E2E=true`): `window.__hearthDebug.voice()` reports the LiveKit room as the
- * voice specs need it (connection state, subscriptions, received audio bytes, local playback mute).
+ * voice specs need it (connection state, subscriptions, received audio bytes, local playback mute,
+ * received video and what we publish).
  * In every other build `import.meta.env.VITE_E2E` is replaced statically, so this is dead code.
  */
 export function installVoiceDebug(room: Room): () => void {

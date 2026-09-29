@@ -3,6 +3,12 @@
 Status: **awaiting approval**. Source: PLAN.md §5 Phase 9, §6 and §7; CONTRACTS.md B.8; CLAUDE.md gotchas (HTTPS for media; LiveKit ports; OCI's two firewall layers).
 Starts only after Phase 8 is committed.
 
+## Decisions from the user (2026-09-29)
+
+- **Domain:** a free **DuckDNS** name (for example `<name>.duckdns.org` for the app and `lk.<name>.duckdns.org` for LiveKit, or two separate DuckDNS names if a subdomain isn't available). The user creates the names on duckdns.org; the runbook includes the DNS steps.
+- **VM:** **not created yet.** The runbook starts by creating an Always Free Ampere A1 VM (arm64) and its networking in the Oracle console; the user runs those steps.
+- **Backups:** **on the VM only** for v1 (nightly `pg_dump` + uploads tarball, keep 7), plus a documented command to download them to a PC. No rclone.
+
 ## Goal
 
 Hearth runs on one Oracle Cloud Always Free VM (Ampere A1, arm64, Ubuntu) behind HTTPS:

@@ -2,6 +2,43 @@
 
 Updated at the end of every phase (see CLAUDE.md → Workflow).
 
+## Phase 7 — Camera & screen share ✅ (2026-09-29)
+
+### Built
+
+- **Web:**
+  - Camera (720p with simulcast) and screen share (1080p30, `contentHint: 'detail'`, no simulcast, optional tab audio). Each source goes off → starting → on → stopping. A cancelled or blocked picker shows an error, and the browser's own "Stop sharing" is handled.
+  - Video stage: a grid plus a focused view. Other people's screen shares focus automatically unless you've pinned a tile, and a pin survives the other source stopping. Your own camera is mirrored.
+  - Sidebar badges: `data-camera` and `data-live="screen"` ("LIVE").
+  - Screen-share audio follows the sharer's volume slider and is muted by deafen.
+  - Privacy fixes from the review:
+    - A network reconnect no longer shows the camera or screen as off while it's still being broadcast. "Ended" now comes from the track itself.
+    - A start still pending when you leave or switch rooms is unpublished and its capture stopped.
+    - The UI and flags follow what LiveKit actually publishes.
+  - One `role="alert"` slot on every page, and the media error clears when you navigate.
+- **Server:** the re-sync with LiveKit clears stale camera/screen flags when LiveKit reports no matching track. It only ever clears them, only for the matching connection, and never a flag the client just set.
+- **e2e:** 6 video scenarios, with the debug hook reporting received video (`videoWidth`, `framesDecoded`).
+- **Screen-capture check before building:** headless Chromium with the CLAUDE.md flags can share its screen. No xvfb or canvas fallback needed.
+
+### Tested (run for real on 2026-09-29)
+
+- `pnpm typecheck` ✅ · `pnpm lint` ✅ · `pnpm format:check` ✅
+- `pnpm test` ✅: 671 tests (shared 66, web 258, server 347), run with shared `dist/` deleted.
+- `pnpm test:e2e --repeat-each=3` ✅: 126/126 (42 specs × 3), no flakes.
+- Full stack through Caddy ✅ and LAN profile through `https://192.168.1.110:8443` ✅. In both, Alice turns on her camera and shares her screen with the real UI buttons, and:
+  - Bob decodes both streams (screen 1920 wide, camera 320) and sees 2 tiles;
+  - Carol, outside the channel, sees the camera and LIVE badges.
+- A fresh review found 0 blockers, 2 major (privacy) and 5 minor issues; all are fixed and tested.
+
+### Known issues / notes
+
+- After an abrupt disconnect (crash or closed tab), the LIVE and camera badges clear only after LiveKit's `departure_timeout` (20 s by default), when `voice:left` arrives. While LiveKit still lists the participant, the re-sync correctly keeps their flags.
+- The video grid shows every tile (no cap). Adaptive stream lowers the quality of small tiles, which is fine for 6–8 people.
+
+### Next step
+
+Phase 8: admin, moderation, hardening (`docs/plans/phase-8.md`).
+
 ## Phase 6 — Voice via LiveKit + LAN test profile ✅ (2026-09-29)
 
 ### Built
@@ -60,7 +97,7 @@ Updated at the end of every phase (see CLAUDE.md → Workflow).
 
 ### Next step
 
-Phase 7: camera and screen share (`docs/plans/phase-7.md`, awaiting approval). It starts with a check that headless Chromium can screen-share.
+Phase 7: camera and screen share (`docs/plans/phase-7.md`).
 
 ## Phase 5 — Uploads & avatars ✅ (2026-09-29)
 

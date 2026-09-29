@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type DragEvent } from 'react';
 import { useNavigate, useParams } from 'react-router';
 import { meQuery } from '../api/auth';
 import { bootstrapQuery } from '../api/chat';
@@ -9,6 +9,7 @@ import { TypingIndicator } from '../components/chat/TypingIndicator';
 import { useAttachmentUploads } from '../components/chat/useAttachmentUploads';
 import { PageAlert } from '../components/forms';
 import { MembersPanel } from '../components/MembersPanel';
+import { usePageAlert } from '../components/usePageAlert';
 import { channelViewState } from '../lib/bootstrapPatch';
 import { useMessageStore } from '../stores/messages';
 import { NOTICES, useNoticeStore } from '../stores/notice';
@@ -23,10 +24,7 @@ export function ChannelPage() {
 function ChannelView({ channelId }: { channelId: string }) {
   const { data: boot } = useQuery(bootstrapQuery);
   const { data: me } = useQuery(meQuery);
-  const [alert, setAlertState] = useState<string | null>(null);
-  const setAlert = useCallback((message: string | null) => {
-    setAlertState(message);
-  }, []);
+  const { message: alert, setAlert, dismiss: dismissAlert } = usePageAlert();
 
   const uploads = useAttachmentUploads(setAlert);
   const drop = useFileDrop(uploads.addFiles);
@@ -82,12 +80,7 @@ function ChannelView({ channelId }: { channelId: string }) {
         </header>
         {alert && (
           <div className="px-4 pt-3">
-            <PageAlert
-              message={alert}
-              onDismiss={() => {
-                setAlert(null);
-              }}
-            />
+            <PageAlert message={alert} onDismiss={dismissAlert} />
           </div>
         )}
         <MessageList

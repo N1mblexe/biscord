@@ -1,5 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { DEFAULT_VOLUME, readVolumes, useVolumeStore, VOLUME_STORAGE_KEY, volumeFor } from './volume';
+import { Track } from 'livekit-client';
+import {
+  applyUserVolume,
+  DEFAULT_VOLUME,
+  readVolumes,
+  useVolumeStore,
+  VOLUME_STORAGE_KEY,
+  volumeFor,
+} from './volume';
 
 const A = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const B = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
@@ -71,5 +79,23 @@ describe('per-user volume', () => {
     useVolumeStore.getState().reload();
     expect(useVolumeStore.getState().setVolume(A, 0.5)).toBe(0.5);
     expect(volumeFor(A)).toBe(0.5);
+  });
+});
+
+describe('applyUserVolume', () => {
+  it("sets the user's microphone and screen-share audio to the slider value", () => {
+    const calls: [number, Track.Source | undefined][] = [];
+    applyUserVolume(
+      {
+        setVolume: (volume, source) => {
+          calls.push([volume, source]);
+        },
+      },
+      0.4,
+    );
+    expect(calls).toEqual([
+      [0.4, Track.Source.Microphone],
+      [0.4, Track.Source.ScreenShareAudio],
+    ]);
   });
 });

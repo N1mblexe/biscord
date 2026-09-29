@@ -32,6 +32,19 @@ export function toggleDeafen(s: MicState): MicState {
   return { micMuted: true, deafened: true, mutedBeforeDeafen: s.micMuted };
 }
 
+/**
+ * Our camera or screen share (docs/plans/phase-7.md): `starting` while the browser asks for the
+ * device or picker and LiveKit publishes, `stopping` while it unpublishes. Only `on` counts as
+ * publishing for the `voice:state` flags; the panel buttons are disabled while starting or stopping.
+ */
+export type PublishState = 'off' | 'starting' | 'on' | 'stopping';
+
+/** Camera and screen share both off (leaving or losing the room unpublishes everything). */
+export const MEDIA_OFF = { camera: 'off', screen: 'off' } as const satisfies {
+  camera: PublishState;
+  screen: PublishState;
+};
+
 export interface VoiceSessionState extends MicState {
   /** The voice channel we are in or joining, or `null`. */
   channelId: string | null;
@@ -44,6 +57,10 @@ export interface VoiceSessionState extends MicState {
   speaking: Record<string, true>;
   /** Identities in our room whose audio level says they are speaking (voice/speakingMeter.ts). */
   levelSpeaking: Record<string, true>;
+  camera: PublishState;
+  screen: PublishState;
+  /** The **Share tab audio** checkbox (default on): ask the browser for tab audio when sharing. */
+  shareTabAudio: boolean;
 
   set: (patch: Partial<Omit<VoiceSessionState, 'set' | 'reset'>>) => void;
   reset: () => void;
@@ -59,6 +76,9 @@ const initialState = {
   canPlaybackAudio: true,
   speaking: {} as Record<string, true>,
   levelSpeaking: {} as Record<string, true>,
+  camera: 'off' as PublishState,
+  screen: 'off' as PublishState,
+  shareTabAudio: true,
 };
 
 export const useVoiceSession = create<VoiceSessionState>()((set) => ({

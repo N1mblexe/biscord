@@ -1,10 +1,22 @@
 import type { FastifyBaseLogger } from 'fastify';
 import { parseVoiceRoomName, Uuid, voiceRoomName } from '@hearth/shared';
+import { TrackSource } from 'livekit-server-sdk';
 import type { Db } from '../db/client.js';
 import { loggableError } from '../lib/errors.js';
-import type { DesiredVoiceState, ObservedParticipant, VoiceState } from '../realtime/voice-state.js';
+import type {
+  DesiredVoiceState,
+  ObservedParticipant,
+  PublishedMedia,
+  VoiceState,
+} from '../realtime/voice-state.js';
 import { listVoiceChannelIds } from '../services/channels.js';
-import { ignoreNotFound, isNotFoundError, type BackendParticipant, type VoiceBackend } from './client.js';
+import {
+  ignoreNotFound,
+  isNotFoundError,
+  type BackendParticipant,
+  type BackendTrack,
+  type VoiceBackend,
+} from './client.js';
 import type { LiveKitHealth } from './health.js';
 
 export interface ReconcileDeps {
@@ -24,6 +36,17 @@ export interface Reconciler {
   stop(): Promise<void>;
 }
 
+/**
+ * B.6b rule 1: which of camera / screen share the participant actually publishes. A muted track is still
+ * published. Screen-share audio alone is not a screen share.
+ */
+export function publishedMedia(tracks: readonly BackendTrack[]): PublishedMedia {
+  return {
+    camera: tracks.some((t) => t.source === TrackSource.CAMERA),
+    screen: tracks.some((t) => t.source === TrackSource.SCREEN_SHARE),
+  };
+}
+
 function toObserved(p: BackendParticipant): ObservedParticipant | null {
   // Only Hearth users (identity = user id) count; anything else in the room is not ours to track.
   if (!Uuid.safeParse(p.identity).success) return null;
@@ -31,6 +54,7 @@ function toObserved(p: BackendParticipant): ObservedParticipant | null {
     userId: p.identity.toLowerCase(),
     sid: p.sid,
     joinedAt: new Date(p.joinedAtMs > 0 ? p.joinedAtMs : Date.now()),
+    media: publishedMedia(p.tracks),
   };
 }
 
@@ -38,7 +62,9 @@ function toObserved(p: BackendParticipant): ObservedParticipant | null {
  * One reconcile pass (B.6 / B.6a rule 4): `listRooms` → the Hearth rooms of **this** DB → `listParticipants`
  * each → diff against memory, emitting joined/left. Memberships changed while LiveKit was being listed are
  * left alone (the webhooks that changed them are newer). A user LiveKit reports in two rooms keeps the most
- * recent join and is removed from the other (B.6a rule 5). A failed listing changes nothing.
+ * recent join and is removed from the other (B.6a rule 5). `camera`/`screen` flags without a matching
+ * published track are cleared (B.6b rule 1), unless the client set them after the pass began. A failed
+ * listing changes nothing.
  */
 async function reconcileOnce({ db, backend, voice, health, log }: ReconcileDeps): Promise<void> {
   const since = voice.mark();
