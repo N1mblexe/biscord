@@ -70,8 +70,15 @@ export interface RecordingClient {
   waitFor(event: ServerEventName, n?: number): Promise<void>;
 }
 
-/** Connects a socket with `cookie` and records every server→client event, in arrival order. */
-export async function connectRecording(baseUrl: string, cookie: string): Promise<RecordingClient> {
+/**
+ * Connects a socket with `cookie` and records every server→client event, in arrival order, except the
+ * `ignore`d ones (e.g. `presence` in tests about other events).
+ */
+export async function connectRecording(
+  baseUrl: string,
+  cookie: string,
+  { ignore = [] }: { ignore?: readonly ServerEventName[] } = {},
+): Promise<RecordingClient> {
   const client: Client = connectClient(baseUrl, {
     path: SOCKET_PATH,
     transports: ['websocket'],
@@ -80,8 +87,9 @@ export async function connectRecording(baseUrl: string, cookie: string): Promise
     extraHeaders: { origin: ORIGIN, cookie },
   });
   const events: RecordedEvent[] = [];
+  const ignored = new Set<string>(ignore);
   client.onAny((event: string, payload: unknown) => {
-    events.push({ event, payload });
+    if (!ignored.has(event)) events.push({ event, payload });
   });
   await new Promise<void>((resolve, reject) => {
     client.once('connect', () => {

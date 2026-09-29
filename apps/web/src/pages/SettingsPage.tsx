@@ -1,10 +1,16 @@
 import type { ChangePasswordRequest, Me, UpdateMeRequest } from '@hearth/shared';
 import { useMutation, useQuery, useQueryClient, type UseMutationResult } from '@tanstack/react-query';
-import type { SubmitEvent } from 'react';
+import { useState, type ChangeEvent, type SubmitEvent } from 'react';
 import { changePassword, meQuery, updateMe } from '../api/auth';
 import { errorMessage, fieldErrors } from '../api/errors';
 import { FormAlert, FormSuccess, formString, TextField } from '../components/forms';
 import { card, primaryButton } from '../components/styles';
+import {
+  notificationPermission,
+  readNotificationsPref,
+  requestNotificationPermission,
+  writeNotificationsPref,
+} from '../lib/notifications';
 
 type ProfileMutation = UseMutationResult<Me, Error, UpdateMeRequest>;
 type PasswordMutation = UseMutationResult<undefined, Error, ChangePasswordRequest>;
@@ -42,7 +48,72 @@ export function SettingsPage() {
           profile.reset();
         }}
       />
+      <NotificationsSection />
     </div>
+  );
+}
+
+const PERMISSION_HINTS = {
+  denied: 'Notifications are blocked for this site. Allow them in your browser settings, then try again.',
+  default: 'Notifications were not allowed.',
+  unsupported: "This browser doesn't support desktop notifications.",
+} as const;
+
+/**
+ * **Desktop notifications**: mentions and DMs while the tab is hidden (lib/notifications.ts).
+ * Turning it on asks for permission first; it only stays on once permission is granted. The
+ * preference is per browser (localStorage).
+ */
+function NotificationsSection() {
+  const [enabled, setEnabled] = useState(
+    () => readNotificationsPref() && notificationPermission() === 'granted',
+  );
+  const [hint, setHint] = useState<string | null>(null);
+  const [asking, setAsking] = useState(false);
+
+  const onChange = async (event: ChangeEvent<HTMLInputElement>) => {
+    const wanted = event.target.checked;
+    setHint(null);
+    if (!wanted) {
+      writeNotificationsPref(false);
+      setEnabled(false);
+      return;
+    }
+    setAsking(true);
+    const permission = await requestNotificationPermission();
+    setAsking(false);
+    const granted = permission === 'granted';
+    writeNotificationsPref(granted);
+    setEnabled(granted);
+    if (!granted) setHint(PERMISSION_HINTS[permission]);
+  };
+
+  return (
+    <section className={card} aria-labelledby="settings-notifications-heading">
+      <h2 id="settings-notifications-heading" className="text-lg font-semibold">
+        Notifications
+      </h2>
+      <p className="mt-1 text-sm text-muted">
+        Get a desktop notification when someone mentions you or sends you a direct message while Hearth is in
+        the background.
+      </p>
+      <div className="mt-4 flex items-center gap-2">
+        <input
+          id="settings-desktop-notifications"
+          type="checkbox"
+          className="size-4 accent-accent"
+          checked={enabled}
+          disabled={asking}
+          onChange={(event) => {
+            void onChange(event);
+          }}
+        />
+        <label htmlFor="settings-desktop-notifications" className="text-sm font-medium">
+          Desktop notifications
+        </label>
+      </div>
+      {hint && <p className="mt-2 text-sm text-muted">{hint}</p>}
+    </section>
   );
 }
 

@@ -6,15 +6,26 @@ import {
   LIMITS,
   ListMessagesResponse,
   MessageResponse,
+  ReadStateResponse,
   type Channel,
   type CreateChannelRequest,
   type DmChannel,
   type Message,
+  type ReadState,
 } from '@hearth/shared';
 import { queryOptions } from '@tanstack/react-query';
+import { applyLiveSnapshot, beginLiveSnapshot } from '../lib/liveState';
 import { apiFetch } from './client';
 
 export const bootstrapQueryKey = ['bootstrap'] as const;
+
+/** GET /bootstrap; its presence and read states also seed the live stores (lib/liveState.ts). */
+async function fetchBootstrap(signal: AbortSignal): Promise<BootstrapResponse> {
+  const mark = beginLiveSnapshot();
+  const boot = await apiFetch('/bootstrap', { schema: BootstrapResponse, signal });
+  applyLiveSnapshot(boot, mark);
+  return boot;
+}
 
 /**
  * GET /bootstrap. Kept current by socket events (see socket/chatEvents.ts) and invalidated on every
@@ -22,8 +33,7 @@ export const bootstrapQueryKey = ['bootstrap'] as const;
  */
 export const bootstrapQuery = queryOptions({
   queryKey: bootstrapQueryKey,
-  queryFn: ({ signal }): Promise<BootstrapResponse> =>
-    apiFetch('/bootstrap', { schema: BootstrapResponse, signal }),
+  queryFn: ({ signal }): Promise<BootstrapResponse> => fetchBootstrap(signal),
   staleTime: Infinity,
   refetchOnWindowFocus: false,
 });
@@ -71,6 +81,30 @@ export async function editMessage(messageId: string, content: string): Promise<M
 
 export function deleteMessage(messageId: string): Promise<undefined> {
   return apiFetch(`/messages/${encodeURIComponent(messageId)}`, { method: 'DELETE' });
+}
+
+/** POST /channels/:id/read — forward-only; the server also emits `readstate:updated` to our sockets. */
+export async function markRead(channelId: string, messageId: string): Promise<ReadState> {
+  const res = await apiFetch(`/channels/${encodeURIComponent(channelId)}/read`, {
+    method: 'POST',
+    body: { messageId },
+    schema: ReadStateResponse,
+  });
+  return res.readState;
+}
+
+function reactionPath(messageId: string, emoji: string): string {
+  return `/messages/${encodeURIComponent(messageId)}/reactions/${encodeURIComponent(emoji)}`;
+}
+
+/** PUT /messages/:id/reactions/:emoji — idempotent (204). */
+export function addReaction(messageId: string, emoji: string): Promise<undefined> {
+  return apiFetch(reactionPath(messageId, emoji), { method: 'PUT' });
+}
+
+/** DELETE /messages/:id/reactions/:emoji — idempotent (204). */
+export function removeReaction(messageId: string, emoji: string): Promise<undefined> {
+  return apiFetch(reactionPath(messageId, emoji), { method: 'DELETE' });
 }
 
 /** POST /dms — get-or-create the DM with `userId`. */

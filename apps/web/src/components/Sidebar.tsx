@@ -5,11 +5,62 @@ import { NavLink } from 'react-router';
 import { bootstrapQuery } from '../api/chat';
 import { errorMessage } from '../api/errors';
 import { dmName } from '../lib/bootstrapPatch';
+import { useIsOnline } from '../stores/presence';
+import { useUnreadSummary } from '../stores/reads';
+import { PresenceDot } from './PresenceDot';
 
-const linkClass = ({ isActive }: { isActive: boolean }) =>
-  `flex items-center gap-1.5 truncate rounded-md px-2 py-1 text-sm transition hover:bg-white/5 hover:text-text ${
-    isActive ? 'bg-white/10 font-medium text-text' : 'text-muted'
-  }`;
+function linkClass(isActive: boolean, unread: boolean): string {
+  const tone = unread ? 'font-semibold text-text' : isActive ? 'font-medium text-text' : 'text-muted';
+  return `flex items-center gap-1.5 rounded-md px-2 py-1 text-sm transition hover:bg-white/5 hover:text-text ${
+    isActive ? 'bg-white/10' : ''
+  } ${tone}`;
+}
+
+/**
+ * A sidebar `channel-link` (text channel or DM) with `data-unread` (bold when unread) and a
+ * `mention-badge` holding the mention count when there is one (docs/plans/phase-4.md, "Web UI
+ * contract"). DM links also carry the other user's `data-online` and a status dot. The name (channel
+ * name or the DM user's display name) is the child `channel-link-name`.
+ */
+function ChannelLink({
+  channelId,
+  dmUserId,
+  icon,
+  label,
+}: {
+  channelId: string;
+  /** For a DM: the other member, whose presence the link shows. */
+  dmUserId?: string;
+  icon?: ReactNode;
+  label: string;
+}) {
+  const { unread, mentionCount } = useUnreadSummary(channelId);
+  const online = useIsOnline(dmUserId);
+  const isDm = dmUserId !== undefined;
+  return (
+    <NavLink
+      data-testid="channel-link"
+      data-unread={unread ? 'true' : 'false'}
+      data-online={isDm ? (online ? 'true' : 'false') : undefined}
+      to={`/channels/${channelId}`}
+      className={({ isActive }) => linkClass(isActive, unread)}
+    >
+      {isDm ? <PresenceDot online={online} /> : icon}
+      <span data-testid="channel-link-name" className="min-w-0 flex-1 truncate">
+        {label}
+      </span>
+      {mentionCount > 0 && (
+        <span
+          data-testid="mention-badge"
+          title={mentionCount === 1 ? '1 mention' : `${mentionCount} mentions`}
+          className="shrink-0 rounded-full bg-danger px-1.5 text-[11px] leading-4 font-bold text-white"
+        >
+          {mentionCount}
+        </span>
+      )}
+    </NavLink>
+  );
+}
 
 function HashIcon() {
   return (
@@ -64,10 +115,7 @@ function SidebarLists({ boot }: { boot: BootstrapResponse }) {
           <ul className="flex flex-col gap-0.5">
             {text.map((channel) => (
               <li key={channel.id}>
-                <NavLink data-testid="channel-link" to={`/channels/${channel.id}`} className={linkClass}>
-                  <HashIcon />
-                  <span className="truncate">{channel.name}</span>
-                </NavLink>
+                <ChannelLink channelId={channel.id} icon={<HashIcon />} label={channel.name} />
               </li>
             ))}
           </ul>
@@ -101,9 +149,7 @@ function SidebarLists({ boot }: { boot: BootstrapResponse }) {
           <ul className="flex flex-col gap-0.5">
             {dms.map(({ dm, name }) => (
               <li key={dm.id}>
-                <NavLink data-testid="channel-link" to={`/channels/${dm.id}`} className={linkClass}>
-                  <span className="truncate">{name}</span>
-                </NavLink>
+                <ChannelLink channelId={dm.id} dmUserId={dm.otherUserId} label={name} />
               </li>
             ))}
           </ul>

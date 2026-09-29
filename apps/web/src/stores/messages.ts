@@ -1,4 +1,4 @@
-import type { Message } from '@hearth/shared';
+import type { Message, Reaction } from '@hearth/shared';
 import { create } from 'zustand';
 
 /**
@@ -69,6 +69,18 @@ export interface MessagesState {
   upsert: (message: Message) => void;
   /** An edited message (`message:updated`, our own edit): replaces it only if it is already loaded. */
   updateIfPresent: (message: Message) => void;
+  /**
+   * Adds or removes `userId`'s `emoji` reaction on a loaded message (`reaction:added` / `removed`,
+   * and optimistic toggles). Idempotent; does nothing for a message that isn't loaded. Returns
+   * whether the store changed.
+   */
+  applyReaction: (
+    channelId: string,
+    messageId: string,
+    emoji: string,
+    userId: string,
+    added: boolean,
+  ) => boolean;
   /** Moves `syncedThrough` forward to `messageId` (never backwards). */
   advanceSynced: (channelId: string, messageId: string) => void;
   /** Sets `liveEpoch` (see `ChannelMessages`). */
@@ -86,6 +98,29 @@ export interface MessagesState {
   discardPending: (nonce: string) => void;
 
   reset: () => void;
+}
+
+/**
+ * `reactions` with `userId`'s `emoji` added or removed; the same array when nothing changes.
+ * Order follows the server (CONTRACTS B.5a rule 4): a new emoji goes last, a new user goes last,
+ * and an emoji without users disappears.
+ */
+export function applyReactionChange(
+  reactions: readonly Reaction[],
+  emoji: string,
+  userId: string,
+  added: boolean,
+): readonly Reaction[] {
+  const index = reactions.findIndex((r) => r.emoji === emoji);
+  const current = reactions[index];
+  if (added) {
+    if (!current) return [...reactions, { emoji, userIds: [userId] }];
+    if (current.userIds.includes(userId)) return reactions;
+    return reactions.with(index, { emoji, userIds: [...current.userIds, userId] });
+  }
+  if (!current?.userIds.includes(userId)) return reactions;
+  const userIds = current.userIds.filter((id) => id !== userId);
+  return userIds.length === 0 ? reactions.toSpliced(index, 1) : reactions.with(index, { emoji, userIds });
 }
 
 /** Numeric order for bigint ids as decimal strings without leading zeros. */
@@ -230,6 +265,21 @@ export const useMessageStore = create<MessagesState>()((set, get) => {
     updateIfPresent: (message) => {
       if (!get().channels[message.channelId]?.byId[message.id]) return;
       upsertInto(message.channelId, [message], 'present');
+    },
+
+    applyReaction: (channelId, messageId, emoji, userId, added) => {
+      let changed = false;
+      set((state) => {
+        const entry = state.channels[channelId];
+        const message = entry?.byId[messageId];
+        if (!entry || !message) return state;
+        const reactions = applyReactionChange(message.reactions, emoji, userId, added);
+        if (reactions === message.reactions) return state;
+        changed = true;
+        const byId = { ...entry.byId, [messageId]: { ...message, reactions: [...reactions] } };
+        return { channels: { ...state.channels, [channelId]: { ...entry, byId } } };
+      });
+      return changed;
     },
 
     advanceSynced: (channelId, messageId) => {

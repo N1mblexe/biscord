@@ -1,9 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { BootstrapResponse } from '@hearth/shared';
+import type { ReactNode } from 'react';
 import { useNavigate } from 'react-router';
 import { bootstrapQuery, bootstrapQueryKey, openDm } from '../api/chat';
 import { errorMessage } from '../api/errors';
 import { upsertDm } from '../lib/bootstrapPatch';
+import { useIsOnline } from '../stores/presence';
+import { PresenceDot } from './PresenceDot';
 import { secondaryButton } from './styles';
 
 /** Right column: every active user; **Message** opens (or creates) the DM and navigates to it. */
@@ -43,12 +46,7 @@ export function MembersPanel({ onError }: { onError: (message: string | null) =>
       </h2>
       <ul className="flex flex-col gap-0.5">
         {members.map((user) => (
-          <li
-            key={user.id}
-            data-testid="member-item"
-            className="flex items-center justify-between gap-2 rounded-md px-1 py-1 hover:bg-white/5"
-          >
-            <span className="truncate text-sm">{user.displayName}</span>
+          <MemberItem key={user.id} userId={user.id} displayName={user.displayName}>
             {user.id !== boot.me.id && (
               <button
                 type="button"
@@ -61,9 +59,35 @@ export function MembersPanel({ onError }: { onError: (message: string | null) =>
                 Message
               </button>
             )}
-          </li>
+          </MemberItem>
         ))}
       </ul>
     </aside>
+  );
+}
+
+/** One `member-item`, with `data-online` and a status dot. */
+function MemberItem({
+  userId,
+  displayName,
+  children,
+}: {
+  userId: string;
+  displayName: string;
+  children: ReactNode;
+}) {
+  const online = useIsOnline(userId);
+  return (
+    <li
+      data-testid="member-item"
+      data-online={online ? 'true' : 'false'}
+      className="flex items-center justify-between gap-2 rounded-md px-1 py-1 hover:bg-white/5"
+    >
+      <span className="flex min-w-0 items-center gap-2">
+        <PresenceDot online={online} />
+        <span className={`truncate text-sm ${online ? '' : 'text-muted'}`}>{displayName}</span>
+      </span>
+      {children}
+    </li>
   );
 }

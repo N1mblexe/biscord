@@ -64,3 +64,14 @@
     @apply whitespace-pre-wrap;
   }
 }
+
+/* @mentions inside rendered messages (components/remarkMentions.ts). */
+@layer components {
+  .markdown .mention {
+    @apply rounded bg-accent/15 px-0.5 font-medium text-accent;
+  }
+
+  .markdown .mention[data-self='true'] {
+    @apply bg-accent/30 text-text;
+  }
+}

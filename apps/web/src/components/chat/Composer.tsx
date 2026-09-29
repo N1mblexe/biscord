@@ -2,6 +2,8 @@ import { LIMITS } from '@hearth/shared';
 import { useState, type KeyboardEvent } from 'react';
 import { errorMessage } from '../../api/errors';
 import { deliverPending } from '../../lib/messageSync';
+import { emitTyping, resetTypingThrottle } from '../../lib/typingEmit';
+import { useSocket } from '../../socket/context';
 import { useMessageStore } from '../../stores/messages';
 import { inputClass, primaryButton } from '../styles';
 
@@ -14,9 +16,13 @@ interface ComposerProps {
   onError: (message: string | null) => void;
 }
 
-/** Message box: Enter sends, Shift+Enter adds a newline. Sends are optimistic (pending by nonce). */
+/**
+ * Message box: Enter sends, Shift+Enter adds a newline. Sends are optimistic (pending by nonce).
+ * Typing announces `typing:start` (throttled, lib/typingEmit.ts).
+ */
 export function Composer({ channelId, authorId, placeholder, disabledReason, onError }: ComposerProps) {
   const [draft, setDraft] = useState('');
+  const { socket } = useSocket();
   const disabled = disabledReason !== null;
 
   const send = () => {
@@ -36,6 +42,7 @@ export function Composer({ channelId, authorId, placeholder, disabledReason, onE
       createdAt: new Date().toISOString(),
     });
     setDraft('');
+    resetTypingThrottle(channelId);
     deliverPending(nonce).catch((err: unknown) => {
       onError(errorMessage(err));
     });
@@ -72,7 +79,9 @@ export function Composer({ channelId, authorId, placeholder, disabledReason, onE
           // Focus follows the channel the user just opened.
           autoFocus
           onChange={(event) => {
-            setDraft(event.target.value);
+            const value = event.target.value;
+            setDraft(value);
+            if (value.trim().length > 0) emitTyping(socket, channelId);
           }}
           onKeyDown={onKeyDown}
         />

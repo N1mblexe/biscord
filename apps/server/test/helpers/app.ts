@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify';
-import { buildApp } from '../../src/app.js';
+import { buildApp, type BuildAppOptions } from '../../src/app.js';
 import type { Db } from '../../src/db/client.js';
 import { loadEnv, type Env } from '../../src/env.js';
 import { unitDatabaseUrl } from './env.js';
@@ -23,6 +23,13 @@ export function testEnv(overrides: NodeJS.ProcessEnv = {}): Env {
 }
 
 /** Builds (but does not start) the app against the unit DB, with logging off. */
-export function makeApp(options: { db?: Db; env?: Env } = {}): FastifyInstance {
-  return buildApp({ db: options.db ?? testDb().db, env: options.env ?? testEnv(), logger: false });
+export function makeApp(
+  options: { db?: Db; env?: Env; timings?: BuildAppOptions['timings'] } = {},
+): FastifyInstance {
+  return buildApp({
+    db: options.db ?? testDb().db,
+    env: options.env ?? testEnv(),
+    logger: false,
+    ...(options.timings === undefined ? {} : { timings: options.timings }),
+  });
 }

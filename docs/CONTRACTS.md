@@ -389,6 +389,15 @@ Reconnect protocol: on every `connect`, the client refetches `GET /bootstrap`, p
    - After the last socket disconnects, `online:false` is broadcast only after a 3 s grace period; a reconnect within it cancels the broadcast.
    - `presence` is emitted only on an actual change. The test reset clears presence state.
 
+7. **Edge cases (settled during implementation):**
+   - `typing:start` for an unknown channel acks `NOT_FOUND`; in a read-only DM it acks `FORBIDDEN`.
+   - Reaction PUT and DELETE in a read-only DM return `FORBIDDEN`.
+   - `mentionUserIds` is sorted by user id.
+   - `POST /channels/:id/read` emits `readstate:updated` even when the position doesn't move (an older `messageId`), so the caller always gets the current state.
+   - The server parses mentions from the raw text, including inside code spans. Such a mention counts and notifies even though the client doesn't highlight it inside code (a known minor inconsistency).
+   - Messages created through `/__test__/seed-messages` get no mention rows.
+   - Presence always waits for the grace period on disconnect. Deactivation (Phase 8) will add an immediate forced offline.
+
 ### B.6 LiveKit token and room contract
 
 - **Room name:** `voice_<channelId>`.

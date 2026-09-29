@@ -3,7 +3,9 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { errorMessage } from '../../api/errors';
 import { authorName } from '../../lib/bootstrapPatch';
 import { loadLatest, loadOlder } from '../../lib/messageSync';
+import { useMarkRead } from '../../lib/readMarking';
 import { compareMessageIds, useMessageStore } from '../../stores/messages';
+import { useViewingStore } from '../../stores/viewing';
 import { secondaryButton } from '../styles';
 import { MessageItem, PendingItem } from './MessageItem';
 
@@ -28,10 +30,12 @@ interface MessageListProps {
   boot: BootstrapResponse;
   me: Me;
   isDm: boolean;
+  /** False in a read-only DM (the other member is deactivated). */
+  canReact: boolean;
   onError: (message: string | null) => void;
 }
 
-export function MessageList({ channelId, boot, me, isDm, onError }: MessageListProps) {
+export function MessageList({ channelId, boot, me, isDm, canReact, onError }: MessageListProps) {
   const entry = useMessageStore((s) => s.channels[channelId]);
   const allPending = useMessageStore((s) => s.pending);
   const pending = useMemo(
@@ -39,6 +43,11 @@ export function MessageList({ channelId, boot, me, isDm, onError }: MessageListP
     [allPending, channelId],
   );
   const usersById = useMemo(() => new Map(boot.users.map((u) => [u.id, u])), [boot.users]);
+  // Mentionable usernames, as the server sees them (CONTRACTS B.5a rule 2): active users only.
+  const usernames = useMemo(
+    () => new Set(boot.users.filter((u) => !u.deactivated).map((u) => u.username.toLowerCase())),
+    [boot.users],
+  );
 
   const loaded = entry?.loaded ?? false;
   const hasOlder = loaded && (entry?.hasOlder ?? false);
@@ -84,7 +93,17 @@ export function MessageList({ channelId, boot, me, isDm, onError }: MessageListP
     const el = scrollRef.current;
     if (!el) return;
     atBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight <= BOTTOM_SLACK_PX;
+    useViewingStore.getState().setViewing(channelId, atBottomRef.current);
   };
+
+  // This channel is on screen until the list unmounts (a layout cleanup, so it runs before the next
+  // channel's list registers itself).
+  useLayoutEffect(
+    () => () => {
+      useViewingStore.getState().leave(channelId);
+    },
+    [channelId],
+  );
 
   // Runs after every render, before paint. The container has `overflow-anchor: none`, so the browser
   // never adjusts scrollTop by itself and the arithmetic below is exact.
@@ -119,7 +138,11 @@ export function MessageList({ channelId, boot, me, isDm, onError }: MessageListP
     atBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight <= BOTTOM_SLACK_PX;
     next.scrollHeight = el.scrollHeight;
     snapshotRef.current = next;
+    useViewingStore.getState().setViewing(channelId, atBottomRef.current);
   });
+
+  // Reading at the bottom of a visible tab marks the newest loaded message read.
+  useMarkRead(channelId, loaded ? ids.at(-1) : undefined);
 
   // Scrolling to the top loads older messages.
   useEffect(() => {
@@ -148,6 +171,7 @@ export function MessageList({ channelId, boot, me, isDm, onError }: MessageListP
 
   const byId = entry?.byId ?? {};
   const isAdmin = me.role === 'admin';
+  const viewer = useMemo(() => ({ id: me.id, username: me.username }), [me.id, me.username]);
 
   return (
     <div
@@ -191,14 +215,25 @@ export function MessageList({ channelId, boot, me, isDm, onError }: MessageListP
               key={id}
               message={message}
               authorName={authorName(usersById.get(message.authorId))}
+              me={viewer}
+              usersById={usersById}
+              usernames={usernames}
+              isDm={isDm}
               canEdit={own}
               canDelete={own || (isAdmin && !isDm)}
+              canReact={canReact}
               onError={onError}
             />
           );
         })}
         {pending.map((p) => (
-          <PendingItem key={p.nonce} pending={p} authorName={me.displayName} onError={onError} />
+          <PendingItem
+            key={p.nonce}
+            pending={p}
+            authorName={me.displayName}
+            usernames={usernames}
+            onError={onError}
+          />
         ))}
       </ol>
     </div>

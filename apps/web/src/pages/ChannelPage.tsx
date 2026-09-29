@@ -1,10 +1,11 @@
 import { useQuery } from '@tanstack/react-query';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router';
 import { meQuery } from '../api/auth';
 import { bootstrapQuery } from '../api/chat';
 import { Composer } from '../components/chat/Composer';
 import { MessageList } from '../components/chat/MessageList';
+import { TypingIndicator } from '../components/chat/TypingIndicator';
 import { PageAlert } from '../components/forms';
 import { MembersPanel } from '../components/MembersPanel';
 import { channelViewState } from '../lib/bootstrapPatch';
@@ -27,6 +28,8 @@ function ChannelView({ channelId }: { channelId: string }) {
   }, []);
 
   const navigate = useNavigate();
+  const users = boot?.users;
+  const usersById = useMemo(() => new Map((users ?? []).map((u) => [u.id, u])), [users]);
   const view = channelViewState(boot, channelId);
   const gone = view.status === 'gone';
   // Gone from bootstrap: deleted live (the `channel:deleted` handler is navigating too) or while we
@@ -69,7 +72,15 @@ function ChannelView({ channelId }: { channelId: string }) {
             />
           </div>
         )}
-        <MessageList channelId={channelId} boot={boot} me={me} isDm={isDm} onError={setAlert} />
+        <MessageList
+          channelId={channelId}
+          boot={boot}
+          me={me}
+          isDm={isDm}
+          canReact={disabledReason === null}
+          onError={setAlert}
+        />
+        <TypingIndicator channelId={channelId} meId={me.id} usersById={usersById} />
         <Composer
           channelId={channelId}
           authorId={me.id}

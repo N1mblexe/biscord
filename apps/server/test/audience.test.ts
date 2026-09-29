@@ -49,7 +49,10 @@ beforeEach(async () => {
   };
   for (const name of NAMES) {
     cookies[name] = await login(app, name);
-    sockets[name] = await connectRecording(baseUrl, cookies[name]);
+    // Presence and the sender's own read state are covered in phase4 tests; here only channel events count.
+    sockets[name] = await connectRecording(baseUrl, cookies[name], {
+      ignore: ['presence', 'readstate:updated'],
+    });
   }
   general = await insertChannel('general');
 });

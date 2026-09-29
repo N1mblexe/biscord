@@ -81,6 +81,18 @@ export function api(request: APIRequestContext) {
         }),
       );
     },
+    async put<T = unknown>(
+      path: string,
+      data?: unknown,
+      options: RequestOptions = {},
+    ): Promise<ApiResult<T>> {
+      return parse<T>(
+        await request.put(path, {
+          headers: { ...CSRF_HEADERS, ...options.headers },
+          ...(data === undefined ? {} : { data }),
+        }),
+      );
+    },
     async patch<T = unknown>(
       path: string,
       data?: unknown,
@@ -230,14 +242,16 @@ export function escapeRegExp(text: string): string {
   return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-/** Text of a sidebar `channel-link` for `name`: the name, tolerating a leading `#` glyph. */
-export function channelLinkText(name: string): RegExp {
-  return new RegExp(`^\\s*#?\\s*${escapeRegExp(name)}\\s*$`);
-}
-
-/** Sidebar link (`data-testid="channel-link"`: text channels and DMs, never voice) for `name`. */
+/**
+ * Sidebar link (`data-testid="channel-link"`: text channels and DMs, never voice) whose
+ * `channel-link-name` child is exactly `name` (a leading `#` glyph tolerated), so `dev` never
+ * matches `dev2` and a `mention-badge` count doesn't get in the way.
+ */
 export function channelLink(page: Page, name: string) {
-  return page.getByTestId('channel-link').filter({ hasText: channelLinkText(name) });
+  const exact = new RegExp(`^#?${escapeRegExp(name)}$`);
+  return page
+    .getByTestId('channel-link')
+    .filter({ has: page.getByTestId('channel-link-name').filter({ hasText: exact }) });
 }
 
 /** Admin creates a text/voice channel through the API (row 15). */
@@ -371,4 +385,121 @@ export async function hearthEvents(page: Page): Promise<HearthEvent[]> {
     throw new Error(`window.__hearthEvents has malformed entries: ${JSON.stringify(events)}`);
   }
   return events;
+}
+
+// ---- Phase 4 realtime helpers (CONTRACTS B.4 rows 24–26, B.5a; docs/plans/phase-4.md "Web UI contract") ----
+
+/** A second page (tab) in the user's own context: same cookies, its own socket. */
+export async function openSecondTab(user: TestUser): Promise<Page> {
+  return user.context.newPage();
+}
+
+/** Adds `emoji` to a message as the request's user (row 24; 204, idempotent). */
+export async function react(request: APIRequestContext, messageId: string, emoji: string): Promise<void> {
+  const res = await api(request).put(`/api/messages/${messageId}/reactions/${encodeURIComponent(emoji)}`);
+  expect(res.status, `PUT /api/messages/${messageId}/reactions/${emoji}`).toBe(204);
+}
+
+/** One `new Notification(title, { body })` call recorded by the `stubNotifications` stub. */
+export interface RecordedNotification {
+  title: string;
+  body: string | null;
+}
+
+function isRecordedNotification(value: unknown): value is RecordedNotification {
+  if (typeof value !== 'object' || value === null) return false;
+  if (!('title' in value) || typeof value.title !== 'string') return false;
+  return 'body' in value && (value.body === null || typeof value.body === 'string');
+}
+
+/**
+ * Runs in the page (serialised by `addInitScript`, so it must be self-contained). e2e has no DOM
+ * lib, so page globals are reached through `globalThis`.
+ */
+function installNotificationStub(): void {
+  interface Recorded {
+    title: string;
+    body: string | null;
+  }
+  const recorded: Recorded[] = [];
+
+  class FakeNotification extends EventTarget {
+    static readonly permission = 'granted';
+    static requestPermission(callback?: (permission: string) => void): Promise<string> {
+      callback?.('granted');
+      return Promise.resolve('granted');
+    }
+
+    readonly title: string;
+    readonly body: string;
+    onclick: unknown = null;
+    onclose: unknown = null;
+    onerror: unknown = null;
+    onshow: unknown = null;
+
+    constructor(title: string, options?: { body?: string }) {
+      super();
+      this.title = title;
+      this.body = options?.body ?? '';
+      recorded.push({ title, body: options?.body ?? null });
+    }
+
+    close(): void {
+      // Nothing to close: no real notification is shown.
+    }
+  }
+
+  Object.defineProperty(globalThis, '__notifications', { configurable: true, value: recorded });
+  Object.defineProperty(globalThis, 'Notification', {
+    configurable: true,
+    writable: true,
+    value: FakeNotification,
+  });
+}
+
+/**
+ * Replaces `window.Notification` with a recording stub (`permission` is `'granted'`,
+ * `requestPermission()` resolves `'granted'`). Install it on the context (or page) before the app
+ * loads; it applies to every later navigation. Read the calls with `notifications(page)`.
+ */
+export async function stubNotifications(target: BrowserContext | Page): Promise<void> {
+  await target.addInitScript(installNotificationStub);
+}
+
+/** The notifications the stub recorded in this page's current document, in order. */
+export async function notifications(page: Page): Promise<RecordedNotification[]> {
+  const raw = await page.evaluate(
+    () => (globalThis as unknown as { __notifications?: unknown }).__notifications ?? null,
+  );
+  if (!Array.isArray(raw))
+    throw new Error('window.__notifications is missing (call stubNotifications first)');
+  const entries: unknown[] = raw;
+  if (!entries.every(isRecordedNotification)) {
+    throw new Error(`window.__notifications has malformed entries: ${JSON.stringify(entries)}`);
+  }
+  return entries;
+}
+
+/**
+ * Pretends the tab is hidden (or visible again): overrides `document.visibilityState`,
+ * `document.hidden` and `document.hasFocus()`, then dispatches `visibilitychange`. Headless Chromium
+ * keeps every page visible, so this is the only way to reach the app's hidden-tab code paths.
+ */
+export async function setHidden(page: Page, hidden: boolean): Promise<void> {
+  const state = await page.evaluate((isHidden) => {
+    interface Doc {
+      readonly visibilityState: string;
+      dispatchEvent(event: Event): boolean;
+    }
+    const doc = (globalThis as unknown as { document: Doc }).document;
+    Object.defineProperty(doc, 'visibilityState', {
+      configurable: true,
+      get: () => (isHidden ? 'hidden' : 'visible'),
+    });
+    Object.defineProperty(doc, 'hidden', { configurable: true, get: () => isHidden });
+    Object.defineProperty(doc, 'hasFocus', { configurable: true, writable: true, value: () => !isHidden });
+    doc.dispatchEvent(new Event('visibilitychange'));
+    return doc.visibilityState;
+  }, hidden);
+  expect(state).toBe(hidden ? 'hidden' : 'visible');
 }

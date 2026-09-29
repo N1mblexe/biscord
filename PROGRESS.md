@@ -2,6 +2,66 @@
 
 Updated at the end of every phase (see CLAUDE.md → Workflow).
 
+## Phase 4 — Presence, typing, unread, reactions, mentions, notifications ✅ (2026-09-29)
+
+### Built
+
+- **Server:**
+  - Presence: tracks each user's sockets, with a 3 s offline grace period. Only real changes are emitted, timers are cleaned up on close and on test reset, and `onlineUserIds` goes into bootstrap.
+  - `typing:start`:
+    - zod-validated and access-checked;
+    - a per-user flood limit runs before any DB access;
+    - one broadcast per user and channel every 2 s, to the channel audience minus the sender's own sockets.
+  - Read states:
+    - forward-only `GREATEST` upsert, with `unread` ignoring your own messages;
+    - `mentionCount` from mention rows, and every DM message creates a mention row for the other member;
+    - one query computes bootstrap `readStates`;
+    - sending a message moves the sender's read state forward in the same transaction;
+    - `readstate:updated` goes only to your own sockets.
+  - Mentions are parsed server-side on create and edit.
+  - Reactions:
+    - the 20-distinct-emoji cap is checked under a row lock;
+    - events are sent only when something changes;
+    - a read-only DM returns FORBIDDEN.
+  - A history page costs a fixed 5 queries whatever its size (a test counts them).
+- **Web:**
+  - Stores for presence, typing, read state and the current view, all reset on logout.
+  - Online dots and a typing indicator.
+  - Unread and mention badges, synced across tabs. Server state only overrides messages received before its request, so a stale snapshot can't drop a mention.
+  - Read marking: debounced, retried after a failure, and only sent while you're at the bottom with the tab visible.
+  - Reactions: a bar under each message and an emoji picker dialog (a native `<dialog>`), with optimistic updates rolled back only when they actually changed something.
+  - Mention highlighting for known active users only. DMs aren't given the mention highlight style.
+  - Opt-in desktop notifications for mentions and DMs while the tab is hidden.
+- **e2e:**
+  - Helpers: `stubNotifications`, `setHidden`, `openSecondTab`.
+  - Channel links are now matched on a `channel-link-name` child.
+  - 5 realtime scenarios.
+
+### Tested (run for real on 2026-09-29)
+
+- `pnpm typecheck` ✅ · `pnpm lint` ✅ · `pnpm format:check` ✅
+- `pnpm test` ✅: 413 tests (shared 66, web 132, server 215), run with shared `dist/` deleted.
+- `pnpm test:e2e --repeat-each=3` ✅: 69/69 (23 specs × 3), no flakes.
+- `docker compose up --build` ✅: `@smoke` passes against :8080. Manual Caddy check:
+  - a mention is stored, and the mentioned user's read state shows `unread` with `mentionCount: 1`;
+  - online and then offline presence events arrive, the offline one after the grace period;
+  - reaction PUT returns 204 and is idempotent.
+- A fresh review found 0 blockers, 1 major and 7 minor issues; all are fixed with tests.
+- Separately, a verifier in an isolated worktree independently re-checked the committed Phases 1–3 and everything passed: clean install, 300 unit tests, e2e 18/18 plus a 36/36 repeat, Docker builds from scratch, a manual API check, and a code-health scan.
+
+### Known issues / notes
+
+- The server counts `@mentions` written inside code spans (they notify), but the client doesn't highlight them there.
+- If a snapshot already includes a mention, the badge can briefly count it twice until the next `readstate:updated` corrects it. This is the safe direction of the stale-snapshot fix.
+- **The disk filled up during this phase.** The root partition (49 GB, where `/var/lib/docker` lives) hit 100%, and Postgres failed with `53100 No space left on device`.
+  - Cause: repeated `docker compose build` runs leave the old images untagged.
+  - I removed only untagged Hearth images (`docker image prune -f`, about 7.9 GB) and the verifier's images. Postgres recovered cleanly.
+  - After any full-stack rebuild, run `docker image prune -f`.
+
+### Next step
+
+Phase 5: uploads and avatars (`docs/plans/phase-5.md`).
+
 ## Phase 3 — Text channels, DMs, messaging ✅ (2026-09-29)
 
 ### Built
@@ -49,7 +109,7 @@ Updated at the end of every phase (see CLAUDE.md → Workflow).
 
 ### Next step
 
-Phase 4: presence, typing, unread, reactions, mentions, notifications. The approved plan is in `docs/plans/phase-4.md`.
+Phase 4: presence, typing, unread, reactions, mentions, notifications (`docs/plans/phase-4.md`).
 
 ## Phase 2 — Accounts & auth ✅ (2026-09-28)
 

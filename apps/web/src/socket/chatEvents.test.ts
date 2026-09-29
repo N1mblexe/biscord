@@ -1,9 +1,13 @@
-import type { Message } from '@hearth/shared';
+import type { BootstrapResponse, Message } from '@hearth/shared';
 import { QueryClient } from '@tanstack/react-query';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { bootstrapQueryKey } from '../api/chat';
 import { setSocketConnected } from '../lib/messageSync';
 import { useMessageStore } from '../stores/messages';
+import { usePresenceStore } from '../stores/presence';
+import { unreadSummary, useReadsStore } from '../stores/reads';
+import { useTypingStore } from '../stores/typing';
+import { useViewingStore } from '../stores/viewing';
 import { registerChatEvents } from './chatEvents';
 import type { HearthSocket } from './socket';
 
@@ -74,6 +78,10 @@ const store = () => useMessageStore.getState();
 
 beforeEach(() => {
   store().reset();
+  usePresenceStore.getState().reset();
+  useReadsStore.getState().reset();
+  useTypingStore.getState().reset();
+  useViewingStore.setState({ channelId: null, atBottom: false });
   setSocketConnected(false);
   vi.stubGlobal('window', {
     location: { pathname: '/' },
@@ -118,6 +126,105 @@ describe('registerChatEvents', () => {
       expect(urls.map((u) => u.searchParams.get('after'))).toEqual(['2', '4']);
     });
     expect(invalidate).toHaveBeenCalledTimes(2);
+    unregister();
+  });
+});
+
+describe('registerChatEvents (phase 4 events)', () => {
+  const ME = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+  const person = (id: string, displayName: string) => ({
+    id,
+    username: displayName.toLowerCase(),
+    displayName,
+    avatarUrl: null,
+    role: 'member' as const,
+    deactivated: false,
+  });
+  const boot: BootstrapResponse = {
+    me: { ...person(ME, 'Bob'), createdAt: '2026-09-28T10:00:00.000Z' },
+    users: [person(ME, 'Bob'), person(AUTHOR, 'Alice')],
+    channels: [{ id: CH, type: 'text', name: 'general', position: 0 }],
+    dms: [],
+    readStates: [{ channelId: CH, lastReadMessageId: '0', unread: false, mentionCount: 0 }],
+    voice: {},
+    onlineUserIds: [],
+    livekitUrl: 'ws://localhost:7880',
+  };
+
+  function setup(visibility: DocumentVisibilityState) {
+    const shown: { title: string; body: string | undefined }[] = [];
+    class FakeNotification {
+      static permission = 'granted';
+      onclick: (() => void) | null = null;
+      constructor(title: string, options?: { body?: string }) {
+        shown.push({ title, body: options?.body });
+      }
+      close() {
+        return undefined;
+      }
+    }
+    vi.stubGlobal('Notification', FakeNotification);
+    vi.stubGlobal('window', {
+      location: { pathname: '/' },
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      Notification: FakeNotification,
+    });
+    vi.stubGlobal('document', { visibilityState: visibility });
+    vi.stubGlobal('localStorage', { getItem: () => 'on' });
+    const queryClient = new QueryClient();
+    queryClient.setQueryData(bootstrapQueryKey, boot);
+    useReadsStore.getState().applySnapshot(boot.readStates);
+    const { fake, socket } = fakeSocket();
+    const unregister = registerChatEvents(socket, { queryClient, navigate: vi.fn() });
+    return { fake, shown, unregister };
+  }
+
+  const summary = () => unreadSummary(useReadsStore.getState().channels[CH]);
+
+  it('wires typing, presence, read states and reactions to their stores', () => {
+    const { fake, unregister } = setup('visible');
+    fake.fire('typing', { channelId: CH, userId: AUTHOR });
+    fake.fire('typing', { channelId: CH, userId: ME }); // my own other tab: ignored
+    expect(useTypingStore.getState().byChannel[CH]).toEqual([AUTHOR]);
+    fake.fire('message:created', { message: msg(1) });
+    expect(useTypingStore.getState().byChannel[CH]).toEqual([]);
+
+    fake.fire('presence', { userId: AUTHOR, online: true });
+    expect(usePresenceStore.getState().online[AUTHOR]).toBe(true);
+
+    expect(summary()).toEqual({ unread: true, mentionCount: 0 });
+    fake.fire('readstate:updated', {
+      readState: { channelId: CH, lastReadMessageId: '1', unread: false, mentionCount: 0 },
+    });
+    expect(summary()).toEqual({ unread: false, mentionCount: 0 });
+
+    store().loadLatest(CH, [msg(1)], false);
+    fake.fire('reaction:added', { channelId: CH, messageId: '1', emoji: '👍', userId: AUTHOR });
+    expect(store().channels[CH]?.byId['1']?.reactions).toEqual([{ emoji: '👍', userIds: [AUTHOR] }]);
+    fake.fire('reaction:removed', { channelId: CH, messageId: '1', emoji: '👍', userId: AUTHOR });
+    expect(store().channels[CH]?.byId['1']?.reactions).toEqual([]);
+    unregister();
+  });
+
+  it('does not mark the channel being read (at the bottom, visible) as unread', () => {
+    const { fake, unregister } = setup('visible');
+    useViewingStore.getState().setViewing(CH, true);
+    fake.fire('message:created', { message: msg(1) });
+    expect(summary()).toEqual({ unread: false, mentionCount: 0 });
+    // Same channel, but the tab is hidden: unread.
+    vi.stubGlobal('document', { visibilityState: 'hidden' });
+    fake.fire('message:created', { message: msg(2, { mentionUserIds: [ME] }) });
+    expect(summary()).toEqual({ unread: true, mentionCount: 1 });
+    unregister();
+  });
+
+  it('notifies a mention while hidden, not a plain message or my own', () => {
+    const { fake, shown, unregister } = setup('hidden');
+    fake.fire('message:created', { message: msg(1, { content: '**@bob** look', mentionUserIds: [ME] }) });
+    fake.fire('message:created', { message: msg(2, { content: 'plain' }) });
+    fake.fire('message:created', { message: msg(3, { authorId: ME, mentionUserIds: [ME] }) });
+    expect(shown).toEqual([{ title: 'Alice in #general', body: '@bob look' }]);
     unregister();
   });
 });

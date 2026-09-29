@@ -1,10 +1,14 @@
 import { and, asc, count, desc, eq, inArray, isNull, sql, type SQL } from 'drizzle-orm';
-import type { ListMessagesQuery } from '@hearth/shared';
+import type { ListMessagesQuery, Message, ReadState } from '@hearth/shared';
 import type { Db } from '../db/client.js';
 import { attachments, messages } from '../db/schema.js';
 import type { MessageRow, Queryable, UserRow } from '../db/types.js';
 import { AppError } from '../lib/errors.js';
+import { toMessage } from '../lib/serialize.js';
 import { assertCanPost, loadChannelForUser, type ChannelAccess } from './access.js';
+import { mentionsByMessage, resolveMentions, storeMentions } from './mentions.js';
+import { reactionsByMessage } from './reactions.js';
+import { advanceReadState, getReadState } from './reads.js';
 
 /**
  * `messages.id = <MessageId>`. The id is bound as text and cast in SQL: MessageId allows 16 digits, which
@@ -41,8 +45,25 @@ export async function listMessages(
   return rows.reverse();
 }
 
+/**
+ * Serializes message rows with their reactions and mentions: exactly one query each for the whole set,
+ * whatever its size (no N+1), and none for an empty set.
+ */
+export async function toMessages(db: Queryable, rows: readonly MessageRow[]): Promise<Message[]> {
+  if (rows.length === 0) return [];
+  const ids = rows.map((row) => row.id);
+  const [reactions, mentions] = await Promise.all([reactionsByMessage(db, ids), mentionsByMessage(db, ids)]);
+  return rows.map((row) =>
+    toMessage(row, {
+      reactions: reactions.get(row.id) ?? [],
+      mentionUserIds: mentions.get(row.id) ?? [],
+    }),
+  );
+}
+
 export interface CreateMessageInput {
-  channelId: string;
+  /** The target channel, already checked with `loadChannelForUser` + `assertCanPost`. */
+  access: ChannelAccess;
   authorId: string;
   /** Already trimmed (shared `MessageContent`). */
   content: string;
@@ -50,17 +71,25 @@ export interface CreateMessageInput {
   nonce: string | undefined;
 }
 
+export interface CreatedMessage {
+  message: Message;
+  /** The author's read state, moved forward to this message (B.5a rule 3). */
+  authorReadState: ReadState;
+}
+
 /**
- * Inserts the message and claims its attachments in one transaction. Every attachment id must be an
- * unattached upload of the author (400 VALIDATION "Unknown attachment" otherwise; the claim is a single
- * conditional UPDATE, so two sends can't claim the same file).
+ * One transaction: inserts the message, claims its attachments, stores its mentions (B.5a rules 1–2) and
+ * moves the author's read state forward to it. Every attachment id must be an unattached upload of the
+ * author (400 VALIDATION "Unknown attachment" otherwise; the claim is a single conditional UPDATE, so two
+ * sends can't claim the same file).
  */
-export function createMessage(db: Db, input: CreateMessageInput): Promise<MessageRow> {
+export function createMessage(db: Db, input: CreateMessageInput): Promise<CreatedMessage> {
+  const channelId = input.access.channel.id;
   return db.transaction(async (tx) => {
     const [row] = await tx
       .insert(messages)
       .values({
-        channelId: input.channelId,
+        channelId,
         authorId: input.authorId,
         content: input.content,
         nonce: input.nonce ?? null,
@@ -84,7 +113,13 @@ export function createMessage(db: Db, input: CreateMessageInput): Promise<Messag
         throw new AppError('VALIDATION', 'Unknown attachment');
       }
     }
-    return row;
+
+    const mentioned = await resolveMentions(tx, input.access, input.authorId, input.content);
+    const mentionUserIds = await storeMentions(tx, row, mentioned, { replace: false });
+    await advanceReadState(tx, input.authorId, channelId, String(row.id));
+    const authorReadState = await getReadState(tx, input.authorId, channelId);
+    // A new message has no reactions yet.
+    return { message: toMessage(row, { reactions: [], mentionUserIds }), authorReadState };
   });
 }
 
@@ -106,14 +141,15 @@ async function loadMessageForUser(
 
 /**
  * CONTRACTS B.4 row 22: author only (403), not in a read-only DM (403), and the result can't be empty unless
- * the message has attachments (400). Sets `editedAt`.
+ * the message has attachments (400). Sets `editedAt` and recomputes the mentions in the same transaction
+ * (B.5a rule 2). Returns the serialized message (with its reactions) and the channel access.
  */
 export async function editMessage(
-  db: Queryable,
+  db: Db,
   user: Pick<UserRow, 'id'>,
   id: string,
   content: string,
-): Promise<{ message: MessageRow; access: ChannelAccess }> {
+): Promise<{ message: Message; access: ChannelAccess }> {
   const { message, access } = await loadMessageForUser(db, user, id);
   if (message.authorId !== user.id) throw new AppError('FORBIDDEN', 'You can only edit your own messages');
   await assertCanPost(db, access);
@@ -128,13 +164,20 @@ export async function editMessage(
     }
   }
 
-  const [updated] = await db
-    .update(messages)
-    .set({ content, editedAt: sql`now()` })
-    .where(eq(messages.id, message.id))
-    .returning();
-  if (updated === undefined) throw new AppError('NOT_FOUND', 'Message not found');
-  return { message: updated, access };
+  const updated = await db.transaction(async (tx) => {
+    const [row] = await tx
+      .update(messages)
+      .set({ content, editedAt: sql`now()` })
+      .where(eq(messages.id, message.id))
+      .returning();
+    if (row === undefined) throw new AppError('NOT_FOUND', 'Message not found');
+    const mentioned = await resolveMentions(tx, access, user.id, content);
+    await storeMentions(tx, row, mentioned, { replace: true });
+    return row;
+  });
+  const [serialized] = await toMessages(db, [updated]);
+  if (serialized === undefined) throw new Error('serializing the edited message returned nothing');
+  return { message: serialized, access };
 }
 
 /**

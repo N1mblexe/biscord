@@ -52,8 +52,10 @@ describe('GET /api/bootstrap', () => {
     ]);
     expect(body).toMatchObject({
       dms: [],
-      readStates: [],
+      // Text channels only (voice has no messages); nothing read yet.
+      readStates: [{ channelId: general.id, lastReadMessageId: '0', unread: false, mentionCount: 0 }],
       voice: {},
+      // No socket is connected in this test.
       onlineUserIds: [],
       livekitUrl: 'wss://lk.example.test',
     });

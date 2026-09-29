@@ -3,7 +3,6 @@ import type { ApiErrorBody, ListMessagesResponse } from '@hearth/shared';
 import {
   api,
   channelLink,
-  channelLinkText,
   createChannel,
   expect,
   expectConnected,
@@ -131,7 +130,7 @@ test.describe('chat', { tag: '@chat' }, () => {
     const bobDmLink = bob.page
       .getByTestId('channel-link')
       .and(bob.page.locator(`[href="/channels/${dmId}"]`));
-    await expect(bobDmLink).toHaveText(channelLinkText(alice.displayName));
+    await expect(bobDmLink.getByTestId('channel-link-name')).toHaveText(alice.displayName);
     await bobDmLink.click();
     await expect(bob.page.getByTestId('channel-title')).toHaveText(alice.displayName);
     await expect(messageByText(bob.page, secret)).toBeVisible();
@@ -227,22 +226,22 @@ test.describe('chat', { tag: '@chat' }, () => {
     const { alice, bob } = await users(['alice', 'bob']);
     const general = await createChannel(alice.request, { name: 'general', type: 'text' });
     await openChannel(bob, 'general');
-    const bobTextLinks = bob.page.getByTestId('channel-link');
+    const bobTextLinks = bob.page.getByTestId('channel-link').getByTestId('channel-link-name');
 
     await alice.page.goto('/admin/channels');
     await alice.page.getByLabel('Name', { exact: true }).fill('random');
     await alice.page.getByLabel('Type', { exact: true }).selectOption({ label: 'Text' });
     await button(alice.page, 'Create channel').click();
-    await expect(bobTextLinks).toHaveText([channelLinkText('general'), channelLinkText('random')]);
+    await expect(bobTextLinks).toHaveText(['general', 'random']);
 
     // The row's text changes once the inline editor opens, so the editor is found page-wide.
     await button(alice.page.getByTestId('channel-row').filter({ hasText: 'random' }), 'Rename').click();
     await alice.page.getByRole('textbox', { name: 'New name', exact: true }).fill('chitchat');
     await button(alice.page, 'Save').click();
-    await expect(bobTextLinks).toHaveText([channelLinkText('general'), channelLinkText('chitchat')]);
+    await expect(bobTextLinks).toHaveText(['general', 'chitchat']);
 
     await button(alice.page.getByTestId('channel-row').filter({ hasText: 'chitchat' }), 'Move up').click();
-    await expect(bobTextLinks).toHaveText([channelLinkText('chitchat'), channelLinkText('general')]);
+    await expect(bobTextLinks).toHaveText(['chitchat', 'general']);
     // Events without a channel are logged with `channelId: null`, which hearthEvents() must accept.
     expect(await hearthEvents(bob.page)).toContainEqual({ event: 'channels:reordered', channelId: null });
 

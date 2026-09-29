@@ -1,6 +1,6 @@
 import type { Message } from '@hearth/shared';
 import { beforeEach, describe, expect, it } from 'vitest';
-import { compareMessageIds, useMessageStore } from './messages';
+import { applyReactionChange, compareMessageIds, useMessageStore } from './messages';
 
 const CH = '11111111-1111-4111-8111-111111111111';
 const OTHER = '22222222-2222-4222-8222-222222222222';
@@ -212,5 +212,49 @@ describe('message store', () => {
     expect(channel()?.syncedThrough).toBe('12');
     store().setLiveEpoch(CH, 3);
     expect(channel()?.liveEpoch).toBe(3);
+  });
+});
+
+describe('reactions', () => {
+  const ME = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+  const YOU = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+
+  it('applyReactionChange adds, removes and keeps server order', () => {
+    let reactions = applyReactionChange([], '👍', ME, true);
+    expect(reactions).toEqual([{ emoji: '👍', userIds: [ME] }]);
+    reactions = applyReactionChange(reactions, '🔥', YOU, true);
+    reactions = applyReactionChange(reactions, '👍', YOU, true);
+    expect(reactions).toEqual([
+      { emoji: '👍', userIds: [ME, YOU] },
+      { emoji: '🔥', userIds: [YOU] },
+    ]);
+    reactions = applyReactionChange(reactions, '👍', ME, false);
+    expect(reactions).toEqual([
+      { emoji: '👍', userIds: [YOU] },
+      { emoji: '🔥', userIds: [YOU] },
+    ]);
+    reactions = applyReactionChange(reactions, '👍', YOU, false);
+    expect(reactions).toEqual([{ emoji: '🔥', userIds: [YOU] }]);
+  });
+
+  it('applyReactionChange is idempotent (same array when nothing changes)', () => {
+    const reactions = [{ emoji: '👍', userIds: [ME] }];
+    expect(applyReactionChange(reactions, '👍', ME, true)).toBe(reactions);
+    expect(applyReactionChange(reactions, '👍', YOU, false)).toBe(reactions);
+    expect(applyReactionChange(reactions, '🔥', ME, false)).toBe(reactions);
+  });
+
+  it('applyReaction updates a loaded message and ignores unknown ones', () => {
+    store().loadLatest(CH, [msg('1')], false);
+    // Optimistic toggle, then the matching event: applied once.
+    expect(store().applyReaction(CH, '1', '👍', ME, true)).toBe(true);
+    expect(store().applyReaction(CH, '1', '👍', ME, true)).toBe(false);
+    expect(channel()?.byId['1']?.reactions).toEqual([{ emoji: '👍', userIds: [ME] }]);
+    expect(store().applyReaction(CH, '1', '👍', ME, false)).toBe(true);
+    expect(channel()?.byId['1']?.reactions).toEqual([]);
+    const before = store().channels;
+    expect(store().applyReaction(CH, '2', '👍', ME, true)).toBe(false);
+    expect(store().applyReaction(OTHER, '1', '👍', ME, true)).toBe(false);
+    expect(store().channels).toBe(before);
   });
 });

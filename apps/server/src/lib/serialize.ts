@@ -1,4 +1,4 @@
-import type { Channel, DmChannel, Invite, Me, Message, PublicUser } from '@hearth/shared';
+import type { Channel, DmChannel, Invite, Me, Message, PublicUser, Reaction } from '@hearth/shared';
 import type { ChannelRow, InviteRow, MessageRow, UserRow } from '../db/types.js';
 
 export function toPublicUser(row: UserRow): PublicUser {
@@ -40,7 +40,16 @@ export function toDmChannel(channelId: string, otherUserId: string): DmChannel {
   return { id: channelId, type: 'dm', otherUserId };
 }
 
-export function toMessage(row: MessageRow): Message {
+/** Per-message aggregates loaded alongside the row (batch-loaded, see `services/messages.ts`). */
+export interface MessageExtras {
+  reactions: Reaction[];
+  mentionUserIds: string[];
+}
+
+export function toMessage(
+  row: MessageRow,
+  extras: MessageExtras = { reactions: [], mentionUserIds: [] },
+): Message {
   return {
     id: String(row.id),
     channelId: row.channelId,
@@ -49,8 +58,8 @@ export function toMessage(row: MessageRow): Message {
     createdAt: row.createdAt.toISOString(),
     editedAt: row.editedAt?.toISOString() ?? null,
     attachments: [], // Phase 5
-    reactions: [], // Phase 4
-    mentionUserIds: [], // Phase 4
+    reactions: extras.reactions,
+    mentionUserIds: extras.mentionUserIds,
     nonce: row.nonce,
   };
 }

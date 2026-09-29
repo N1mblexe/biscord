@@ -5,6 +5,7 @@ import {
   ackErr,
   ackOk,
   clientEventSchemas,
+  LIMITS,
   serverEventSchemas,
   SOCKET_PATH,
   type Ack,
@@ -22,6 +23,7 @@ import type { Env } from '../env.js';
 import { AppError, loggableError } from '../lib/errors.js';
 import { sessionTokenFromCookieHeader } from '../plugins/auth.js';
 import { resolveSession } from '../services/sessions.js';
+import { createPresence } from './presence.js';
 
 export type HearthServer = Server<ClientToServerEvents, ServerToClientEvents, InterServerEvents, SocketData>;
 export type HearthSocket = Socket<ClientToServerEvents, ServerToClientEvents, InterServerEvents, SocketData>;
@@ -40,6 +42,12 @@ export interface Realtime {
   readonly io: HearthServer;
   /** Emit to room `all`. Call only after the DB transaction has committed. */
   emitToAll<E extends ServerEventName>(event: E, ...args: Parameters<ServerToClientEvents[E]>): void;
+  /** Emit to room `all` except every socket of `exceptUserId` (room `user:<id>`). */
+  emitToAllExcept<E extends ServerEventName>(
+    exceptUserId: string,
+    event: E,
+    ...args: Parameters<ServerToClientEvents[E]>
+  ): void;
   /** Emit to room `user:<id>` (every socket of that user). */
   emitToUser<E extends ServerEventName>(
     userId: string,
@@ -56,11 +64,17 @@ export interface Realtime {
   revokeSessions(sessionIds: readonly string[], reason: SessionRevokedReason): void;
   /** Closes every socket (test reset). */
   disconnectAll(): void;
+  /** Users with a connected socket, or within the offline grace period (B.5a rule 6), sorted. */
+  onlineUserIds(): string[];
+  /** Forgets all presence state and pending offline timers without emitting (test reset). */
+  resetPresence(): void;
 }
 
 export interface RealtimeDeps {
   db: Db;
   env: Env;
+  /** Offline grace period (B.5a rule 6). Defaults to `LIMITS.presenceOfflineGraceMs`; tests shorten it. */
+  presenceOfflineGraceMs?: number;
 }
 
 const HANDSHAKE_MESSAGE: Partial<Record<ConnectErrorData['code'], string>> = {
@@ -83,7 +97,10 @@ class HandshakeError extends Error {
  * (Origin ∈ APP_ORIGIN, then the session cookie) and joins `all`, `user:<id>` and `session:<id>`.
  * Decorates `app.realtime` and closes every socket before the HTTP server closes.
  */
-export function createRealtime(app: FastifyInstance, { db, env }: RealtimeDeps): Realtime {
+export function createRealtime(
+  app: FastifyInstance,
+  { db, env, presenceOfflineGraceMs = LIMITS.presenceOfflineGraceMs }: RealtimeDeps,
+): Realtime {
   const io: HearthServer = new Server(app.server, { path: SOCKET_PATH, serveClient: false });
   const assertPayloads = env.NODE_ENV !== 'production';
 
@@ -115,19 +132,39 @@ export function createRealtime(app: FastifyInstance, { db, env }: RealtimeDeps):
     );
   });
 
-  io.on('connection', (socket) => {
-    void socket.join([ROOM_ALL, userRoom(socket.data.userId), sessionRoom(socket.data.sessionId)]);
-  });
-
   const check = (event: ServerEventName, payload: unknown): void => {
     if (assertPayloads) serverEventSchemas[event].parse(payload);
   };
+
+  const presence = createPresence({
+    graceMs: presenceOfflineGraceMs,
+    emit: (payload) => {
+      check('presence', payload);
+      io.to(ROOM_ALL).emit('presence', payload);
+    },
+  });
+
+  io.on('connection', (socket) => {
+    const { userId, sessionId } = socket.data;
+    // The in-memory adapter joins synchronously, so the new socket also hears its own `online`.
+    void socket.join([ROOM_ALL, userRoom(userId), sessionRoom(sessionId)]);
+    presence.connect(userId, socket.id);
+    socket.on('disconnect', () => {
+      presence.disconnect(userId, socket.id);
+    });
+  });
 
   const realtime: Realtime = {
     io,
     emitToAll(event, ...args) {
       check(event, args[0]);
       io.to(ROOM_ALL).emit(event, ...args);
+    },
+    emitToAllExcept(exceptUserId, event, ...args) {
+      check(event, args[0]);
+      io.to(ROOM_ALL)
+        .except(userRoom(exceptUserId))
+        .emit(event, ...args);
     },
     emitToUser(userId, event, ...args) {
       check(event, args[0]);
@@ -148,6 +185,10 @@ export function createRealtime(app: FastifyInstance, { db, env }: RealtimeDeps):
     disconnectAll() {
       io.disconnectSockets(true);
     },
+    onlineUserIds: () => presence.onlineUserIds(),
+    resetPresence: () => {
+      presence.clear();
+    },
   };
 
   app.decorate('realtime', realtime);
@@ -156,6 +197,12 @@ export function createRealtime(app: FastifyInstance, { db, env }: RealtimeDeps):
   // on the server's `close` event.
   app.addHook('preClose', (done) => {
     io.disconnectSockets(true);
+    // Those disconnects started grace timers; nobody is left to hear the offline events.
+    presence.clear();
+    done();
+  });
+  app.addHook('onClose', (_instance, done) => {
+    presence.clear();
     done();
   });
 

@@ -73,4 +73,5 @@ Binding API/DB/event contracts: docs/CONTRACTS.md. Change it in the same commit 
 - **Tailwind 4:** configuration is CSS-first (`@import "tailwindcss"` and `@theme`); there's no tailwind.config.js.
 - **zod 4:** use `z.uuid()`, `z.email()`, `z.iso.datetime()` and `z.flattenError()`. Keep exactly one zod version in the workspace.
 - **Socket.IO:** the client must use `transports: ['websocket']`. The handshake checks `Origin`, and browsers don't send it on same-origin polling requests.
+- **Disk space:** every `docker compose up --build` leaves the previous images untagged, and the root partition is small (49 GB). Run `docker image prune -f` after full-stack rebuilds.
 - **Test mode:** the server refuses to boot with `NODE_ENV=production` and `HEARTH_TEST_MODE=true`. The reset endpoint exists only in test mode.

@@ -1,11 +1,13 @@
-import { LIMITS, type Message } from '@hearth/shared';
+import { LIMITS, type Message, type PublicUser } from '@hearth/shared';
 import { useState, type KeyboardEvent } from 'react';
 import { deleteMessage, editMessage } from '../../api/chat';
 import { errorMessage } from '../../api/errors';
 import { useMessageStore, type PendingMessage } from '../../stores/messages';
 import { deliverPending } from '../../lib/messageSync';
+import { setReaction } from '../../lib/reactions';
 import { Markdown } from '../Markdown';
 import { inputClass } from '../styles';
+import { AddReaction, ReactionBar } from './Reactions';
 
 const actionButton =
   'rounded px-2 py-0.5 text-xs font-medium text-muted ring-1 ring-white/10 transition hover:bg-white/10 ' +
@@ -21,17 +23,54 @@ function formatFull(iso: string): string {
 
 type ErrorSink = (message: string | null) => void;
 
+const iconButton =
+  'flex items-center rounded px-1.5 py-0.5 text-muted ring-1 ring-white/10 transition hover:bg-white/10 ' +
+  'hover:text-text focus-visible:outline-2 focus-visible:outline-accent';
+
+export interface Viewer {
+  id: string;
+  username: string;
+}
+
 interface MessageItemProps {
   message: Message;
   authorName: string;
+  me: Viewer;
+  usersById: ReadonlyMap<string, PublicUser>;
+  /** Lowercased usernames of active users (mention highlighting). */
+  usernames: ReadonlySet<string>;
+  /** Every DM message mentions the other member (B.5a rule 1), so DMs skip the mention highlight. */
+  isDm: boolean;
   canEdit: boolean;
   canDelete: boolean;
+  /** False in a read-only DM (the other member is deactivated). */
+  canReact: boolean;
   onError: ErrorSink;
 }
 
-export function MessageItem({ message, authorName, canEdit, canDelete, onError }: MessageItemProps) {
+export function MessageItem({
+  message,
+  authorName,
+  me,
+  usersById,
+  usernames,
+  isDm,
+  canEdit,
+  canDelete,
+  canReact,
+  onError,
+}: MessageItemProps) {
   const [editing, setEditing] = useState(false);
   const [busy, setBusy] = useState(false);
+  const mentionsMe = message.mentionUserIds.includes(me.id);
+  const highlight = mentionsMe && !isDm;
+
+  const react = (emoji: string, add: boolean) => {
+    onError(null);
+    setReaction(message.channelId, message.id, emoji, me.id, add).catch((err: unknown) => {
+      onError(errorMessage(err));
+    });
+  };
 
   const onDelete = async () => {
     if (!window.confirm('Delete this message?')) return;
@@ -50,7 +89,10 @@ export function MessageItem({ message, authorName, canEdit, canDelete, onError }
     <li
       data-testid="message-item"
       data-message-id={message.id}
-      className="group relative px-4 py-1.5 hover:bg-white/[0.03]"
+      data-mentions-me={mentionsMe ? 'true' : undefined}
+      className={`group relative py-1.5 pr-4 hover:bg-white/[0.03] ${
+        highlight ? 'border-l-2 border-accent bg-accent/[0.06] pl-[14px]' : 'pl-4'
+      }`}
     >
       <div className="flex items-baseline gap-2">
         <span data-testid="message-author" className="text-sm font-semibold">
@@ -75,7 +117,9 @@ export function MessageItem({ message, authorName, canEdit, canDelete, onError }
       ) : (
         <div className="text-sm leading-relaxed">
           <div data-testid="message-content" className="markdown break-words">
-            <Markdown>{message.content}</Markdown>
+            <Markdown selfUsername={me.username} usernames={usernames}>
+              {message.content}
+            </Markdown>
           </div>
           {message.editedAt && (
             <span
@@ -88,8 +132,23 @@ export function MessageItem({ message, authorName, canEdit, canDelete, onError }
           )}
         </div>
       )}
-      {!editing && (canEdit || canDelete) && (
+      <ReactionBar
+        message={message}
+        meId={me.id}
+        usersById={usersById}
+        disabled={!canReact}
+        onToggle={react}
+      />
+      {!editing && (canReact || canEdit || canDelete) && (
         <div className="absolute top-1 right-4 flex gap-1 rounded-md bg-surface-raised p-0.5 opacity-0 shadow ring-1 ring-white/10 transition group-focus-within:opacity-100 group-hover:opacity-100">
+          {canReact && (
+            <AddReaction
+              className={iconButton}
+              onPick={(emoji) => {
+                react(emoji, true);
+              }}
+            />
+          )}
           {canEdit && (
             <button
               type="button"
@@ -197,10 +256,12 @@ function EditForm({
 export function PendingItem({
   pending,
   authorName,
+  usernames,
   onError,
 }: {
   pending: PendingMessage;
   authorName: string;
+  usernames: ReadonlySet<string>;
   onError: ErrorSink;
 }) {
   const failed = pending.status === 'failed';
@@ -228,7 +289,7 @@ export function PendingItem({
         data-testid="message-content"
         className={`markdown text-sm break-words ${failed ? 'text-danger/80' : 'opacity-60'}`}
       >
-        <Markdown>{pending.content}</Markdown>
+        <Markdown usernames={usernames}>{pending.content}</Markdown>
       </div>
       {failed && (
         <div className="mt-1 flex gap-1">
