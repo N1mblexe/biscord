@@ -79,6 +79,8 @@ export default defineConfig({
             APP_ORIGIN: webURL,
             COOKIE_SECURE: 'false',
             UPLOAD_DIR: UPLOAD_DIR_E2E,
+            // Fast voice reconcile with LiveKit (CONTRACTS B.8): the safety net behind the webhooks.
+            VOICE_RECONCILE_MS: '5000',
           }),
         },
         {

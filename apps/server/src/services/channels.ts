@@ -1,9 +1,11 @@
-import { and, asc, count, eq, max, ne, sql, type SQL } from 'drizzle-orm';
-import { LIMITS, type ChannelType } from '@hearth/shared';
+import { and, asc, count, eq, inArray, max, ne, sql, type SQL } from 'drizzle-orm';
+import { LIMITS, voiceRoomName, type ChannelType } from '@hearth/shared';
+import type { FastifyBaseLogger } from 'fastify';
 import type { Db } from '../db/client.js';
 import { channels } from '../db/schema.js';
 import type { ChannelRow, Queryable } from '../db/types.js';
-import { AppError } from '../lib/errors.js';
+import { AppError, loggableError } from '../lib/errors.js';
+import { ignoreNotFound, type VoiceBackend } from '../livekit/client.js';
 import { storageKeysOfChannel } from './attachments.js';
 
 /**
@@ -36,6 +38,23 @@ export async function findChannel(db: Queryable, id: string): Promise<ChannelRow
     .from(channels)
     .where(and(eq(channels.id, id), notDm()));
   return row ?? null;
+}
+
+/**
+ * Ids of this database's voice channels: all of them, or those among `ids` (non-UUID strings must not be
+ * passed). The shared LiveKit server also hosts rooms of other databases (B.6a rule 3); this is the filter.
+ */
+export async function listVoiceChannelIds(db: Queryable, ids?: readonly string[]): Promise<string[]> {
+  if (ids?.length === 0) return [];
+  const rows = await db
+    .select({ id: channels.id })
+    .from(channels)
+    .where(
+      ids === undefined
+        ? eq(channels.type, 'voice')
+        : and(eq(channels.type, 'voice'), inArray(channels.id, [...ids])),
+    );
+  return rows.map((row) => row.id);
 }
 
 /** Appends at `max(position) + 1`; 409 CHANNEL_LIMIT once there are 50 text/voice channels. */
@@ -98,20 +117,27 @@ export function reorderChannels(db: Db, ids: readonly string[]): Promise<Channel
 }
 
 /**
- * CONTRACTS B.7 "delete channel": the DB delete cascades to messages, reactions, mentions, read states
+ * CONTRACTS B.7 "delete channel": a voice channel's LiveKit room is deleted first (503 LIVEKIT_UNAVAILABLE and
+ * no DB change if that fails). The DB delete cascades to messages, reactions, mentions, read states
  * and attachment rows. Returns the deleted row and the storage keys of its attachments, which the caller
  * unlinks after the commit; 404 NOT_FOUND for an unknown id or a DM.
  */
 export async function deleteChannel(
   db: Db,
   id: string,
+  { voiceBackend, log }: { voiceBackend: VoiceBackend; log: FastifyBaseLogger },
 ): Promise<{ channel: ChannelRow; storageKeys: string[] }> {
   const channel = await findChannel(db, id);
   if (channel === null) throw notFound();
 
   if (channel.type === 'voice') {
-    // TODO(phase 6): LiveKit `deleteRoom(voiceRoomName(id))` goes HERE, before the DB delete (B.7 step 1;
-    // a 404 from LiveKit counts as success, any other failure → 503 LIVEKIT_UNAVAILABLE and no DB change).
+    // B.7 step 1: close the LiveKit room first (a 404 counts as success). Any other failure keeps the channel.
+    try {
+      await ignoreNotFound(voiceBackend.deleteRoom(voiceRoomName(channel.id)));
+    } catch (err) {
+      log.warn({ err: loggableError(err), channelId: channel.id }, 'voice channel delete: deleteRoom failed');
+      throw new AppError('LIVEKIT_UNAVAILABLE', 'Voice server unavailable, the channel was not deleted');
+    }
   }
 
   return db.transaction(async (tx) => {

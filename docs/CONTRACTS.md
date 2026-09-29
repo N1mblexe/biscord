@@ -439,6 +439,15 @@ Reconnect protocol: on every `connect`, the client refetches `GET /bootstrap`, p
 5. **One channel at a time:** a `participant_joined` for a user already in another room triggers `removeParticipant` on the old room (a 404 counts as success). The client also disconnects the old room before joining a new one.
 6. **Test reset (row 39):** before truncating, it collects this DB's voice channel ids, `deleteRoom`s each one (404 is fine), and clears voice memory and the webhook id cache. Rooms from other databases on the shared container are left alone.
 
+7. **Implementation details (settled in Phase 6):**
+   - `VOICE_RECONCILE_MS` accepts 1000–3600000 (default 60000).
+   - `/bootstrap.voice` lists only channels that currently have participants.
+   - The webhook route accepts only `application/webhook+json` (a JSON body gets 415).
+   - A `voice:state` sent before the join webhook arrives is acked `VALIDATION` but remembered, and becomes that user's starting mute/deafen flags on join. `voice:state` is limited to 20 events per 5 s per user (ack `RATE_LIMITED`).
+   - LiveKit answering `deleteRoom`/`removeParticipant` with 404 counts as success.
+   - Deleting a voice channel drops its participants from memory; `channel:deleted` follows. LiveKit's own `participant_left`/`room_finished` webhooks for the deleted room may still produce `voice:left` events first, which clients handle harmlessly.
+   - Known race: someone joining in the milliseconds between `deleteRoom` and the DB delete re-creates the room (rooms auto-create); it closes when it empties.
+
 ### B.7 Lifecycle rules (ordered, idempotent)
 
 - **Deactivate user:**
@@ -523,4 +532,5 @@ Reconnect protocol: on every `connect`, the client refetches `GET /bootstrap`, p
   - Voice: `VOICE_RECONCILE_MS=60000` (optional; how often the server reconciles its voice state with LiveKit; the e2e server uses 5000)
   - Testing: `HEARTH_TEST_MODE=false, HEARTH_TEST_TOKEN=`
   - Production: `HEARTH_DOMAIN=` (P9)
+- **LAN test profile** (`pnpm lan:up`, `docker-compose.lan.yml`): web over `https://<LAN_IP>:8443` and LiveKit signaling over `wss://<LAN_IP>:7443`, both through Caddy with `tls internal`; LiveKit starts with `--node-ip <LAN_IP>`; the server gets `APP_ORIGIN=https://<LAN_IP>:8443`, `LIVEKIT_PUBLIC_URL=wss://<LAN_IP>:7443`, `COOKIE_SECURE=true`. See docs/DEPLOY.md → LAN testing.
 - The server parses env with zod in `env.ts` and exits on anything invalid. It refuses to boot when `NODE_ENV=production` and `HEARTH_TEST_MODE=true`.

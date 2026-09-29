@@ -4,6 +4,7 @@ import {
   type APIRequestContext,
   type APIResponse,
   type BrowserContext,
+  type Locator,
   type Page,
   type WebSocketRoute,
 } from '@playwright/test';
@@ -630,4 +631,229 @@ export async function findStoredFile(content: Buffer): Promise<string | null> {
     if (bytes !== null && bytes.equals(content)) return rel;
   }
   return null;
+}
+
+// ---- Phase 6 voice helpers (CONTRACTS B.4 rows 18, 29, B.5 voice events, B.6a; docs/plans/phase-6.md) ----
+
+/** Bound for anything that goes through LiveKit media (connect, subscribe, bytes, speaking). */
+export const VOICE_MEDIA_TIMEOUT = 20_000;
+
+/** Admin creates a voice channel through the API (row 15). */
+export async function createVoiceChannel(adminRequest: APIRequestContext, name: string): Promise<Channel> {
+  return createChannel(adminRequest, { name, type: 'voice' });
+}
+
+/**
+ * Sidebar voice channel button (`data-testid="voice-channel"`) whose text is exactly `name`; a
+ * leading icon glyph (non-word characters) is tolerated.
+ */
+export function voiceChannel(page: Page, name: string): Locator {
+  return page.getByTestId('voice-channel').filter({ hasText: new RegExp(`^\\W*${escapeRegExp(name)}$`) });
+}
+
+/** The voice panel (`data-testid="voice-panel"`); at most one exists at a time. */
+export function voicePanel(page: Page): Locator {
+  return page.getByTestId('voice-panel');
+}
+
+/**
+ * `userId`'s sidebar entry (`data-testid="voice-participant"`), wherever it is listed. A user is in
+ * at most one voice channel, so this should match 0 or 1 elements.
+ */
+export function voiceParticipant(page: Page, userId: string): Locator {
+  return page.locator(`[data-testid="voice-participant"][data-user-id="${userId}"]`);
+}
+
+/**
+ * Joins the voice channel `name` by clicking it in the sidebar (loading the app first if the page is
+ * blank), then waits for the panel to show that channel with `data-state="connected"`.
+ */
+export async function joinVoice(page: Page, name: string): Promise<void> {
+  if (!page.url().startsWith('http')) {
+    await page.goto('/');
+    await expectConnected(page);
+  }
+  await voiceChannel(page, name).click();
+  await expect(
+    voicePanel(page).and(page.locator('[data-state="connected"]')).filter({ hasText: name }),
+  ).toBeVisible({ timeout: VOICE_MEDIA_TIMEOUT });
+}
+
+/** Presses **Leave** in the voice panel and waits for the panel to go away. */
+export async function leaveVoice(page: Page): Promise<void> {
+  await voicePanel(page).getByRole('button', { name: 'Leave', exact: true }).click();
+  await expect(voicePanel(page)).toHaveCount(0);
+}
+
+/** One remote participant as seen by `window.__hearthDebug.voice()`. */
+export interface VoiceDebugRemote {
+  /** LiveKit identity = the Hearth user id (B.6). */
+  identity: string;
+  audioSubscribed: boolean;
+  /** inbound-rtp `bytesReceived` of the remote's microphone track (0 when not subscribed). */
+  audioBytesReceived: number;
+  /** Local playback volume for this remote (per-user volume slider). */
+  volume: number;
+  /** Whether this remote's audio is muted in local playback. */
+  muted: boolean;
+}
+
+/** `window.__hearthDebug.voice()` (e2e builds only), normalised: absent ids are `null`. */
+export interface VoiceDebug {
+  /** LiveKit connection state (`disconnected`, `connecting`, `connected`, `reconnecting`, …). */
+  state: string;
+  /** `voice_<channelId>` while in a room. */
+  roomName: string | null;
+  localIdentity: string | null;
+  /** Deafened: every remote's audio is muted in local playback (the `RoomAudioRenderer` `muted` prop). */
+  playbackMuted: boolean;
+  remotes: VoiceDebugRemote[];
+}
+
+function isVoiceDebugRemote(value: unknown): value is VoiceDebugRemote {
+  if (typeof value !== 'object' || value === null) return false;
+  return (
+    'identity' in value &&
+    typeof value.identity === 'string' &&
+    'audioSubscribed' in value &&
+    typeof value.audioSubscribed === 'boolean' &&
+    'audioBytesReceived' in value &&
+    typeof value.audioBytesReceived === 'number' &&
+    'volume' in value &&
+    typeof value.volume === 'number' &&
+    'muted' in value &&
+    typeof value.muted === 'boolean'
+  );
+}
+
+function optionalString(value: unknown): value is string | null | undefined {
+  return value === null || value === undefined || typeof value === 'string';
+}
+
+/**
+ * Calls `window.__hearthDebug.voice()` (sync or async) in the page and validates its shape, like
+ * `hearthEvents`. Throws if the hook is missing (not an e2e build) or malformed.
+ */
+export async function voiceDebug(page: Page): Promise<VoiceDebug> {
+  const raw: unknown = await page.evaluate(async () => {
+    const hook = (globalThis as unknown as { __hearthDebug?: { voice?: unknown } }).__hearthDebug;
+    if (typeof hook?.voice !== 'function') return { missing: true };
+    const voice = hook.voice as () => unknown;
+    return { missing: false, value: await voice() };
+  });
+  if (typeof raw !== 'object' || raw === null || !('missing' in raw) || raw.missing !== false) {
+    throw new Error('window.__hearthDebug.voice is missing (is VITE_E2E=true?)');
+  }
+  const value = 'value' in raw ? raw.value : undefined;
+  const malformed = (): Error =>
+    new Error(`window.__hearthDebug.voice() is malformed: ${JSON.stringify(value)}`);
+  if (typeof value !== 'object' || value === null) throw malformed();
+  if (!('state' in value) || typeof value.state !== 'string') throw malformed();
+  const roomName = 'roomName' in value ? value.roomName : undefined;
+  const localIdentity = 'localIdentity' in value ? value.localIdentity : undefined;
+  if (!optionalString(roomName) || !optionalString(localIdentity)) throw malformed();
+  if (!('playbackMuted' in value) || typeof value.playbackMuted !== 'boolean') throw malformed();
+  if (!('remotes' in value) || !Array.isArray(value.remotes)) throw malformed();
+  const remotes: unknown[] = value.remotes;
+  if (!remotes.every(isVoiceDebugRemote)) throw malformed();
+  return {
+    state: value.state,
+    roomName: roomName ?? null,
+    localIdentity: localIdentity ?? null,
+    playbackMuted: value.playbackMuted,
+    remotes,
+  };
+}
+
+/** One `voice-participant` entry of the sidebar, read from its data attributes. */
+export interface VoiceParticipantView {
+  userId: string;
+  muted: boolean;
+  deafened: boolean;
+  /** `data-speaking="true"` (only ever set for people in the viewer's own room). */
+  speaking: boolean;
+}
+
+/**
+ * The `voice-participant`s listed under the voice channel `channelName` in `page`'s sidebar, in
+ * display order. "Under" is decided by document order: every participant after this channel's
+ * button and before the next `voice-channel` button, so it holds whether the list is nested in the
+ * channel's container or rendered as siblings. Poll it with `expect.poll`.
+ */
+export async function voiceParticipants(page: Page, channelName: string): Promise<VoiceParticipantView[]> {
+  const raw: unknown = await voiceChannel(page, channelName).evaluate(
+    (button: unknown) => {
+      interface El {
+        getAttribute(name: string): string | null;
+      }
+      const doc = (globalThis as unknown as { document: { querySelectorAll(s: string): Iterable<El> } })
+        .document;
+      const found: (string | null)[][] = [];
+      let inside = false;
+      // querySelectorAll returns elements in document order.
+      for (const el of doc.querySelectorAll(
+        '[data-testid="voice-channel"], [data-testid="voice-participant"]',
+      )) {
+        if (el === button) {
+          inside = true;
+        } else if (el.getAttribute('data-testid') === 'voice-channel') {
+          if (inside) break;
+        } else if (inside) {
+          found.push([
+            el.getAttribute('data-user-id'),
+            el.getAttribute('data-muted'),
+            el.getAttribute('data-deafened'),
+            el.getAttribute('data-speaking'),
+          ]);
+        }
+      }
+      return found;
+    },
+    undefined,
+    { timeout: 10_000 },
+  );
+  if (!Array.isArray(raw)) throw new Error(`voiceParticipants(${channelName}): unexpected result`);
+  const rows: unknown[] = raw;
+  return rows.map((row) => {
+    if (!Array.isArray(row)) throw new Error(`voiceParticipants(${channelName}): unexpected row`);
+    const cells: unknown[] = row;
+    const [userId, muted, deafened, speaking] = cells;
+    if (typeof userId !== 'string') {
+      throw new Error(`voiceParticipants(${channelName}): a voice-participant has no data-user-id`);
+    }
+    return { userId, muted: muted === 'true', deafened: deafened === 'true', speaking: speaking === 'true' };
+  });
+}
+
+/** Sorted user ids listed under `channelName`: a stable value for `expect.poll(...).toEqual([...])`. */
+export async function voiceParticipantIds(page: Page, channelName: string): Promise<string[]> {
+  return (await voiceParticipants(page, channelName)).map((p) => p.userId).sort();
+}
+
+/**
+ * Asserts that `page` is receiving `identity`'s audio: subscribed, and `audioBytesReceived` > 0 and
+ * strictly increasing between two consecutive polls.
+ */
+export async function expectHearing(page: Page, identity: string, who = identity): Promise<void> {
+  let previous = 0;
+  await expect
+    .poll(
+      async () => {
+        const remote = (await voiceDebug(page)).remotes.find((r) => r.identity === identity);
+        if (remote === undefined) {
+          previous = 0;
+          return `no remote ${who}`;
+        }
+        if (!remote.audioSubscribed) {
+          previous = 0;
+          return `${who}'s audio not subscribed`;
+        }
+        const bytes = remote.audioBytesReceived;
+        const growing = previous > 0 && bytes > previous;
+        previous = bytes;
+        return growing ? 'flowing' : `${who}'s audioBytesReceived = ${bytes}`;
+      },
+      { message: `audio from ${who} is flowing`, timeout: VOICE_MEDIA_TIMEOUT, intervals: [500] },
+    )
+    .toBe('flowing');
 }

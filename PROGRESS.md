@@ -2,6 +2,66 @@
 
 Updated at the end of every phase (see CLAUDE.md → Workflow).
 
+## Phase 6 — Voice via LiveKit + LAN test profile ✅ (2026-09-29)
+
+### Built
+
+- **Server:**
+  - Access token (row 29):
+    - grants exactly per B.6: mic, camera and screen share, no data channel, no room admin;
+    - identity is the user id and the room is `voice_<channelId>`;
+    - TTL 600 s, rate-limited.
+  - Webhook receiver (row 30):
+    - reads the raw body and verifies the signature, accepts only `application/webhook+json` (anything else gets 415);
+    - ignores duplicate event ids, stale connections and joins arriving out of order;
+    - ignores rooms that aren't in this server's database (the dev and e2e servers share one LiveKit container).
+  - Voice state is kept in memory:
+    - one voice channel per user, with guards against a fast channel switch kicking the new connection;
+    - `voice:state` is zod-validated, and a state sent before the join webhook is remembered;
+    - it re-syncs with LiveKit at boot and every `VOICE_RECONCILE_MS`. Webhooks, re-syncs and resets run one at a time, and re-sync adopts connections LiveKit still lists.
+  - Deleting a voice channel calls LiveKit's `deleteRoom` before deleting it from the DB.
+  - Health reports `livekit` (200 with `degraded` when LiveKit is down).
+  - The test reset deletes only this database's rooms.
+- **Web:**
+  - One LiveKit `Room` for the whole app, with joins cancellable and a switch leaving the old room first.
+  - Voice panel (connecting/connected/reconnecting), mute and deafen (undeafen restores the earlier mute state), per-user volume saved locally.
+  - Speaking ring: LiveKit's active speakers plus a level meter that reads only LiveKit's track stats (no custom WebRTC).
+  - Sidebar lists voice participants, and a "Click to enable audio" button appears when playback is blocked.
+  - A debug hook in e2e builds only; it reads the real track state.
+- **e2e:** 6 voice scenarios against the real LiveKit container with fake media, checking that received audio bytes keep growing.
+- **LAN test profile:**
+  - `pnpm lan:up` / `pnpm lan:down`.
+  - `docker-compose.lan.yml`, `infra/caddy/Caddyfile.lan` (`tls internal`, `default_sni`, wss on :7443), `infra/livekit/livekit.lan.yaml` (no `node_ip`, so `--node-ip <LAN_IP>` wins).
+  - The root certificate is exported to `data/lan/`.
+  - A device checklist in `docs/DEPLOY.md`.
+
+### Tested (run for real on 2026-09-29)
+
+- Checks run before building:
+  - The LiveKit container reaches the host's :3100 (webhooks to the e2e server).
+  - Two fake-media Chromium pages exchange audio through the real container.
+- `pnpm typecheck` ✅ · `pnpm lint` ✅ · `pnpm format:check` ✅
+- `pnpm test` ✅: 627 tests (shared 66, web 219, server 342), run with shared `dist/` deleted. Includes a real-LiveKit-container suite.
+- `pnpm test:e2e --repeat-each=3` ✅: 108/108 (36 specs × 3), no flakes.
+- Full stack (`docker compose up --build`) ✅:
+  - `@smoke` passes, and health shows `livekit: ok`.
+  - Two fake-media browsers join voice through Caddy on :8080, audio flows both ways (bytes growing), and both participants are listed.
+- **LAN profile** ✅:
+  - `pnpm lan:up` issues a certificate for `IP:192.168.1.110`, and LiveKit advertises `nodeIP 192.168.1.110`.
+  - Two fake-media browsers join voice through `https://192.168.1.110:8443`, with audio flowing over `192.168.1.110:7882/udp`.
+  - `pnpm lan:down` works without `LAN_IP`.
+- A fresh review found 0 blockers, 2 major and 8 minor issues, all fixed. Each server fix got a test that fails when the fix is reverted.
+
+### Known issues / notes
+
+- **Pending, needs you:** the manual check with a real second device (phone or laptop on the same Wi-Fi), following `docs/DEPLOY.md` → LAN testing.
+- Known race: someone joining in the milliseconds between `deleteRoom` and the DB delete re-creates the room; it closes when it empties.
+- Not in Phase 6, moved to Phase 8: the admin "disconnect from voice" feature (row 31), the voice part of deactivating a user, and the e2e test for deleting a voice channel with people in it.
+
+### Next step
+
+Phase 7: camera and screen share (`docs/plans/phase-7.md`, awaiting approval). It starts with a check that headless Chromium can screen-share.
+
 ## Phase 5 — Uploads & avatars ✅ (2026-09-29)
 
 ### Built

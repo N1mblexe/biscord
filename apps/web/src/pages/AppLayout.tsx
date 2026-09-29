@@ -11,12 +11,18 @@ import { clearSessionState } from '../lib/session';
 import { useNoticeStore } from '../stores/notice';
 import { useSocket } from '../socket/context';
 import { SocketProvider } from '../socket/SocketProvider';
+import { VoiceProvider } from '../voice/VoiceProvider';
 
-/** The protected layout: owns the socket for as long as a signed-in page is shown. */
+/**
+ * The protected layout: owns the socket and the voice connection for as long as a signed-in page is
+ * shown, so voice survives moving between channels and pages.
+ */
 export function AppLayout() {
   return (
     <SocketProvider>
-      <AppShell />
+      <VoiceProvider>
+        <AppShell />
+      </VoiceProvider>
     </SocketProvider>
   );
 }

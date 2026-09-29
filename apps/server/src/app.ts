@@ -4,11 +4,15 @@ import { LIMITS } from '@hearth/shared';
 import type { Db } from './db/client.js';
 import type { Env } from './env.js';
 import { registerCsrf } from './lib/csrf.js';
+import { createLiveKitBackend, type VoiceBackend } from './livekit/client.js';
+import { createLiveKitHealth } from './livekit/health.js';
+import { createReconciler, type Reconciler } from './livekit/reconcile.js';
 import { registerErrorHandlers } from './lib/errors.js';
 import { registerAuth } from './plugins/auth.js';
 import { registerRateLimit } from './plugins/rate-limit.js';
 import { createRealtime } from './realtime/io.js';
 import { registerTyping } from './realtime/typing.js';
+import { createVoiceState, registerVoiceEvents, type VoiceState } from './realtime/voice-state.js';
 import { registerAdminInviteRoutes } from './routes/admin-invites.js';
 import { registerAdminUserRoutes } from './routes/admin-users.js';
 import { registerAttachmentRoutes } from './routes/attachments.js';
@@ -19,12 +23,14 @@ import { registerChannelRoutes } from './routes/channels.js';
 import type { RouteDeps } from './routes/deps.js';
 import { registerDmRoutes } from './routes/dms.js';
 import { registerHealthRoutes } from './routes/health.js';
+import { registerLiveKitWebhookRoute } from './routes/livekit-webhook.js';
 import { registerMeRoutes } from './routes/me.js';
 import { registerMessageRoutes } from './routes/messages.js';
 import { registerReactionRoutes } from './routes/reactions.js';
 import { registerReadRoutes } from './routes/reads.js';
 import { registerTestResetRoutes } from './routes/test-reset.js';
 import { registerUserRoutes } from './routes/users.js';
+import { registerVoiceRoutes } from './routes/voice.js';
 import { warmUpDummyHash } from './services/passwords.js';
 import { runUploadGc, startGcScheduler, type GcScheduler } from './storage/gc.js';
 import { createStorage, resolveUploadDir, type StatfsFn } from './storage/paths.js';
@@ -46,6 +52,15 @@ export interface BuildAppOptions {
   };
   /** Test-only: replaces `fs.statfs` for the free-space check (B.7a rule 8), to fake a full disk. */
   statfs?: StatfsFn;
+  /** Test-only: replaces the LiveKit `RoomServiceClient` (a fake, or one with other credentials). */
+  voiceBackend?: VoiceBackend;
+}
+
+declare module 'fastify' {
+  interface FastifyInstance {
+    /** The voice state and its reconcile loop; tests drive them directly. */
+    voice: { state: VoiceState; reconciler: Reconciler };
+  }
 }
 
 /**
@@ -92,7 +107,14 @@ function loggerOptions(env: Env, enabled: boolean): FastifyServerOptions['logger
  * Builds the Fastify instance with every plugin, route and the Socket.IO server attached. Does not listen.
  * `app.inject` works as soon as it resolves `ready()`; sockets need `app.listen`.
  */
-export function buildApp({ db, env, logger = true, timings = {}, statfs }: BuildAppOptions): FastifyInstance {
+export function buildApp({
+  db,
+  env,
+  logger = true,
+  timings = {},
+  statfs,
+  voiceBackend = createLiveKitBackend(env),
+}: BuildAppOptions): FastifyInstance {
   // `false`, or the list of proxy IPs/CIDRs from TRUST_PROXY (never `true`, see env.ts).
   const app = Fastify({
     logger: loggerOptions(env, logger),
@@ -141,9 +163,38 @@ export function buildApp({ db, env, logger = true, timings = {}, statfs }: Build
     log: app.log,
     ...(timings.typingThrottleMs === undefined ? {} : { throttleMs: timings.typingThrottleMs }),
   });
-  registerHealthRoutes(app, { db });
+  const livekitHealth = createLiveKitHealth(voiceBackend, app.log);
+  const voice = createVoiceState({ realtime, backend: voiceBackend, log: app.log });
+  const voiceEvents = registerVoiceEvents({ realtime, voice, log: app.log });
+  // B.6a rule 4: reconcile at boot and every VOICE_RECONCILE_MS; stopped (and awaited) on close.
+  const reconciler = createReconciler({
+    db,
+    backend: voiceBackend,
+    voice,
+    health: livekitHealth,
+    log: app.log,
+  });
+  app.decorate('voice', { state: voice, reconciler });
+  app.addHook('onReady', (done) => {
+    reconciler.start(env.VOICE_RECONCILE_MS);
+    done();
+  });
+  app.addHook('onClose', () => reconciler.stop());
+  registerHealthRoutes(app, { db, livekitHealth });
 
-  const deps: RouteDeps = { db, env, guards, rateLimiter, realtime, typing, storage };
+  const deps: RouteDeps = {
+    db,
+    env,
+    guards,
+    rateLimiter,
+    realtime,
+    typing,
+    storage,
+    voice,
+    voiceEvents,
+    voiceBackend,
+    livekitHealth,
+  };
   // Routes live in a child context loaded after @fastify/rate-limit, whose onRoute hook reads `config.rateLimit`.
   void app.register((instance, _opts, done) => {
     registerAuthRoutes(instance, deps);
@@ -157,6 +208,8 @@ export function buildApp({ db, env, logger = true, timings = {}, statfs }: Build
     registerReadRoutes(instance, deps);
     registerAdminInviteRoutes(instance, deps);
     registerAdminUserRoutes(instance, deps);
+    registerVoiceRoutes(instance, deps);
+    registerLiveKitWebhookRoute(instance, deps);
     if (env.HEARTH_TEST_MODE) registerTestResetRoutes(instance, deps);
     // Multipart parsing only where uploads are accepted: every other route keeps refusing it (415).
     void instance.register(async (uploads) => {

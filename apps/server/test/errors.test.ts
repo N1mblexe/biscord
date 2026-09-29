@@ -143,14 +143,24 @@ describe('error format', () => {
   });
 
   it('the LiveKit webhook is exempt from the CSRF header', async () => {
+    // No X-Requested-With: it reaches the route (401 for the missing signature, not 403 CSRF).
     const res = await app.inject({
+      method: 'POST',
+      url: '/api/livekit/webhook',
+      headers: { 'content-type': 'application/webhook+json' },
+      payload: '{}',
+    });
+    expect(res.statusCode).toBe(401);
+    expect(errorBody(res.payload).error.code).toBe('UNAUTHENTICATED');
+    // Only the raw webhook type is accepted.
+    const asJson = await app.inject({
       method: 'POST',
       url: '/api/livekit/webhook',
       headers: json,
       payload: '{}',
     });
-    expect(res.statusCode).toBe(404);
-    expect(errorBody(res.payload).error.code).toBe('NOT_FOUND');
+    expect(asJson.statusCode).toBe(415);
+    expect(errorBody(asJson.payload).error.code).toBe('UNSUPPORTED_MEDIA');
   });
 });
 

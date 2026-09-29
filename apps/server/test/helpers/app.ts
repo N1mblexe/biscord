@@ -6,6 +6,7 @@ import type { Db } from '../../src/db/client.js';
 import { loadEnv, type Env } from '../../src/env.js';
 import { unitDatabaseUrl } from './env.js';
 import { testDb } from './db.js';
+import { FakeVoiceBackend } from './voice.js';
 
 export function testEnv(overrides: NodeJS.ProcessEnv = {}): Env {
   return loadEnv({
@@ -35,6 +36,8 @@ export function makeApp(
     env?: Env;
     timings?: BuildAppOptions['timings'];
     statfs?: BuildAppOptions['statfs'];
+    /** Defaults to a fresh `FakeVoiceBackend` (no LiveKit needed); pass a real one for container tests. */
+    voiceBackend?: BuildAppOptions['voiceBackend'];
   } = {},
 ): FastifyInstance {
   return buildApp({
@@ -43,5 +46,6 @@ export function makeApp(
     logger: false,
     ...(options.timings === undefined ? {} : { timings: options.timings }),
     ...(options.statfs === undefined ? {} : { statfs: options.statfs }),
+    voiceBackend: options.voiceBackend ?? new FakeVoiceBackend(),
   });
 }

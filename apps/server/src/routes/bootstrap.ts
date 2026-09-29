@@ -10,12 +10,12 @@ import { listUsers } from '../services/users.js';
 import type { RouteDeps } from './deps.js';
 
 /**
- * CONTRACTS B.4 row 12, staged: `voice` stays empty until Phase 6. `readStates` covers every text channel
- * and the caller's DMs; `onlineUserIds` is the in-memory presence (B.5a rule 6).
+ * CONTRACTS B.4 row 12. `readStates` covers every text channel and the caller's DMs; `onlineUserIds` is
+ * the in-memory presence (B.5a rule 6); `voice` is the in-memory voice state (only channels with someone in them).
  */
 export function registerBootstrapRoutes(
   app: FastifyInstance,
-  { db, env, guards, realtime }: RouteDeps,
+  { db, env, guards, realtime, voice }: RouteDeps,
 ): void {
   app.get('/api/bootstrap', { preHandler: guards.requireUser }, async (request, reply) => {
     const { user } = authOf(request);
@@ -31,7 +31,7 @@ export function registerBootstrapRoutes(
       channels: channels.map(toChannel),
       dms: dms.map((dm) => toDmChannel(dm.channelId, dm.otherUserId)),
       readStates,
-      voice: {}, // Phase 6
+      voice: voice.snapshot(),
       onlineUserIds: realtime.onlineUserIds(),
       livekitUrl: env.LIVEKIT_PUBLIC_URL,
     });

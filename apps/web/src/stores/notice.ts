@@ -24,5 +24,5 @@ export const useNoticeStore = create<NoticeState>()((set) => ({
 export const NOTICES = {
   channelDeleted: 'This channel was deleted.',
   channelUnavailable: "That channel doesn't exist or you don't have access to it.",
-  voiceNotYet: 'Voice channels arrive soon.',
+  voiceChannelNoText: 'Voice channels have no text chat. Click one in the sidebar to join it.',
 } as const;

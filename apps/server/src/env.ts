@@ -100,6 +100,10 @@ const EnvSchema = z
     // Read by the LiveKit container only.
     LIVEKIT_KEYS: z.string().optional(),
 
+    // --- Voice ---
+    // How often the in-memory voice state is reconciled with LiveKit (B.6a rule 4). 1 s .. 1 h.
+    VOICE_RECONCILE_MS: int(60_000, 1_000, 3_600_000),
+
     // --- Test mode ---
     HEARTH_TEST_MODE: bool(false),
     HEARTH_TEST_TOKEN: z.string().min(1).optional(),

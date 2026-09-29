@@ -2,10 +2,12 @@ import type { BootstrapResponse } from '@hearth/shared';
 import { usePresenceStore } from '../stores/presence';
 import { useReadsStore } from '../stores/reads';
 import { useTypingStore } from '../stores/typing';
+import { useVoiceStore } from '../stores/voice';
 
 /**
- * The socket-fed stores beyond messages: presence, typing and read states (docs/plans/phase-4.md,
- * "Key decisions → Web"). Bootstrap seeds presence and read states; socket events keep them live.
+ * The socket-fed stores beyond messages: presence, typing, read states (docs/plans/phase-4.md,
+ * "Key decisions → Web") and voice participants (phase-6.md). Bootstrap seeds presence, read states
+ * and voice; socket events keep them live.
  */
 
 /** Bumped when a session ends, so a bootstrap still in flight can't repopulate the stores. */
@@ -15,6 +17,7 @@ export interface LiveSnapshotMark {
   generation: number;
   presenceSeq: number;
   readsSeq: number;
+  voiceSeq: number;
 }
 
 /** Call right before requesting `/bootstrap`. */
@@ -23,6 +26,7 @@ export function beginLiveSnapshot(): LiveSnapshotMark {
     generation,
     presenceSeq: usePresenceStore.getState().seq,
     readsSeq: useReadsStore.getState().seq,
+    voiceSeq: useVoiceStore.getState().seq,
   };
 }
 
@@ -31,6 +35,7 @@ export function applyLiveSnapshot(boot: BootstrapResponse, mark: LiveSnapshotMar
   if (mark.generation !== generation) return;
   usePresenceStore.getState().applySnapshot(boot.onlineUserIds, mark.presenceSeq);
   useReadsStore.getState().applySnapshot(boot.readStates, mark.readsSeq);
+  useVoiceStore.getState().applySnapshot(boot.voice, mark.voiceSeq);
 }
 
 /** Drops all live state (logout, revoked or dead session). */
@@ -39,4 +44,5 @@ export function resetLiveState(): void {
   usePresenceStore.getState().reset();
   useTypingStore.getState().reset();
   useReadsStore.getState().reset();
+  useVoiceStore.getState().reset();
 }

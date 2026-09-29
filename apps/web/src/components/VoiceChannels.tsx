@@ -1,0 +1,264 @@
+import type { Channel, PublicUser, VoiceParticipant } from '@hearth/shared';
+import { useEffect, useId, useRef, useState } from 'react';
+import { useVoiceParticipants } from '../stores/voice';
+import { useVoice } from '../voice/context';
+import { useIsSpeakingInMyRoom, useVoiceSession } from '../voice/session';
+import { useVolume } from '../voice/volume';
+import { Avatar } from './Avatar';
+
+function SpeakerIcon() {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 16 16" className="size-3.5 shrink-0 opacity-70" fill="none">
+      <path
+        d="M2.5 6h2.5l3.5-3v10L5 10H2.5z"
+        stroke="currentColor"
+        strokeWidth="1.3"
+        strokeLinejoin="round"
+      />
+      <path d="M11 5.5a3.5 3.5 0 0 1 0 5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function MicOffIcon() {
+  return (
+    <svg
+      role="img"
+      aria-label="Muted"
+      viewBox="0 0 16 16"
+      className="size-3.5 shrink-0 text-danger"
+      fill="none"
+    >
+      <title>Muted</title>
+      <path d="M6 3.5a2 2 0 0 1 4 0V8a2 2 0 0 1-4 0z" stroke="currentColor" strokeWidth="1.3" />
+      <path
+        d="M3.5 7.5a4.5 4.5 0 0 0 9 0M8 12v2"
+        stroke="currentColor"
+        strokeWidth="1.3"
+        strokeLinecap="round"
+      />
+      <path d="m2.5 2.5 11 11" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function DeafenedIcon() {
+  return (
+    <svg
+      role="img"
+      aria-label="Deafened"
+      viewBox="0 0 16 16"
+      className="size-3.5 shrink-0 text-danger"
+      fill="none"
+    >
+      <title>Deafened</title>
+      <path
+        d="M2.5 10V8a5.5 5.5 0 0 1 11 0v2M2.5 10h2v3.5h-2zM11.5 10h2v3.5h-2z"
+        stroke="currentColor"
+        strokeWidth="1.3"
+        strokeLinejoin="round"
+      />
+      <path d="m2.5 2.5 11 11" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function VolumeIcon() {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 16 16" className="size-3.5" fill="none">
+      <path d="M3 5v6M8 3v10M13 6v4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+/** The **Volume** context button of a participant row and its slider (**Volume for <name>**, 0–100). */
+function VolumeControl({
+  userId,
+  displayName,
+  open,
+  onOpenChange,
+}: {
+  userId: string;
+  displayName: string;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}) {
+  const volume = useVolume(userId);
+  const { setUserVolume } = useVoice();
+  const sliderId = useId();
+  const percent = Math.round(volume * 100);
+  return (
+    <>
+      <button
+        type="button"
+        aria-label="Volume"
+        title={`Volume for ${displayName}`}
+        aria-expanded={open}
+        aria-controls={open ? sliderId : undefined}
+        className="ml-auto shrink-0 rounded p-0.5 text-muted opacity-70 transition hover:bg-white/10 hover:text-text hover:opacity-100 focus-visible:opacity-100"
+        onClick={() => {
+          onOpenChange(!open);
+        }}
+      >
+        <VolumeIcon />
+      </button>
+      {open && (
+        <div className="flex w-full basis-full items-center gap-2 py-1 pl-6">
+          <input
+            id={sliderId}
+            type="range"
+            min={0}
+            max={100}
+            step={1}
+            value={percent}
+            aria-label={`Volume for ${displayName}`}
+            aria-valuetext={`${percent}%`}
+            className="h-1 min-w-0 flex-1 accent-accent"
+            onChange={(e) => {
+              setUserVolume(userId, Number(e.currentTarget.value) / 100);
+            }}
+            onKeyDown={(e) => {
+              if (e.key === 'Escape') onOpenChange(false);
+            }}
+          />
+          <span className="w-9 shrink-0 text-right text-[11px] text-muted tabular-nums">{percent}%</span>
+        </div>
+      )}
+    </>
+  );
+}
+
+/**
+ * One `voice-participant` row: `data-user-id`, `data-muted` / `data-deafened` ("true"/"false", from
+ * the server's `voice:state`), and `data-speaking` only for people in our own room (docs/plans/
+ * phase-6.md, "Web UI contract"). Right-click or **Volume** opens the local volume slider.
+ */
+function VoiceParticipantRow({
+  participant,
+  user,
+  isMe,
+  inMyRoom,
+}: {
+  participant: VoiceParticipant;
+  user: PublicUser | undefined;
+  isMe: boolean;
+  inMyRoom: boolean;
+}) {
+  const speaking = useIsSpeakingInMyRoom(participant.userId) && inMyRoom;
+  const [volumeOpen, setVolumeOpen] = useState(false);
+  const rowRef = useRef<HTMLLIElement>(null);
+  const name = user?.displayName ?? 'Unknown user';
+
+  // Close the slider on a click outside this row. On `click`, not `pointerdown`: the slider sits in
+  // the list, so closing it moves the rows below, and the click being made must land first. A drag
+  // that starts on the slider and ends outside doesn't count.
+  useEffect(() => {
+    if (!volumeOpen) return;
+    const inside = (target: EventTarget | null) =>
+      target instanceof Node && rowRef.current?.contains(target) === true;
+    let pressedInside = false;
+    const onPointerDown = (e: PointerEvent) => {
+      pressedInside = inside(e.target);
+    };
+    const onClick = (e: MouseEvent) => {
+      if (!pressedInside && !inside(e.target)) setVolumeOpen(false);
+    };
+    document.addEventListener('pointerdown', onPointerDown);
+    document.addEventListener('click', onClick);
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown);
+      document.removeEventListener('click', onClick);
+    };
+  }, [volumeOpen]);
+
+  return (
+    <li
+      ref={rowRef}
+      data-testid="voice-participant"
+      data-user-id={participant.userId}
+      data-muted={participant.selfMute ? 'true' : 'false'}
+      data-deafened={participant.selfDeaf ? 'true' : 'false'}
+      data-speaking={inMyRoom ? (speaking ? 'true' : 'false') : undefined}
+      className="flex flex-wrap items-center gap-1.5 rounded-md px-2 py-0.5 text-sm text-muted hover:bg-white/5"
+      onContextMenu={
+        isMe
+          ? undefined
+          : (e) => {
+              e.preventDefault();
+              setVolumeOpen(true);
+            }
+      }
+    >
+      <span
+        className={`inline-flex shrink-0 rounded-full ring-2 transition ${speaking ? 'ring-success' : 'ring-transparent'}`}
+      >
+        <Avatar userId={participant.userId} name={name} avatarUrl={user?.avatarUrl ?? null} size="xs" />
+      </span>
+      <span className={`min-w-0 flex-1 truncate ${speaking ? 'text-text' : ''}`}>{name}</span>
+      {participant.selfDeaf ? <DeafenedIcon /> : participant.selfMute ? <MicOffIcon /> : null}
+      {!isMe && (
+        <VolumeControl
+          userId={participant.userId}
+          displayName={name}
+          open={volumeOpen}
+          onOpenChange={setVolumeOpen}
+        />
+      )}
+    </li>
+  );
+}
+
+/**
+ * A voice channel in the sidebar: the `voice-channel` button (click = join; its text is just the
+ * channel name) followed by its participants, for everyone, joined or not.
+ */
+export function VoiceChannelItem({
+  channel,
+  users,
+  meId,
+}: {
+  channel: Channel;
+  users: readonly PublicUser[];
+  meId: string;
+}) {
+  const participants = useVoiceParticipants(channel.id);
+  const { join } = useVoice();
+  const mine = useVoiceSession((s) => s.channelId === channel.id && s.state !== 'disconnected');
+  const inMyRoom = useVoiceSession(
+    (s) => s.channelId === channel.id && (s.state === 'connected' || s.state === 'reconnecting'),
+  );
+
+  return (
+    <li>
+      <button
+        type="button"
+        data-testid="voice-channel"
+        data-channel-id={channel.id}
+        aria-current={mine ? 'true' : undefined}
+        title={mine ? undefined : `Join ${channel.name}`}
+        className={`flex w-full items-center gap-1.5 rounded-md px-2 py-1 text-left text-sm transition hover:bg-white/5 hover:text-text ${
+          mine ? 'bg-white/10 font-medium text-text' : 'text-muted'
+        }`}
+        onClick={() => {
+          join(channel.id);
+        }}
+      >
+        <SpeakerIcon />
+        <span className="min-w-0 flex-1 truncate">{channel.name}</span>
+      </button>
+      {participants.length > 0 && (
+        <ul aria-label={`In ${channel.name}`} className="mt-0.5 ml-4 flex flex-col gap-0.5">
+          {participants.map((p) => (
+            <VoiceParticipantRow
+              key={p.userId}
+              participant={p}
+              user={users.find((u) => u.id === p.userId)}
+              isMe={p.userId === meId}
+              inMyRoom={inMyRoom}
+            />
+          ))}
+        </ul>
+      )}
+    </li>
+  );
+}

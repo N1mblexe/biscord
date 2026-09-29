@@ -25,6 +25,7 @@ import { NOTICES, useNoticeStore } from '../stores/notice';
 import { usePresenceStore } from '../stores/presence';
 import { useReadsStore } from '../stores/reads';
 import { useTypingStore } from '../stores/typing';
+import { useVoiceStore } from '../stores/voice';
 import { isReadingChannel } from '../stores/viewing';
 import type { HearthSocket } from './socket';
 
@@ -131,6 +132,7 @@ export function registerChatEvents(
     messages().forgetChannel(channelId);
     useReadsStore.getState().forgetChannel(channelId);
     useTypingStore.getState().clearChannel(channelId);
+    useVoiceStore.getState().forgetChannel(channelId);
   };
   const onChannelsReordered = (payload: unknown) => {
     const parsed = ChannelsReorderedPayload.safeParse(payload);

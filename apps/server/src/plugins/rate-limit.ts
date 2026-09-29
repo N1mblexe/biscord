@@ -3,6 +3,9 @@ import type { FastifyContextConfig, FastifyInstance } from 'fastify';
 import { LIMITS } from '@hearth/shared';
 import { AppError } from '../lib/errors.js';
 
+/** B.6a rule 2 (not in the shared LIMITS; server-side only). */
+export const VOICE_TOKEN_RATE_LIMIT = { max: 30, windowMs: 60_000 } as const;
+
 export interface RateLimiter {
   /** Route `config` for the auth endpoints (register, login, reset-password, invite check): 10/min/IP. */
   readonly authRoute: FastifyContextConfig;
@@ -13,6 +16,8 @@ export interface RateLimiter {
   readonly messageSend: FastifyContextConfig;
   /** Route `config` for uploads (row 27): 20 per minute per **user**, as a preHandler like `messageSend`. */
   readonly upload: FastifyContextConfig;
+  /** Route `config` for voice tokens (row 29, B.6a rule 2): 30 per minute per **user**, as a preHandler. */
+  readonly voiceToken: FastifyContextConfig;
   /** Forgets every counter (test reset). Old keys simply age out of the in-memory store. */
   reset(): void;
 }
@@ -53,6 +58,14 @@ export function registerRateLimit(app: FastifyInstance): RateLimiter {
         timeWindow: LIMITS.rateLimits.uploads.windowMs,
         hook: 'preHandler',
         keyGenerator: (request) => `${generation}|upload:${request.auth?.user.id ?? request.ip}`,
+      },
+    },
+    voiceToken: {
+      rateLimit: {
+        max: VOICE_TOKEN_RATE_LIMIT.max,
+        timeWindow: VOICE_TOKEN_RATE_LIMIT.windowMs,
+        hook: 'preHandler',
+        keyGenerator: (request) => `${generation}|voice:${request.auth?.user.id ?? request.ip}`,
       },
     },
     reset: () => {

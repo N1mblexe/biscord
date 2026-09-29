@@ -228,7 +228,7 @@ describe('channel admin routes', () => {
     expectError(await api(app, 'DELETE', `/api/channels/${general.id}`, { cookie: admin }), 404, 'NOT_FOUND');
   });
 
-  it('delete works for voice channels too (the LiveKit step arrives in Phase 6)', async () => {
+  it('delete works for voice channels too (LiveKit step: see voice.test.ts)', async () => {
     const voice = await insertChannel('lounge', { type: 'voice' });
     expect((await api(app, 'DELETE', `/api/channels/${voice.id}`, { cookie: admin })).statusCode).toBe(204);
     expect(await nonDmCount()).toBe(0);

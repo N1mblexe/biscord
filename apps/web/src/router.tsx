@@ -68,7 +68,7 @@ async function channelLoader({ request, params }: LoaderFunctionArgs) {
   found ??= findChannel(await loadBootstrap(true), channelId);
   const notices = useNoticeStore.getState();
   if (!found || (found.kind === 'channel' && found.channel.type !== 'text')) {
-    notices.setNotice(found ? NOTICES.voiceNotYet : NOTICES.channelUnavailable);
+    notices.setNotice(found ? NOTICES.voiceChannelNoText : NOTICES.channelUnavailable);
     return redirect('/');
   }
   notices.clearNotice();

@@ -9,6 +9,7 @@ import { installEventLog } from '../lib/eventLog';
 import { clearSessionState } from '../lib/session';
 import { registerChatEvents } from './chatEvents';
 import { SocketContext } from './context';
+import { registerVoiceEvents } from './voiceEvents';
 import { connectErrorReason, createSocket, revokedReason, type SocketStatus } from './socket';
 
 /**
@@ -64,11 +65,13 @@ export function SocketProvider({ children }: { children: ReactNode }) {
         void navigate(to);
       },
     });
+    const unregisterVoice = registerVoiceEvents(socket);
     socket.connect();
 
     return () => {
       uninstallEventLog();
       unregisterChat();
+      unregisterVoice();
       socket.off('connect', onConnect);
       socket.off('disconnect', onDisconnect);
       socket.off('connect_error', onConnectError);

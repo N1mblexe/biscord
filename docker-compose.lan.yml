@@ -1,0 +1,30 @@
+# LAN test profile: voice between this PC and other devices on the same Wi-Fi.
+# Merged on top of docker-compose.yml by `pnpm lan:up` (infra/scripts/lan-up.sh), which sets LAN_IP.
+# Trusted home networks only: Caddy's local CA private key lives in the `caddy_data` volume.
+services:
+  web:
+    environment:
+      LAN_IP: ${LAN_IP:?LAN_IP is set by infra/scripts/lan-up.sh}
+    volumes:
+      - ./infra/caddy/Caddyfile.lan:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+    ports:
+      - '8443:8443' # app over HTTPS (browsers only allow the mic on https:// or localhost)
+      - '7443:7443' # LiveKit signaling over wss (an https page can't open ws://)
+
+  livekit:
+    # Advertise the LAN IP instead of 127.0.0.1 so other devices can reach the media ports
+    # (7881/tcp and 7882/udp are already published on all interfaces).
+    command: --config /etc/livekit.yaml --node-ip ${LAN_IP:?LAN_IP is set by infra/scripts/lan-up.sh}
+    volumes:
+      # Same config minus rtc.node_ip, which would otherwise override --node-ip.
+      - ./infra/livekit/livekit.lan.yaml:/etc/livekit.yaml:ro
+
+  server:
+    environment:
+      APP_ORIGIN: https://${LAN_IP}:8443
+      LIVEKIT_PUBLIC_URL: wss://${LAN_IP}:7443
+      COOKIE_SECURE: 'true'
+
+volumes:
+  caddy_data:

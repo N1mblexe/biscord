@@ -33,6 +33,7 @@ Binding API/DB/event contracts: docs/CONTRACTS.md. Change it in the same commit 
 - Test: `pnpm test` (unit, DB `hearth_unit`), `pnpm test:e2e` (Playwright; boots its own server on :3100 and web on :5273, DB `hearth_e2e`)
 - First-time e2e setup: `pnpm exec playwright install chromium` (add `--with-deps` only on Debian/Ubuntu; it uses apt)
 - Full stack: `docker compose up --build` (web on :8080); smoke-test it with `E2E_BASE_URL=http://localhost:8080 pnpm test:e2e`
+- LAN test profile (voice from other devices on the same Wi-Fi): `pnpm lan:up` / `pnpm lan:down` (see docs/DEPLOY.md → LAN testing)
 
 ## Pinned versions (verified against the registry on 2026-09-28; change deliberately, one at a time)
 
@@ -74,4 +75,5 @@ Binding API/DB/event contracts: docs/CONTRACTS.md. Change it in the same commit 
 - **zod 4:** use `z.uuid()`, `z.email()`, `z.iso.datetime()` and `z.flattenError()`. Keep exactly one zod version in the workspace.
 - **Socket.IO:** the client must use `transports: ['websocket']`. The handshake checks `Origin`, and browsers don't send it on same-origin polling requests.
 - **Disk space:** every `docker compose up --build` leaves the previous images untagged, and the root partition is small (49 GB). Run `docker image prune -f` after full-stack rebuilds.
+- **LAN profile:** on a new device, install `data/lan/hearth-lan-root.crt` or open `https://<LAN_IP>:7443` once before joining voice; a wss connection can't show a certificate prompt. `pnpm lan:down` also stops Postgres and LiveKit, so run `pnpm infra:up` afterwards for dev.
 - **Test mode:** the server refuses to boot with `NODE_ENV=production` and `HEARTH_TEST_MODE=true`. The reset endpoint exists only in test mode.

@@ -29,6 +29,14 @@ describe('loadEnv', () => {
     expect(env.UPLOAD_MIN_FREE_MB).toBe(2048);
   });
 
+  it('VOICE_RECONCILE_MS: default 60000, 1000..3600000', () => {
+    expect(loadEnv(base).VOICE_RECONCILE_MS).toBe(60_000);
+    expect(loadEnv({ ...base, VOICE_RECONCILE_MS: '5000' }).VOICE_RECONCILE_MS).toBe(5_000);
+    for (const bad of ['0', '999', '3600001', '1.5', 'often']) {
+      expect(() => loadEnv({ ...base, VOICE_RECONCILE_MS: bad })).toThrow(/VOICE_RECONCILE_MS/);
+    }
+  });
+
   it('UPLOAD_MIN_FREE_MB: 0 disables, negatives and non-integers are refused', () => {
     expect(loadEnv({ ...base, UPLOAD_MIN_FREE_MB: '0' }).UPLOAD_MIN_FREE_MB).toBe(0);
     expect(loadEnv({ ...base, UPLOAD_MIN_FREE_MB: '512' }).UPLOAD_MIN_FREE_MB).toBe(512);

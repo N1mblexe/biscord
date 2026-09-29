@@ -8,6 +8,8 @@ import { dmName } from '../lib/bootstrapPatch';
 import { useIsOnline } from '../stores/presence';
 import { useUnreadSummary } from '../stores/reads';
 import { AvatarWithPresence } from './Avatar';
+import { VoiceChannelItem } from './VoiceChannels';
+import { VoicePanel } from './VoicePanel';
 
 function linkClass(isActive: boolean, unread: boolean): string {
   const tone = unread ? 'font-semibold text-text' : isActive ? 'font-medium text-text' : 'text-muted';
@@ -82,20 +84,6 @@ function HashIcon() {
   );
 }
 
-function SpeakerIcon() {
-  return (
-    <svg aria-hidden="true" viewBox="0 0 16 16" className="size-3.5 shrink-0 opacity-70" fill="none">
-      <path
-        d="M2.5 6h2.5l3.5-3v10L5 10H2.5z"
-        stroke="currentColor"
-        strokeWidth="1.3"
-        strokeLinejoin="round"
-      />
-      <path d="M11 5.5a3.5 3.5 0 0 1 0 5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
-    </svg>
-  );
-}
-
 function Section({ id, title, children }: { id: string; title: string; children: ReactNode }) {
   return (
     <section aria-labelledby={id} className="flex flex-col gap-1">
@@ -143,17 +131,7 @@ function SidebarLists({ boot }: { boot: BootstrapResponse }) {
         ) : (
           <ul className="flex flex-col gap-0.5">
             {voice.map((channel) => (
-              <li key={channel.id}>
-                <span
-                  data-testid="voice-channel"
-                  aria-disabled="true"
-                  title="Voice arrives soon"
-                  className="flex cursor-not-allowed items-center gap-1.5 truncate rounded-md px-2 py-1 text-sm text-muted/70"
-                >
-                  <SpeakerIcon />
-                  <span className="truncate">{channel.name}</span>
-                </span>
-              </li>
+              <VoiceChannelItem key={channel.id} channel={channel} users={boot.users} meId={boot.me.id} />
             ))}
           </ul>
         )}
@@ -180,21 +158,21 @@ function SidebarLists({ boot }: { boot: BootstrapResponse }) {
   );
 }
 
-/** Left column: text channels, voice channels (not joinable until Phase 6) and DMs. */
+/** Left column: text channels, voice channels (click to join) and DMs, with the voice panel below. */
 export function Sidebar() {
   const boot = useQuery(bootstrapQuery);
   return (
-    <nav
-      aria-label="Channels"
-      className="flex w-60 shrink-0 flex-col gap-5 overflow-y-auto border-r border-white/5 bg-surface px-2 py-4"
-    >
-      {boot.data ? (
-        <SidebarLists boot={boot.data} />
-      ) : boot.isError ? (
-        <p className="px-2 text-sm text-danger">{errorMessage(boot.error)}</p>
-      ) : (
-        <p className="px-2 text-sm text-muted">Loading channels…</p>
-      )}
-    </nav>
+    <div className="flex w-60 shrink-0 flex-col border-r border-white/5 bg-surface">
+      <nav aria-label="Channels" className="flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto px-2 py-4">
+        {boot.data ? (
+          <SidebarLists boot={boot.data} />
+        ) : boot.isError ? (
+          <p className="px-2 text-sm text-danger">{errorMessage(boot.error)}</p>
+        ) : (
+          <p className="px-2 text-sm text-muted">Loading channels…</p>
+        )}
+      </nav>
+      <VoicePanel />
+    </div>
   );
 }

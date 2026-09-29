@@ -18,7 +18,9 @@
     "infra:up": "docker compose up -d --wait postgres livekit",
     "infra:down": "docker compose down",
     "db:generate": "pnpm --filter @hearth/server db:generate",
-    "db:migrate": "pnpm --filter @hearth/server db:migrate"
+    "db:migrate": "pnpm --filter @hearth/server db:migrate",
+    "lan:up": "infra/scripts/lan-up.sh",
+    "lan:down": "infra/scripts/lan-down.sh"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",

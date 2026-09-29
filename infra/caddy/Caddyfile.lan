@@ -1,0 +1,36 @@
+# LAN test profile (docker-compose.lan.yml). HTTPS with Caddy's own local CA, for a trusted home network only.
+# Clients connecting to a bare IP send no SNI, so default_sni makes Caddy pick the certificate for LAN_IP.
+{
+	admin off
+	local_certs
+	skip_install_trust
+	default_sni {$LAN_IP}
+}
+
+https://{$LAN_IP}:8443 {
+	tls internal
+
+	request_body {
+		max_size 26MiB
+	}
+
+	handle /api/* {
+		reverse_proxy server:3000
+	}
+
+	handle /socket.io/* {
+		reverse_proxy server:3000
+	}
+
+	handle {
+		root * /srv
+		try_files {path} /index.html
+		file_server
+	}
+}
+
+# LiveKit signaling over wss.
+https://{$LAN_IP}:7443 {
+	tls internal
+	reverse_proxy livekit:7880
+}

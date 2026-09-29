@@ -1,12 +1,19 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify';
-import { TestResetResponse, TestSeedMessagesRequest, TestSeedMessagesResponse } from '@hearth/shared';
+import {
+  TestResetResponse,
+  TestSeedMessagesRequest,
+  TestSeedMessagesResponse,
+  voiceRoomName,
+} from '@hearth/shared';
 import { eq } from 'drizzle-orm';
 import { channels } from '../db/schema.js';
 import { truncateAppTables } from '../db/tables.js';
 import { safeEqual } from '../lib/crypto.js';
-import { AppError } from '../lib/errors.js';
+import { AppError, loggableError } from '../lib/errors.js';
+import { ignoreNotFound } from '../livekit/client.js';
 import { send } from '../lib/respond.js';
 import { parse } from '../lib/validate.js';
+import { listVoiceChannelIds } from '../services/channels.js';
 import { createInvite } from '../services/invites.js';
 import { seedMessages } from '../services/messages.js';
 import { findUserById } from '../services/users.js';
@@ -20,7 +27,7 @@ export const TEST_TOKEN_HEADER = 'x-test-token';
  */
 export function registerTestResetRoutes(
   app: FastifyInstance,
-  { db, env, realtime, rateLimiter, typing, storage }: RouteDeps,
+  { db, env, realtime, rateLimiter, typing, storage, voice, voiceEvents, voiceBackend }: RouteDeps,
 ): void {
   const expected = env.HEARTH_TEST_TOKEN;
 
@@ -32,19 +39,34 @@ export function registerTestResetRoutes(
   };
 
   /**
-   * Truncates every table, drops every socket, clears in-memory state (every rate-limit counter: auth
-   * routes per IP and message sends per user; presence and its pending offline timers; the typing throttle and per-user buckets),
+   * Deletes this DB's LiveKit rooms (404 fine, other failures logged), truncates every table, drops every
+   * socket, clears in-memory state (every rate-limit counter: auth routes per IP, message sends, uploads and
+   * voice tokens per user; presence and its pending offline timers; the typing throttle and per-user
+   * buckets; voice membership, stored `voice:state`s and buckets, and the webhook id cache),
    * empties this server's UPLOAD_DIR (only the tmp/, avatars/ and yyyy/ trees it creates) and returns a
    * fresh single-use admin invite valid for 24 h.
    */
   app.post('/api/__test__/reset', async (request, reply) => {
     assertTestToken(request);
+    // B.6a rule 6: close this DB's LiveKit rooms only (the container is shared with other servers).
+    for (const channelId of await listVoiceChannelIds(db)) {
+      try {
+        await ignoreNotFound(voiceBackend.deleteRoom(voiceRoomName(channelId)));
+      } catch (err) {
+        request.log.warn({ err: loggableError(err), channelId }, 'test reset: deleteRoom failed');
+      }
+    }
     await truncateAppTables(db);
     await storage.clear();
     realtime.disconnectAll();
     // After the disconnects, which started offline grace timers that must not fire into the next test.
     realtime.resetPresence();
     typing.clear();
+    // After any webhook already being applied; later ones find no channel in the emptied DB.
+    await voice.exclusive(() => {
+      voice.clear();
+    });
+    voiceEvents.clear();
     rateLimiter.reset();
     const invite = await createInvite(db, {
       createdBy: null,
