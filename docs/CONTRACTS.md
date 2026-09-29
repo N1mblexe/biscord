@@ -448,6 +448,12 @@ Reconnect protocol: on every `connect`, the client refetches `GET /bootstrap`, p
    - Deleting a voice channel drops its participants from memory; `channel:deleted` follows. LiveKit's own `participant_left`/`room_finished` webhooks for the deleted room may still produce `voice:left` events first, which clients handle harmlessly.
    - Known race: someone joining in the milliseconds between `deleteRoom` and the DB delete re-creates the room (rooms auto-create); it closes when it empties.
 
+### B.6b Camera and screen share (Phase 7)
+
+1. **`camera`/`screen` flags** come from the client and are cosmetic, for the sidebar. The server cross-checks them in the 60 s reconcile: from `listParticipants`, a `ParticipantInfo.tracks[].source` without a published camera or screen track forces the flag to false and emits `voice:updated`. So a crashed client can't leave a LIVE badge stuck.
+2. **Screen-share audio** is published only when the browser provides it (tab audio in Chromium). It follows the per-user volume slider for that sharer through `setVolume(v, Track.Source.ScreenShareAudio)`.
+3. **Publish presets:** camera 720p30 with simulcast (LiveKit defaults). Screen 1080p30 with `contentHint: 'detail'`, and simulcast off for screen share (text sharpness over bandwidth at 6–8 users).
+
 ### B.7 Lifecycle rules (ordered, idempotent)
 
 - **Deactivate user:**
