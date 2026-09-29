@@ -10,6 +10,7 @@ import type {
   VoiceState,
 } from '../realtime/voice-state.js';
 import { listVoiceChannelIds } from '../services/channels.js';
+import { listDeactivatedUserIds } from '../services/users.js';
 import {
   ignoreNotFound,
   isNotFoundError,
@@ -63,8 +64,8 @@ function toObserved(p: BackendParticipant): ObservedParticipant | null {
  * each → diff against memory, emitting joined/left. Memberships changed while LiveKit was being listed are
  * left alone (the webhooks that changed them are newer). A user LiveKit reports in two rooms keeps the most
  * recent join and is removed from the other (B.6a rule 5). `camera`/`screen` flags without a matching
- * published track are cleared (B.6b rule 1), unless the client set them after the pass began. A failed
- * listing changes nothing.
+ * published track are cleared (B.6b rule 1), unless the client set them after the pass began. Deactivated
+ * users are removed from LiveKit and left out of memory. A failed listing changes nothing.
  */
 async function reconcileOnce({ db, backend, voice, health, log }: ReconcileDeps): Promise<void> {
   const since = voice.mark();
@@ -113,6 +114,16 @@ async function reconcileOnce({ db, backend, voice, health, log }: ReconcileDeps)
         extras.push({ channelId, userId: participant.userId });
       }
     }
+  }
+
+  // B.7 deactivate step 3, retried: a deactivated user still in LiveKit (the teardown's removeParticipant
+  // failed, or they joined with a token minted before the deactivation) is removed and never tracked.
+  const deactivated = await listDeactivatedUserIds(db, [...latest.keys()]);
+  for (const userId of deactivated) {
+    const entry = latest.get(userId);
+    if (entry === undefined) continue;
+    latest.delete(userId);
+    extras.push({ channelId: entry.channelId, userId });
   }
 
   await voice.exclusive(async () => {

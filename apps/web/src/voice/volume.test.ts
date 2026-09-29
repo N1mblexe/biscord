@@ -1,13 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Track } from 'livekit-client';
-import {
-  applyUserVolume,
-  DEFAULT_VOLUME,
-  readVolumes,
-  useVolumeStore,
-  VOLUME_STORAGE_KEY,
-  volumeFor,
-} from './volume';
+import { applyUserVolume } from './applyVolume';
+import { DEFAULT_VOLUME, readVolumes, useVolumeStore, VOLUME_STORAGE_KEY, volumeFor } from './volume';
 
 const A = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const B = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';

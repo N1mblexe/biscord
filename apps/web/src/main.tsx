@@ -1,3 +1,5 @@
+// First: configures zod before any schema is built (see the module).
+import './zodJitless';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';

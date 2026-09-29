@@ -13,7 +13,10 @@ interface ComposerProps {
   channelId: string;
   authorId: string;
   placeholder: string;
-  /** Set when the channel can't be posted to (a DM with a deactivated user); shown as the placeholder. */
+  /**
+   * Set when the channel can't be posted to (a DM with a deactivated user): the box is disabled
+   * (keeping its "Message" label) and this is shown as a visible caption and as the placeholder.
+   */
   disabledReason: string | null;
   /** Pending attachments; owned by the channel view so drops anywhere on it land here. */
   uploads: AttachmentUploads;
@@ -93,6 +96,11 @@ export function Composer({
       <label htmlFor="composer-input" className="sr-only">
         Message
       </label>
+      {disabled && (
+        <p id="composer-disabled-reason" className="mb-2 text-xs text-muted">
+          {disabledReason}
+        </p>
+      )}
       {chips.length > 0 && (
         <ul aria-label="Attachments" className="mb-2 flex flex-wrap gap-2">
           {chips.map((chip) => (
@@ -138,6 +146,7 @@ export function Composer({
           maxLength={LIMITS.messageMaxChars}
           placeholder={disabledReason ?? placeholder}
           disabled={disabled}
+          aria-describedby={disabled ? 'composer-disabled-reason' : undefined}
           value={draft}
           // Focus follows the channel the user just opened.
           autoFocus

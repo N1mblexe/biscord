@@ -89,6 +89,27 @@ export async function resolveSession(
   return { user: row.user, session: row.session, bumped: false };
 }
 
+/**
+ * Whether a session resolved earlier is still usable: `live`, `deactivated` (its user was deactivated since;
+ * that also deleted the session) or `gone` (deleted by a logout or password change, or expired). Read-only:
+ * never bumps the expiry.
+ */
+export async function sessionStatus(
+  db: Queryable,
+  userId: string,
+  sessionId: string,
+): Promise<'live' | 'deactivated' | 'gone'> {
+  const [row] = await db
+    .select({ deactivatedAt: users.deactivatedAt, expiresAt: sessions.expiresAt })
+    .from(users)
+    .leftJoin(sessions, and(eq(sessions.id, sessionId), eq(sessions.userId, users.id)))
+    .where(eq(users.id, userId))
+    .limit(1);
+  if (row === undefined) return 'gone';
+  if (row.deactivatedAt !== null) return 'deactivated';
+  return row.expiresAt !== null && row.expiresAt.getTime() > Date.now() ? 'live' : 'gone';
+}
+
 /** Deletes one session. Returns the ids actually deleted (empty if it was already gone). */
 export async function deleteSession(db: Queryable, sessionId: string): Promise<string[]> {
   const rows = await db.delete(sessions).where(eq(sessions.id, sessionId)).returning({ id: sessions.id });

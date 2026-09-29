@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   authorName,
   channelViewState,
+  displayUser,
   dmName,
   findChannel,
   removeChannel,
@@ -89,6 +90,29 @@ describe('bootstrap patches', () => {
     expect(authorName(user(BOB, 'Bob'))).toBe('Bob');
     expect(authorName(user(BOB, 'Bob', { deactivated: true }))).toBe('Deleted user');
     expect(authorName(undefined)).toBe('Unknown user');
+  });
+
+  it('shows a deactivated user as "Deleted user" with the neutral avatar, never their name or picture', () => {
+    const pic = '/api/avatars/b?v=12345678';
+    expect(displayUser(user(BOB, 'Bob', { avatarUrl: pic }))).toEqual({
+      name: 'Bob',
+      avatarUrl: pic,
+      deleted: false,
+    });
+    expect(displayUser(user(BOB, 'Bob', { avatarUrl: pic, deactivated: true }))).toEqual({
+      name: 'Deleted user',
+      avatarUrl: null,
+      deleted: true,
+    });
+    expect(displayUser(undefined)).toEqual({ name: 'Unknown user', avatarUrl: null, deleted: false });
+  });
+
+  it('titles a DM with a deactivated user "Deleted user"', () => {
+    const dm = { id: DM, type: 'dm' as const, otherUserId: BOB };
+    const withDm = upsertDm(boot, dm);
+    expect(dmName(withDm, dm)).toBe('Bob');
+    expect(dmName(upsertUser(withDm, user(BOB, 'Bob', { deactivated: true })), dm)).toBe('Deleted user');
+    expect(dmName(withDm, { ...dm, otherUserId: RANDOM })).toBe('Unknown user');
   });
 
   it('treats a channel missing from a refetched bootstrap as gone (deleted while offline)', () => {

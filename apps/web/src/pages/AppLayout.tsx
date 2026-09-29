@@ -13,8 +13,7 @@ import { useNoticeStore } from '../stores/notice';
 import { usePageAlertStore } from '../stores/pageAlert';
 import { useSocket } from '../socket/context';
 import { SocketProvider } from '../socket/SocketProvider';
-import { VideoStage } from '../voice/VideoStage';
-import { VoiceProvider } from '../voice/VoiceProvider';
+import { VideoStageSlot, VoiceProvider } from '../voice/VoiceProvider';
 
 /**
  * The protected layout: owns the socket and the voice connection for as long as a signed-in page is
@@ -122,7 +121,7 @@ function AppShell() {
         <main className="flex min-w-0 flex-1 flex-col">
           <AppNotice />
           <FallbackAlert />
-          <VideoStage />
+          <VideoStageSlot />
           <Outlet />
         </main>
       </div>

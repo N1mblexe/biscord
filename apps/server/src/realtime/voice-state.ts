@@ -120,6 +120,10 @@ export interface VoiceState {
    * be published yet). Flags are only ever cleared here, never set.
    */
   reconcile(desired: DesiredVoiceState, since: number): void;
+  /** The channel the user is in and its LiveKit connection sid, or `null` (B.7b rule 4, B.7 deactivate). */
+  membershipOf(userId: string): { channelId: string; sid: string } | null;
+  /** User ids in a channel (the occupants to notify when it is deleted), sorted. */
+  participantIds(channelId: string): string[];
   /** Drops a channel's participants without emitting (the channel was deleted; `channel:deleted` follows). */
   forgetChannel(channelId: string): void;
   /** Forgets everything, including the webhook id cache, without emitting (test reset). */
@@ -387,6 +391,16 @@ export function createVoiceState({ realtime, backend, log }: VoiceStateDeps): Vo
       }
     },
 
+    membershipOf(userId) {
+      const channelId = userChannel.get(userId);
+      const entry = channelId === undefined ? undefined : entryOf(channelId, userId);
+      return channelId === undefined || entry === undefined ? null : { channelId, sid: entry.sid };
+    },
+
+    participantIds(channelId) {
+      return [...(rooms.get(channelId)?.keys() ?? [])].sort();
+    },
+
     forgetChannel(channelId) {
       for (const userId of [...(rooms.get(channelId)?.keys() ?? [])]) remove(channelId, userId, false);
     },
@@ -419,14 +433,17 @@ export function registerVoiceEvents({
 }): VoiceEvents {
   const buckets = new Map<string, { start: number; count: number }>();
 
-  const takeToken = (userId: string, now: number): boolean => {
+  /** Counts one event; 0 when allowed, otherwise the ms until the user's window ends (`retryAfterMs`). */
+  const takeToken = (userId: string, now: number): number => {
     const bucket = buckets.get(userId);
     if (bucket === undefined || now - bucket.start >= VOICE_STATE_BUCKET_WINDOW_MS) {
       buckets.set(userId, { start: now, count: 1 });
-      return true;
+      return 0;
     }
     bucket.count += 1;
-    return bucket.count <= VOICE_STATE_BUCKET_MAX;
+    return bucket.count <= VOICE_STATE_BUCKET_MAX
+      ? 0
+      : Math.max(1, bucket.start + VOICE_STATE_BUCKET_WINDOW_MS - now);
   };
 
   realtime.io.on('connection', (socket) => {
@@ -435,8 +452,9 @@ export function registerVoiceEvents({
       'voice:state',
       (payload, s) => {
         const userId = s.data.userId;
-        if (!takeToken(userId, Date.now())) {
-          throw new AppError('RATE_LIMITED', 'Too many voice state updates');
+        const retryAfterMs = takeToken(userId, Date.now());
+        if (retryAfterMs > 0) {
+          throw new AppError('RATE_LIMITED', 'Too many voice state updates', { retryAfterMs });
         }
         voice.setClientState(userId, payload);
         return null;

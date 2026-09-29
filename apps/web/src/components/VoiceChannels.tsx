@@ -1,5 +1,9 @@
 import type { Channel, PublicUser, VoiceParticipant } from '@hearth/shared';
 import { useEffect, useId, useRef, useState } from 'react';
+import { disconnectVoiceParticipant } from '../api/voice';
+import { voiceDisconnectError } from '../lib/adminUsers';
+import { displayUser } from '../lib/bootstrapPatch';
+import { usePageAlertStore } from '../stores/pageAlert';
 import { useVoiceParticipants } from '../stores/voice';
 import { useVoice } from '../voice/context';
 import { useIsSpeakingInMyRoom, useVoiceSession } from '../voice/session';
@@ -99,15 +103,24 @@ function VolumeIcon() {
   );
 }
 
-/** The **Volume** context button of a participant row and its slider (**Volume for <name>**, 0–100). */
+/**
+ * The **Volume** context button of a participant row and its menu: the slider (**Volume for <name>**,
+ * 0–100) and, for admins, **Disconnect** (row 31; docs/plans/phase-8.md "Web UI contract"). A failed
+ * disconnect goes to the page's alert.
+ */
 function VolumeControl({
   userId,
+  channelId,
   displayName,
+  canDisconnect,
   open,
   onOpenChange,
 }: {
   userId: string;
+  channelId: string;
   displayName: string;
+  /** We are an admin (never offered on our own row, which has no menu). */
+  canDisconnect: boolean;
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
@@ -115,6 +128,23 @@ function VolumeControl({
   const { setUserVolume } = useVoice();
   const sliderId = useId();
   const percent = Math.round(volume * 100);
+  const [disconnecting, setDisconnecting] = useState(false);
+
+  const onDisconnect = () => {
+    setDisconnecting(true);
+    disconnectVoiceParticipant(channelId, userId).then(
+      () => {
+        // They disappear from the list with the server's `voice:left`.
+        setDisconnecting(false);
+        onOpenChange(false);
+      },
+      (err: unknown) => {
+        setDisconnecting(false);
+        usePageAlertStore.getState().show(voiceDisconnectError(err));
+      },
+    );
+  };
+
   return (
     <>
       <button
@@ -152,6 +182,18 @@ function VolumeControl({
           <span className="w-9 shrink-0 text-right text-[11px] text-muted tabular-nums">{percent}%</span>
         </div>
       )}
+      {open && canDisconnect && (
+        <div className="flex w-full basis-full justify-end pb-1 pl-6">
+          <button
+            type="button"
+            className="rounded px-2 py-0.5 text-xs font-semibold text-danger ring-1 ring-danger/40 transition hover:bg-danger/10 focus-visible:outline-2 focus-visible:outline-danger disabled:opacity-60"
+            disabled={disconnecting}
+            onClick={onDisconnect}
+          >
+            Disconnect
+          </button>
+        </div>
+      )}
     </>
   );
 }
@@ -160,24 +202,28 @@ function VolumeControl({
  * One `voice-participant` row: `data-user-id`, `data-muted` / `data-deafened` ("true"/"false", from
  * the server's `voice:state`), and `data-speaking` only for people in our own room (docs/plans/
  * phase-6.md, "Web UI contract"). Phase 7: `data-camera` ("true"/"false") with a camera icon, and
- * `data-live="screen"` with a **LIVE** badge while sharing. Right-click or **Volume** opens the local
- * volume slider.
+ * `data-live="screen"` with a **LIVE** badge while sharing. Right-click or **Volume** opens the
+ * participant's menu: the local volume slider and, for admins, **Disconnect** (phase 8).
  */
 function VoiceParticipantRow({
+  channelId,
   participant,
   user,
   isMe,
+  isAdmin,
   inMyRoom,
 }: {
+  channelId: string;
   participant: VoiceParticipant;
   user: PublicUser | undefined;
   isMe: boolean;
+  isAdmin: boolean;
   inMyRoom: boolean;
 }) {
   const speaking = useIsSpeakingInMyRoom(participant.userId) && inMyRoom;
   const [volumeOpen, setVolumeOpen] = useState(false);
   const rowRef = useRef<HTMLLIElement>(null);
-  const name = user?.displayName ?? 'Unknown user';
+  const { name, avatarUrl, deleted } = displayUser(user);
 
   // Close the slider on a click outside this row. On `click`, not `pointerdown`: the slider sits in
   // the list, so closing it moves the rows below, and the click being made must land first. A drag
@@ -224,7 +270,7 @@ function VoiceParticipantRow({
       <span
         className={`inline-flex shrink-0 rounded-full ring-2 transition ${speaking ? 'ring-success' : 'ring-transparent'}`}
       >
-        <Avatar userId={participant.userId} name={name} avatarUrl={user?.avatarUrl ?? null} size="xs" />
+        <Avatar userId={participant.userId} name={name} avatarUrl={avatarUrl} deleted={deleted} size="xs" />
       </span>
       <span className={`min-w-0 flex-1 truncate ${speaking ? 'text-text' : ''}`}>{name}</span>
       {participant.screen && <LiveBadge />}
@@ -233,7 +279,9 @@ function VoiceParticipantRow({
       {!isMe && (
         <VolumeControl
           userId={participant.userId}
+          channelId={channelId}
           displayName={name}
+          canDisconnect={isAdmin}
           open={volumeOpen}
           onOpenChange={setVolumeOpen}
         />
@@ -250,10 +298,13 @@ export function VoiceChannelItem({
   channel,
   users,
   meId,
+  isAdmin,
 }: {
   channel: Channel;
   users: readonly PublicUser[];
   meId: string;
+  /** Admins get **Disconnect** in other participants' menus. */
+  isAdmin: boolean;
 }) {
   const participants = useVoiceParticipants(channel.id);
   const { join } = useVoice();
@@ -285,9 +336,11 @@ export function VoiceChannelItem({
           {participants.map((p) => (
             <VoiceParticipantRow
               key={p.userId}
+              channelId={channel.id}
               participant={p}
               user={users.find((u) => u.id === p.userId)}
               isMe={p.userId === meId}
+              isAdmin={isAdmin}
               inMyRoom={inMyRoom}
             />
           ))}

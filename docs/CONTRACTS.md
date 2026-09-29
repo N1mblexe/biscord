@@ -484,6 +484,31 @@ Reconnect protocol: on every `connect`, the client refetches `GET /bootstrap`, p
 5. **Deleted-user rendering:** clients render `PublicUser.deactivated === true` as "Deleted user" with a neutral avatar, both in message authors and in DM titles. A DM with a deactivated user becomes read-only (already enforced on the server in Phase 3).
 6. **GC schedule:** already implemented in Phase 5 (B.7a rule 8 and `UPLOAD_GC_INTERVAL_MINUTES`): runs at startup and every interval, removes unattached uploads older than 24 h, temp files older than 1 h and orphan files on disk, under a session advisory lock. Phase 8 only reviews it.
 
+7. **Settled in Phase 8 implementation:**
+   - Deactivation sends `voice:kicked {reason:'deactivated'}` just before `session:revoked` (after that the sockets are closed); `removeParticipant` follows the revoke.
+   - Admin voice disconnect sends `voice:kicked {reason:'admin'}` before `removeParticipant`; if LiveKit is already known to be down the route returns 503 before sending anything.
+   - The voice reconcile and the join webhook also remove any deactivated user's LiveKit participant, closing the window in which an already-issued token would still work.
+   - Registration, role change, deactivate and reactivate share one advisory lock (`USERS_LOCK_KEY`). Inside it, the last-admin guard runs first, then a check that the acting admin is still an admin.
+   - `PATCH /admin/users/:id` returns 200 `{user}`; setting the same role again returns 200 with no event.
+   - Deactivation also voids the user's unused reset codes and revokes the unused invites they created (in the same transaction).
+   - Every admin mutation re-checks, inside its transaction, that the acting user is still an active admin.
+   - A socket whose session is revoked while its handshake is in flight is disconnected right after it joins its rooms.
+   - After a voice channel's DB delete commits, the server calls `deleteRoom` once more (404 = success), so a token minted in between can't leave a room behind.
+   - CSP `connect-src` allows the LiveKit URL in both its `ws(s)://` and `http(s)://` forms (livekit-client makes HTTP validate and reconnect-probe requests).
+   - Rate limits (each returns 429 `RATE_LIMITED` with `retryAfterMs`):
+
+     | Limit                                         | Scope                                                       |
+     | --------------------------------------------- | ----------------------------------------------------------- |
+     | Login, register, reset-password, invite check | 10/min per IP, per route                                    |
+     | Message send                                  | 10 per 10 s per user                                        |
+     | Attachments, avatar PUT/DELETE                | 20/min per user, per route                                  |
+     | Voice token                                   | 30/min per user                                             |
+     | Reactions PUT + DELETE                        | 30 per 10 s per user, one shared window                     |
+     | Admin mutations (rows 15–18, 31, 33–38)       | 60/min per admin, one shared window                         |
+     | Change password (row 9)                       | 10/min per user                                             |
+     | `voice:state` (socket)                        | 20 per 5 s per user; ack `RATE_LIMITED` with `retryAfterMs` |
+     | `typing:start` (socket)                       | 10 per 5 s per user; excess acked ok and dropped (B.5a)     |
+
 ### B.7a Uploads and avatars (Phase 5 rules)
 
 1. **B.8 `UPLOAD_DIR`:** a relative path is resolved against the **repo root**, not the process working directory (Docker keeps the absolute `/data/uploads`). The server creates `tmp/` and `avatars/` at startup and fails fast if they aren't writable.

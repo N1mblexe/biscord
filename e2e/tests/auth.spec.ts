@@ -1,4 +1,4 @@
-import type { Page, Response } from '@playwright/test';
+import type { Locator, Page, Response } from '@playwright/test';
 import type { ApiErrorBody, InvitesResponse } from '@hearth/shared';
 import { api, displayNameFor, expect, NEEDS_TEST_MODE, passwordFor, test } from '../fixtures.js';
 import { isFullStack } from '../env.js';
@@ -14,8 +14,8 @@ function field(page: Page, label: string) {
   return page.getByLabel(label, { exact: true });
 }
 
-function button(page: Page, name: string) {
-  return page.getByRole('button', { name, exact: true });
+function button(scope: Page | Locator, name: string) {
+  return scope.getByRole('button', { name, exact: true });
 }
 
 function adminLink(page: Page) {
@@ -210,9 +210,12 @@ test.describe('auth', { tag: '@auth' }, () => {
     await bob.page.goto('/');
     await expectHome(bob.page, bob.displayName);
 
-    await alice.page.goto('/admin/users/reset');
-    await field(alice.page, 'User').selectOption({ label: bob.username });
-    await button(alice.page, 'Generate reset code').click();
+    // Phase 8: the reset-code page folded into /admin/users (docs/plans/phase-8.md "Web UI contract").
+    await alice.page.goto('/admin/users');
+    await button(
+      alice.page.locator('[data-testid="user-row"][data-username="bob"]'),
+      'Generate reset code',
+    ).click();
     const resetCode = alice.page.getByTestId('reset-code');
     await expect(resetCode).toHaveText(/\S/);
     const code = (await resetCode.innerText()).trim();

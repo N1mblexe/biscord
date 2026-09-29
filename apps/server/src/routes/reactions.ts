@@ -9,9 +9,15 @@ import type { RouteDeps } from './deps.js';
 /**
  * CONTRACTS B.4 rows 24–25. The router URL-decodes `:emoji`; it must then be a single RGI emoji
  * (VALIDATION). Always 204; `reaction:added` / `reaction:removed` go to the channel audience only when a
- * row actually changed (B.5a rule 4).
+ * row actually changed (B.5a rule 4). Rate limit: 30 per 10 s per user, PUT and DELETE together.
  */
-export function registerReactionRoutes(app: FastifyInstance, { db, guards, realtime }: RouteDeps): void {
+export function registerReactionRoutes(
+  app: FastifyInstance,
+  { db, guards, rateLimiter, realtime }: RouteDeps,
+): void {
+  // PUT and DELETE share one per-user window (30 per 10 s).
+  const preHandler = [guards.requireUser, rateLimiter.reaction];
+
   const broadcast = (
     event: 'reaction:added' | 'reaction:removed',
     change: ReactionChange,
@@ -27,25 +33,17 @@ export function registerReactionRoutes(app: FastifyInstance, { db, guards, realt
     });
   };
 
-  app.put(
-    '/api/messages/:id/reactions/:emoji',
-    { preHandler: guards.requireUser },
-    async (request, reply) => {
-      const { user } = authOf(request);
-      const { id, emoji } = parse(ReactionParams, request.params);
-      broadcast('reaction:added', await addReaction(db, user, id, emoji), emoji, user.id);
-      return reply.status(204).send();
-    },
-  );
+  app.put('/api/messages/:id/reactions/:emoji', { preHandler }, async (request, reply) => {
+    const { user } = authOf(request);
+    const { id, emoji } = parse(ReactionParams, request.params);
+    broadcast('reaction:added', await addReaction(db, user, id, emoji), emoji, user.id);
+    return reply.status(204).send();
+  });
 
-  app.delete(
-    '/api/messages/:id/reactions/:emoji',
-    { preHandler: guards.requireUser },
-    async (request, reply) => {
-      const { user } = authOf(request);
-      const { id, emoji } = parse(ReactionParams, request.params);
-      broadcast('reaction:removed', await removeReaction(db, user, id, emoji), emoji, user.id);
-      return reply.status(204).send();
-    },
-  );
+  app.delete('/api/messages/:id/reactions/:emoji', { preHandler }, async (request, reply) => {
+    const { user } = authOf(request);
+    const { id, emoji } = parse(ReactionParams, request.params);
+    broadcast('reaction:removed', await removeReaction(db, user, id, emoji), emoji, user.id);
+    return reply.status(204).send();
+  });
 }

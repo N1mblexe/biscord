@@ -1,10 +1,13 @@
 import type { FastifyInstance } from 'fastify';
-import { parseVoiceRoomName, Uuid } from '@hearth/shared';
+import { parseVoiceRoomName, Uuid, voiceRoomName } from '@hearth/shared';
+import type { FastifyBaseLogger } from 'fastify';
 import { WebhookReceiver, type WebhookEvent } from 'livekit-server-sdk';
 import type { Db } from '../db/client.js';
-import { AppError } from '../lib/errors.js';
+import { AppError, loggableError } from '../lib/errors.js';
+import { ignoreNotFound, type VoiceBackend } from '../livekit/client.js';
 import type { VoiceState } from '../realtime/voice-state.js';
 import { listVoiceChannelIds } from '../services/channels.js';
+import { listDeactivatedUserIds } from '../services/users.js';
 import type { RouteDeps } from './deps.js';
 
 export const WEBHOOK_PATH = '/api/livekit/webhook';
@@ -24,8 +27,19 @@ function joinedAtOf(event: WebhookEvent): Date {
   return new Date(ms > 0 ? ms : Date.now());
 }
 
-/** Applies one verified event. Rooms that aren't a voice channel of **this** DB are ignored (B.6a rule 3). */
-async function applyEvent(db: Db, voice: VoiceState, event: WebhookEvent): Promise<void> {
+interface ApplyDeps {
+  db: Db;
+  voice: VoiceState;
+  voiceBackend: VoiceBackend;
+  log: FastifyBaseLogger;
+}
+
+/**
+ * Applies one verified event. Rooms that aren't a voice channel of **this** DB are ignored (B.6a rule 3).
+ * A deactivated user's join (a token minted before the deactivation is valid for up to 10 min) is not
+ * tracked; the participant is removed from the room instead (fire-and-forget; the reconcile retries).
+ */
+async function applyEvent({ db, voice, voiceBackend, log }: ApplyDeps, event: WebhookEvent): Promise<void> {
   if (!HANDLED.has(event.event)) return;
   const channelId = parseVoiceRoomName(event.room?.name ?? '')?.toLowerCase();
   if (channelId === undefined) return;
@@ -39,6 +53,17 @@ async function applyEvent(db: Db, voice: VoiceState, event: WebhookEvent): Promi
   if (participant === undefined || !Uuid.safeParse(participant.identity).success) return;
   const userId = participant.identity.toLowerCase();
   if (event.event === 'participant_joined') {
+    if ((await listDeactivatedUserIds(db, [userId])).length > 0) {
+      ignoreNotFound(voiceBackend.removeParticipant(voiceRoomName(channelId), userId)).catch(
+        (err: unknown) => {
+          log.warn(
+            { err: loggableError(err), channelId, userId },
+            'webhook: removing a deactivated user failed',
+          );
+        },
+      );
+      return;
+    }
     voice.participantJoined(channelId, { userId, sid: participant.sid, joinedAt: joinedAtOf(event) });
   } else {
     // `participant_connection_aborted` counts as left.
@@ -54,7 +79,7 @@ async function applyEvent(db: Db, voice: VoiceState, event: WebhookEvent): Promi
  */
 export function registerLiveKitWebhookRoute(
   app: FastifyInstance,
-  { db, env, voice }: Pick<RouteDeps, 'db' | 'env' | 'voice'>,
+  { db, env, voice, voiceBackend }: Pick<RouteDeps, 'db' | 'env' | 'voice' | 'voiceBackend'>,
 ): void {
   const receiver = new WebhookReceiver(env.LIVEKIT_API_KEY, env.LIVEKIT_API_SECRET);
 
@@ -90,7 +115,7 @@ export function registerLiveKitWebhookRoute(
 
       if (voice.claimEvent(event.id)) {
         try {
-          await voice.exclusive(() => applyEvent(db, voice, event));
+          await voice.exclusive(() => applyEvent({ db, voice, voiceBackend, log: request.log }, event));
         } catch (err) {
           // Let LiveKit's retry of this id be processed.
           voice.releaseEvent(event.id);

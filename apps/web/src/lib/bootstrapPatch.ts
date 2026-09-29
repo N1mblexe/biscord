@@ -43,15 +43,31 @@ export function upsertUser(boot: BootstrapResponse, user: PublicUser): Bootstrap
 export const DELETED_USER = 'Deleted user';
 export const UNKNOWN_USER = 'Unknown user';
 
-/** Author label: the display name, "Deleted user" when deactivated. */
+/** Author label: the display name, "Deleted user" when deactivated (CONTRACTS B.7b rule 5). */
 export function authorName(user: PublicUser | undefined): string {
   if (!user) return UNKNOWN_USER;
   return user.deactivated ? DELETED_USER : user.displayName;
 }
 
-/** Sidebar / title label of a DM: the other user's display name. */
+/** How a user is shown next to their content (messages, DMs, voice). */
+export interface UserDisplay {
+  name: string;
+  /** `null` when there is no image to show (none, or a deleted user). */
+  avatarUrl: string | null;
+  /** Deactivated: "Deleted user" with the neutral avatar, never their name or picture. */
+  deleted: boolean;
+}
+
+/** A user's name and avatar as displayed; unknown users show as "Unknown user". */
+export function displayUser(user: PublicUser | undefined): UserDisplay {
+  if (!user) return { name: UNKNOWN_USER, avatarUrl: null, deleted: false };
+  if (user.deactivated) return { name: DELETED_USER, avatarUrl: null, deleted: true };
+  return { name: user.displayName, avatarUrl: user.avatarUrl, deleted: false };
+}
+
+/** Sidebar / title label of a DM: the other user's display name ("Deleted user" when deactivated). */
 export function dmName(boot: BootstrapResponse, dm: DmChannel): string {
-  return boot.users.find((u) => u.id === dm.otherUserId)?.displayName ?? UNKNOWN_USER;
+  return authorName(boot.users.find((u) => u.id === dm.otherUserId));
 }
 
 export type ResolvedChannel =

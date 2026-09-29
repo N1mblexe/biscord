@@ -10,6 +10,12 @@ export interface Presence {
   connect(userId: string, socketId: string): void;
   /** A socket closed. The last one starts the grace timer; unknown sockets are ignored. */
   disconnect(userId: string, socketId: string): void;
+  /**
+   * Deactivation (B.7 step 4): forgets the user's sockets and any pending offline, and emits
+   * `online: false` at once (no grace period) if they were online. A later `disconnect` of one of those
+   * sockets is then unknown and ignored, so the offline is never announced twice.
+   */
+  forceOffline(userId: string): void;
   /** Online users (connected, or within the grace period), sorted. */
   onlineUserIds(): string[];
   /** Forgets every socket and cancels every pending offline, without emitting (test reset, shutdown). */
@@ -52,6 +58,16 @@ export function createPresence({ graceMs, emit }: PresenceOptions): Presence {
       // Never keep the process alive just to announce an offline.
       timer.unref();
       pendingOffline.set(userId, timer);
+    },
+
+    forceOffline(userId) {
+      const timer = pendingOffline.get(userId);
+      const wasOnline = sockets.delete(userId) || timer !== undefined;
+      if (timer !== undefined) {
+        clearTimeout(timer);
+        pendingOffline.delete(userId);
+      }
+      if (wasOnline) emit({ userId, online: false });
     },
 
     onlineUserIds() {

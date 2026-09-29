@@ -4,6 +4,8 @@ import type { Db } from '../db/client.js';
 import { passwordResetCodes, users } from '../db/schema.js';
 import type { Queryable } from '../db/types.js';
 import { normalizeCode, randomCode, sha256Hex } from '../lib/crypto.js';
+import { AppError } from '../lib/errors.js';
+import { findUserById, lockStillAdmin } from './users.js';
 
 export const RESET_CODE_LENGTH = 12;
 const HOUR_MS = 60 * 60 * 1000;
@@ -14,14 +16,25 @@ export interface IssuedResetCode {
   expiresAt: Date;
 }
 
-/** Issues a single-use reset code valid 24 h. The user's older unused codes are invalidated (deleted). */
+/** Deletes every unused reset code of the user (a new code replaces them; deactivation voids them). */
+export async function voidUnusedResetCodes(tx: Queryable, userId: string): Promise<void> {
+  await tx
+    .delete(passwordResetCodes)
+    .where(and(eq(passwordResetCodes.userId, userId), isNull(passwordResetCodes.usedAt)));
+}
+
+/**
+ * Row 38: issues a single-use reset code valid 24 h, the user's older unused codes invalidated (deleted).
+ * `createdBy` must still be an admin when the transaction runs (B.7b rule 7, `FORBIDDEN` otherwise);
+ * `NOT_FOUND` for an unknown user.
+ */
 export async function issueResetCode(db: Db, userId: string, createdBy: string): Promise<IssuedResetCode> {
   const code = randomCode(RESET_CODE_LENGTH);
   const expiresAt = new Date(Date.now() + LIMITS.resetCodeTtlHours * HOUR_MS);
   await db.transaction(async (tx) => {
-    await tx
-      .delete(passwordResetCodes)
-      .where(and(eq(passwordResetCodes.userId, userId), isNull(passwordResetCodes.usedAt)));
+    await lockStillAdmin(tx, createdBy);
+    if ((await findUserById(tx, userId)) === null) throw new AppError('NOT_FOUND', 'User not found');
+    await voidUnusedResetCodes(tx, userId);
     await tx.insert(passwordResetCodes).values({ userId, codeHash: sha256Hex(code), createdBy, expiresAt });
   });
   return { code, expiresAt };

@@ -25,4 +25,8 @@ export const NOTICES = {
   channelDeleted: 'This channel was deleted.',
   channelUnavailable: "That channel doesn't exist or you don't have access to it.",
   voiceChannelNoText: 'Voice channels have no text chat. Click one in the sidebar to join it.',
+  /** `voice:kicked` (CONTRACTS B.7b rule 4), reason `admin`. */
+  voiceKickedByAdmin: 'You were disconnected from voice by an admin.',
+  /** `voice:kicked`, reason `channel_deleted`. */
+  voiceChannelDeleted: 'This voice channel was deleted.',
 } as const;

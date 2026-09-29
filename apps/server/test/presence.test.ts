@@ -60,6 +60,32 @@ describe('createPresence (fake timers, real grace period)', () => {
     expect(presence.onlineUserIds()).toEqual(['u1']);
   });
 
+  it('forceOffline() emits offline at once, cancels a pending offline, and ignores later disconnects', () => {
+    vi.useFakeTimers();
+    const emitted: PresencePayload[] = [];
+    const presence = createPresence({ graceMs: 3_000, emit: (p) => emitted.push(p) });
+    presence.connect('u1', 's1');
+    presence.connect('u1', 's2');
+    presence.connect('u2', 's3');
+    presence.disconnect('u2', 's3'); // u2 is within its grace period
+    presence.forceOffline('u1');
+    presence.forceOffline('u2');
+    expect(emitted.slice(2)).toEqual([
+      { userId: 'u1', online: false },
+      { userId: 'u2', online: false },
+    ]);
+    // The sockets' own disconnects (and the cancelled grace timer) add nothing.
+    presence.disconnect('u1', 's1');
+    presence.disconnect('u1', 's2');
+    vi.advanceTimersByTime(10_000);
+    expect(emitted).toHaveLength(4);
+    expect(presence.onlineUserIds()).toEqual([]);
+    // Someone already offline: nothing.
+    presence.forceOffline('u3');
+    expect(emitted).toHaveLength(4);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
   it('clear() forgets everything and cancels pending offlines without emitting', () => {
     vi.useFakeTimers();
     const emitted: PresencePayload[] = [];

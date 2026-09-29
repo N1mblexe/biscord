@@ -2,6 +2,58 @@
 
 Updated at the end of every phase (see CLAUDE.md → Workflow).
 
+## Phase 8 — Admin, moderation, hardening ✅ (2026-09-30)
+
+### Built
+
+- **Server:**
+  - One ordered, idempotent lifecycle service (B.7) handles role change, deactivate, reactivate, admin voice disconnect (row 31) and deleting a voice channel with people in it.
+  - Last-admin guard and account cap, both under one shared users lock, with the acting admin re-checked inside every admin mutation.
+  - Deactivation:
+    - revokes sessions and voids the user's unused reset codes and the invites they created;
+    - sends `voice:kicked`, then removes them from LiveKit and forces them offline;
+    - the re-sync and the join webhook also remove any deactivated user who reappears.
+  - `voice:kicked` notices for an admin disconnect and a deleted voice channel. `deleteRoom` also runs again after the commit.
+  - Closed a socket race: a session revoked during the connection handshake is disconnected.
+  - Rate-limit review, with a 429 test per limit. New: reactions, admin mutations, change password.
+- **Web:**
+  - `/admin/users` (role, deactivate with a confirm dialog, reactivate, reset code), which replaces `/admin/users/reset`.
+  - "Deleted user" shown everywhere, and read-only DMs.
+  - Kick notices, and an admin **Disconnect** item in a voice participant's menu.
+  - Lazy chunks for the admin pages and the LiveKit voice engine: the first download dropped from 380 kB to 226 kB gzipped. The raw 350 kB target isn't reachable without just moving the same vendor code into other files, so it's measured gzipped.
+  - zod runs without its JIT (no `eval`, so no CSP violation).
+  - The presence dot no longer covers avatar initials.
+- **Infrastructure:**
+  - Caddy runs as an unprivileged user (`uid 100`), and `lan-up.sh` re-owns an existing `caddy_data` volume without touching the running stack.
+  - Security headers set per header with `?`, so the server's per-file sandbox CSP is kept: CSP (`connect-src` covers LiveKit's ws and http origins), nosniff, `Referrer-Policy`, `Permissions-Policy`, COOP, and no `Server` header.
+- **e2e:**
+  - 5 admin scenarios.
+  - Full-stack header and CSP specs, including a logged-in voice join under the real CSP (it needs `E2E_USERNAME` / `E2E_PASSWORD` / `E2E_VOICE_CHANNEL`).
+  - The Phase 2 reset spec moved to `/admin/users`.
+
+### Tested (run for real on 2026-09-29/30)
+
+- `pnpm typecheck` ✅ · `pnpm lint` ✅ · `pnpm format:check` ✅
+- `pnpm test` ✅: 745 tests (shared 66, web 288, server 391), run with shared `dist/` deleted.
+- `pnpm test:e2e --repeat-each=3` ✅: 141 passed, 18 skipped (the full-stack-only header specs), 0 failed, 0 flaky.
+- Full stack ✅:
+  - CSP and all headers present, with no `Server` header; web and server run as non-root.
+  - `@smoke` 9/9 with a bootstrap account, including the voice join under the CSP, with 0 violations.
+- LAN profile ✅:
+  - `lan:up` works while dev infra is running; CSP `connect-src` has `wss://` and `https://<LAN_IP>:7443`.
+  - A voice join over wss:7443 with 0 CSP violations.
+- A fresh security review found 0 blockers, 3 major and 5 minor issues; all are fixed. My own full-stack run also found the zod `eval` CSP violation, and that's fixed too.
+
+### Known issues / notes
+
+- The LAN profile can't run the Playwright `@smoke` suite: global setup rejects the self-signed certificate, and `headers.spec.ts` expects `ws://localhost:7880`. The LAN checks are ad-hoc scripts.
+- The attachment uploaded by the full-stack header test stays in the `hearth_uploads` volume until the orphan-file GC removes it.
+- Disk space is tight: 6 GB free on the root partition. Prune images after every rebuild.
+
+### Next step
+
+Phase 9: production deployment on Oracle Cloud with DuckDNS (`docs/plans/phase-9.md`).
+
 ## Phase 7 — Camera & screen share ✅ (2026-09-29)
 
 ### Built

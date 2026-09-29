@@ -4,7 +4,7 @@ import type { ReactNode } from 'react';
 import { NavLink } from 'react-router';
 import { bootstrapQuery } from '../api/chat';
 import { errorMessage } from '../api/errors';
-import { dmName } from '../lib/bootstrapPatch';
+import { displayUser } from '../lib/bootstrapPatch';
 import { useIsOnline } from '../stores/presence';
 import { useUnreadSummary } from '../stores/reads';
 import { AvatarWithPresence } from './Avatar';
@@ -28,6 +28,7 @@ function ChannelLink({
   channelId,
   dmUserId,
   dmAvatarUrl = null,
+  dmDeleted = false,
   icon,
   label,
 }: {
@@ -35,6 +36,8 @@ function ChannelLink({
   /** For a DM: the other member, whose avatar and presence the link shows. */
   dmUserId?: string;
   dmAvatarUrl?: string | null;
+  /** For a DM: the other member is deactivated ("Deleted user", neutral avatar). */
+  dmDeleted?: boolean;
   icon?: ReactNode;
   label: string;
 }) {
@@ -54,6 +57,7 @@ function ChannelLink({
           userId={dmUserId}
           name={label}
           avatarUrl={dmAvatarUrl}
+          deleted={dmDeleted}
           size="xs"
           online={online}
         />
@@ -103,11 +107,7 @@ function SidebarLists({ boot }: { boot: BootstrapResponse }) {
   const text = boot.channels.filter((c) => c.type === 'text');
   const voice = boot.channels.filter((c) => c.type === 'voice');
   const dms = boot.dms
-    .map((dm) => ({
-      dm,
-      name: dmName(boot, dm),
-      avatarUrl: boot.users.find((u) => u.id === dm.otherUserId)?.avatarUrl ?? null,
-    }))
+    .map((dm) => ({ dm, ...displayUser(boot.users.find((u) => u.id === dm.otherUserId)) }))
     .toSorted((a, b) => a.name.localeCompare(b.name));
 
   return (
@@ -131,7 +131,13 @@ function SidebarLists({ boot }: { boot: BootstrapResponse }) {
         ) : (
           <ul className="flex flex-col gap-0.5">
             {voice.map((channel) => (
-              <VoiceChannelItem key={channel.id} channel={channel} users={boot.users} meId={boot.me.id} />
+              <VoiceChannelItem
+                key={channel.id}
+                channel={channel}
+                users={boot.users}
+                meId={boot.me.id}
+                isAdmin={boot.me.role === 'admin'}
+              />
             ))}
           </ul>
         )}
@@ -141,12 +147,13 @@ function SidebarLists({ boot }: { boot: BootstrapResponse }) {
           <Empty>No conversations yet.</Empty>
         ) : (
           <ul className="flex flex-col gap-0.5">
-            {dms.map(({ dm, name, avatarUrl }) => (
+            {dms.map(({ dm, name, avatarUrl, deleted }) => (
               <li key={dm.id}>
                 <ChannelLink
                   channelId={dm.id}
                   dmUserId={dm.otherUserId}
                   dmAvatarUrl={avatarUrl}
+                  dmDeleted={deleted}
                   label={name}
                 />
               </li>

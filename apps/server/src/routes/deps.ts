@@ -7,6 +7,7 @@ import type { RateLimiter } from '../plugins/rate-limit.js';
 import type { Realtime } from '../realtime/io.js';
 import type { Typing } from '../realtime/typing.js';
 import type { VoiceEvents, VoiceState } from '../realtime/voice-state.js';
+import type { Lifecycle } from '../services/lifecycle.js';
 import type { Storage } from '../storage/paths.js';
 
 /** Everything a route module needs; built once in `buildApp`. */
@@ -26,4 +27,6 @@ export interface RouteDeps {
   /** LiveKit RoomService operations (real client, or a fake in tests). */
   voiceBackend: VoiceBackend;
   livekitHealth: LiveKitHealth;
+  /** B.7 / B.7b multi-system flows (role change, (de/re)activation, voice disconnect, channel delete). */
+  lifecycle: Lifecycle;
 }

@@ -21,6 +21,16 @@ export const REPO_ROOT: string = fileURLToPath(new URL('..', import.meta.url));
 export const E2E_BASE_URL: string | undefined = optional('E2E_BASE_URL')?.replace(/\/+$/, '');
 export const isFullStack: boolean = E2E_BASE_URL !== undefined;
 
+/**
+ * Optional credentials of an existing account on the full stack (e.g. created with the bootstrap
+ * CLI). The full stack has no test mode, so the logged-in header checks (headers.spec.ts) run only
+ * when both are set.
+ */
+export const E2E_USERNAME: string | undefined = optional('E2E_USERNAME');
+export const E2E_PASSWORD: string | undefined = optional('E2E_PASSWORD');
+/** Optional name of an existing voice channel on the full stack, for the voice-under-CSP check. */
+export const E2E_VOICE_CHANNEL: string | undefined = optional('E2E_VOICE_CHANNEL');
+
 export const WEB_PORT = 5273;
 export const API_PORT = 3100;
 export const TEST_TOKEN = 'e2e';

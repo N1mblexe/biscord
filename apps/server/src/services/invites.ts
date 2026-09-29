@@ -49,6 +49,24 @@ export async function revokeInvite(db: Queryable, id: string): Promise<boolean> 
   return existing !== undefined;
 }
 
+/**
+ * Deactivation (B.7b rule 7): revokes every invite `createdBy` made that could still be redeemed (not
+ * revoked, not expired, uses left). Used-up and expired invites keep their status.
+ */
+export async function revokeRedeemableInvitesBy(tx: Queryable, createdBy: string): Promise<void> {
+  await tx
+    .update(invites)
+    .set({ revokedAt: sql`now()` })
+    .where(
+      and(
+        eq(invites.createdBy, createdBy),
+        isNull(invites.revokedAt),
+        gt(invites.expiresAt, sql`now()`),
+        lt(invites.uses, invites.maxUses),
+      ),
+    );
+}
+
 /** An invite can be redeemed: not revoked, not expired, uses left. */
 export async function isInviteRedeemable(db: Queryable, code: string): Promise<boolean> {
   const [row] = await db

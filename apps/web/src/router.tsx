@@ -5,10 +5,7 @@ import { bootstrapQuery } from './api/chat';
 import { isUnauthenticated } from './api/errors';
 import { findChannel } from './lib/bootstrapPatch';
 import { loginPathFor, safeNext } from './lib/redirects';
-import { AdminChannelsPage } from './pages/AdminChannelsPage';
-import { AdminInvitesPage } from './pages/AdminInvitesPage';
 import { AdminLayout } from './pages/AdminLayout';
-import { AdminResetCodePage } from './pages/AdminResetCodePage';
 import { AppLayout } from './pages/AppLayout';
 import { ChannelPage } from './pages/ChannelPage';
 import { HomePage } from './pages/HomePage';
@@ -19,6 +16,7 @@ import { ResetPasswordPage } from './pages/ResetPasswordPage';
 import { LoadingScreen, RouteError } from './pages/RouteError';
 import { SettingsPage } from './pages/SettingsPage';
 import { queryClient } from './queryClient';
+import { adminRoutes } from './routes/admin';
 import { NOTICES, useNoticeStore } from './stores/notice';
 
 /** The signed-in user, or a redirect to `/login?next=<this page>` when there is no session. */
@@ -118,12 +116,7 @@ export const router = createBrowserRouter([
                 path: 'admin',
                 loader: adminLoader,
                 Component: AdminLayout,
-                children: [
-                  { index: true, loader: () => redirect('/admin/invites') },
-                  { path: 'invites', Component: AdminInvitesPage },
-                  { path: 'users/reset', Component: AdminResetCodePage },
-                  { path: 'channels', Component: AdminChannelsPage },
-                ],
+                children: adminRoutes,
               },
             ],
           },

@@ -14,7 +14,7 @@ const SIGNED_IN_PAGES = [
   './SettingsPage.tsx',
   './AdminChannelsPage.tsx',
   './AdminInvitesPage.tsx',
-  './AdminResetCodePage.tsx',
+  './AdminUsersPage.tsx',
 ];
 
 function rendersAlert(source: string): boolean {

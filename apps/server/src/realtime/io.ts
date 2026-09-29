@@ -22,7 +22,7 @@ import type { Db } from '../db/client.js';
 import type { Env } from '../env.js';
 import { AppError, loggableError } from '../lib/errors.js';
 import { sessionTokenFromCookieHeader } from '../plugins/auth.js';
-import { resolveSession } from '../services/sessions.js';
+import { resolveSession, sessionStatus } from '../services/sessions.js';
 import { createPresence } from './presence.js';
 
 export type HearthServer = Server<ClientToServerEvents, ServerToClientEvents, InterServerEvents, SocketData>;
@@ -62,6 +62,13 @@ export interface Realtime {
   ): void;
   /** Emits `session:revoked` to each `session:<id>` room, then closes those sockets. */
   revokeSessions(sessionIds: readonly string[], reason: SessionRevokedReason): void;
+  /**
+   * B.7 deactivate step 2: emits `session:revoked` once to every socket of the user (room `user:<id>`, plus
+   * the rooms of the listed sessions), then closes them all.
+   */
+  revokeUser(userId: string, sessionIds: readonly string[], reason: SessionRevokedReason): void;
+  /** B.7 deactivate step 4: `presence {online:false}` now, without the grace period (only if online). */
+  forceOffline(userId: string): void;
   /** Closes every socket (test reset). */
   disconnectAll(): void;
   /** Users with a connected socket, or within the offline grace period (B.5a rule 6), sorted. */
@@ -75,6 +82,11 @@ export interface RealtimeDeps {
   env: Env;
   /** Offline grace period (B.5a rule 6). Defaults to `LIMITS.presenceOfflineGraceMs`; tests shorten it. */
   presenceOfflineGraceMs?: number;
+  /**
+   * Test-only: runs after the handshake resolved the session and before the socket joins its rooms, so a
+   * test can revoke the session inside that window.
+   */
+  afterHandshakeResolved?: (data: SocketData) => Promise<void>;
 }
 
 const HANDSHAKE_MESSAGE: Partial<Record<ConnectErrorData['code'], string>> = {
@@ -99,7 +111,7 @@ class HandshakeError extends Error {
  */
 export function createRealtime(
   app: FastifyInstance,
-  { db, env, presenceOfflineGraceMs = LIMITS.presenceOfflineGraceMs }: RealtimeDeps,
+  { db, env, presenceOfflineGraceMs = LIMITS.presenceOfflineGraceMs, afterHandshakeResolved }: RealtimeDeps,
 ): Realtime {
   const io: HearthServer = new Server(app.server, { path: SOCKET_PATH, serveClient: false });
   const assertPayloads = env.NODE_ENV !== 'production';
@@ -123,7 +135,19 @@ export function createRealtime(
         }
         socket.data.userId = auth.user.id;
         socket.data.sessionId = auth.session.id;
-        next();
+        if (afterHandshakeResolved === undefined) {
+          next();
+          return;
+        }
+        afterHandshakeResolved(socket.data).then(
+          () => {
+            next();
+          },
+          (err: unknown) => {
+            app.log.error({ err: loggableError(err) }, 'socket handshake test hook failed');
+            next(new HandshakeError({ code: 'INTERNAL' }));
+          },
+        );
       },
       (err: unknown) => {
         app.log.error({ err: loggableError(err) }, 'socket handshake failed');
@@ -144,6 +168,23 @@ export function createRealtime(
     },
   });
 
+  /**
+   * A logout, password change or deactivation that committed after the handshake resolved the session but
+   * before the socket joined its rooms emitted `session:revoked` to rooms this socket wasn't in yet. Now that
+   * it has joined, any later revoke reaches it; this re-read catches the earlier ones.
+   */
+  const recheckSession = async (socket: HearthSocket): Promise<void> => {
+    const { userId, sessionId } = socket.data;
+    const status = await sessionStatus(db, userId, sessionId);
+    if (status === 'live' || socket.disconnected) return;
+    const payload = { reason: status === 'deactivated' ? 'deactivated' : 'logout' } as const;
+    check('session:revoked', payload);
+    socket.emit('session:revoked', payload);
+    socket.disconnect(true);
+    // A deactivated user has no other socket: no grace period (B.7 deactivate step 4).
+    if (status === 'deactivated') presence.forceOffline(userId);
+  };
+
   io.on('connection', (socket) => {
     const { userId, sessionId } = socket.data;
     // The in-memory adapter joins synchronously, so the new socket also hears its own `online`.
@@ -151,6 +192,10 @@ export function createRealtime(
     presence.connect(userId, socket.id);
     socket.on('disconnect', () => {
       presence.disconnect(userId, socket.id);
+    });
+    recheckSession(socket).catch((err: unknown) => {
+      app.log.error({ err: loggableError(err) }, 'socket session re-check failed; disconnecting');
+      socket.disconnect(true);
     });
   });
 
@@ -182,8 +227,16 @@ export function createRealtime(
       // `true` closes the underlying connection; packets already queued (the event above) are flushed first.
       io.in(rooms).disconnectSockets(true);
     },
+    revokeUser(userId, sessionIds, reason) {
+      const rooms = [userRoom(userId), ...sessionIds.map(sessionRoom)];
+      io.to(rooms).emit('session:revoked', { reason });
+      io.in(rooms).disconnectSockets(true);
+    },
     disconnectAll() {
       io.disconnectSockets(true);
+    },
+    forceOffline: (userId) => {
+      presence.forceOffline(userId);
     },
     onlineUserIds: () => presence.onlineUserIds(),
     resetPresence: () => {

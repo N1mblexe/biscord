@@ -13,8 +13,8 @@ export function AdminLayout() {
         <NavLink to="/admin/invites" className={tabClass}>
           Invites
         </NavLink>
-        <NavLink to="/admin/users/reset" className={tabClass}>
-          Reset codes
+        <NavLink to="/admin/users" className={tabClass}>
+          Users
         </NavLink>
         <NavLink to="/admin/channels" className={tabClass}>
           Channels

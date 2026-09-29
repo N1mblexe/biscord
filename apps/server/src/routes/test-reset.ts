@@ -40,8 +40,8 @@ export function registerTestResetRoutes(
 
   /**
    * Deletes this DB's LiveKit rooms (404 fine, other failures logged), truncates every table, drops every
-   * socket, clears in-memory state (every rate-limit counter: auth routes per IP, message sends, uploads and
-   * voice tokens per user; presence and its pending offline timers; the typing throttle and per-user
+   * socket, clears in-memory state (every rate-limit counter: auth routes per IP, message sends, uploads,
+   * voice tokens and reactions per user, admin mutations per admin; presence and its pending offline timers; the typing throttle and per-user
    * buckets; voice membership, stored `voice:state`s and buckets, and the webhook id cache),
    * empties this server's UPLOAD_DIR (only the tmp/, avatars/ and yyyy/ trees it creates) and returns a
    * fresh single-use admin invite valid for 24 h.

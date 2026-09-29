@@ -10,47 +10,45 @@ import {
 import { send } from '../lib/respond.js';
 import { toChannel } from '../lib/serialize.js';
 import { parse } from '../lib/validate.js';
-import { createChannel, deleteChannel, renameChannel, reorderChannels } from '../services/channels.js';
+import { authOf } from '../plugins/auth.js';
+import { createChannel, renameChannel, reorderChannels } from '../services/channels.js';
 import type { RouteDeps } from './deps.js';
 
-/** CONTRACTS B.4 rows 15–18 (admin). Every broadcast goes to room `all`, after the commit. */
+/**
+ * CONTRACTS B.4 rows 15–18 (admin; each counts toward the admin mutation limit). Every broadcast goes to
+ * room `all`, after the commit. Delete is the B.7 lifecycle flow.
+ */
 export function registerChannelRoutes(
   app: FastifyInstance,
-  { db, guards, realtime, storage, voice, voiceBackend }: RouteDeps,
+  { db, guards, rateLimiter, realtime, lifecycle }: RouteDeps,
 ): void {
-  app.post('/api/channels', { preHandler: guards.requireAdmin }, async (request, reply) => {
+  const preHandler = [guards.requireAdmin, rateLimiter.adminMutation];
+
+  app.post('/api/channels', { preHandler }, async (request, reply) => {
     const input = parse(CreateChannelRequest, request.body);
-    const channel = toChannel(await createChannel(db, input));
+    const channel = toChannel(await createChannel(db, authOf(request).user.id, input));
     realtime.emitToAll('channel:created', { channel });
     return send(reply, ChannelResponse, { channel }, 201);
   });
 
-  app.patch('/api/channels/:id', { preHandler: guards.requireAdmin }, async (request, reply) => {
+  app.patch('/api/channels/:id', { preHandler }, async (request, reply) => {
     const { id } = parse(IdParams, request.params);
     const { name } = parse(UpdateChannelRequest, request.body);
-    const channel = toChannel(await renameChannel(db, id, name));
+    const channel = toChannel(await renameChannel(db, authOf(request).user.id, id, name));
     realtime.emitToAll('channel:updated', { channel });
     return send(reply, ChannelResponse, { channel });
   });
 
-  app.put('/api/channels/order', { preHandler: guards.requireAdmin }, async (request, reply) => {
+  app.put('/api/channels/order', { preHandler }, async (request, reply) => {
     const { ids } = parse(ReorderChannelsRequest, request.body);
-    const channels = (await reorderChannels(db, ids)).map(toChannel);
+    const channels = (await reorderChannels(db, authOf(request).user.id, ids)).map(toChannel);
     realtime.emitToAll('channels:reordered', { channels });
     return send(reply, ChannelsResponse, { channels });
   });
 
-  app.delete('/api/channels/:id', { preHandler: guards.requireAdmin }, async (request, reply) => {
+  app.delete('/api/channels/:id', { preHandler }, async (request, reply) => {
     const { id } = parse(IdParams, request.params);
-    const { channel, storageKeys } = await deleteChannel(db, id, { voiceBackend, log: request.log });
-    // Its LiveKit webhooks are ignored from now on (no such channel); drop its members silently.
-    if (channel.type === 'voice')
-      await voice.exclusive(() => {
-        voice.forgetChannel(channel.id);
-      });
-    realtime.emitToAll('channel:deleted', { channelId: channel.id });
-    // B.7: files go after the commit and the broadcast; failures are logged, never thrown.
-    await storage.removeKeys(storageKeys);
+    await lifecycle.deleteChannel(authOf(request).user.id, id, request.log);
     return reply.status(204).send();
   });
 }

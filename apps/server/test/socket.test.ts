@@ -130,6 +130,107 @@ describe('socket handshake', () => {
   });
 });
 
+describe('a revoke between the handshake and joining the rooms (B.7b rule 7)', () => {
+  /** An app whose socket handshake runs `inject` (once) after resolving the session, before the join. */
+  async function hookedApp(): Promise<{
+    hooked: FastifyInstance;
+    url: string;
+    injectOnce: (fn: () => Promise<void>) => void;
+  }> {
+    let pending: (() => Promise<void>) | null = null;
+    const hooked = makeApp({
+      testHooks: {
+        afterSocketHandshakeResolved: async () => {
+          const fn = pending;
+          pending = null;
+          await fn?.();
+        },
+      },
+    });
+    await hooked.listen({ host: '127.0.0.1', port: 0 });
+    const address = hooked.server.address();
+    if (address === null || typeof address === 'string') throw new Error('unexpected server address');
+    return {
+      hooked,
+      url: `http://127.0.0.1:${address.port}`,
+      injectOnce: (fn) => {
+        pending = fn;
+      },
+    };
+  }
+
+  function connectTo(url: string, cookie: string): Client {
+    const client: Client = connectClient(url, {
+      path: SOCKET_PATH,
+      transports: ['websocket'],
+      reconnection: false,
+      forceNew: true,
+      extraHeaders: { origin: ORIGIN, cookie },
+    });
+    clients.push(client);
+    return client;
+  }
+
+  it('a logout in that window → session:revoked(logout), then disconnect', async () => {
+    const { hooked, url, injectOnce } = await hookedApp();
+    try {
+      await insertUser('alice');
+      const cookie = await login(hooked, 'alice');
+      injectOnce(async () => {
+        expect((await api(hooked, 'POST', '/api/auth/logout', { cookie })).statusCode).toBe(204);
+      });
+      const client = connectTo(url, cookie);
+      const events = recordRevocation(client);
+      await waitUntil(() => events.includes('disconnect'), { message: 'disconnect' });
+      expect(events).toEqual(['revoked:logout', 'disconnect']);
+      await waitUntil(() => hooked.realtime.io.sockets.sockets.size === 0, { message: 'server side closed' });
+    } finally {
+      await hooked.close();
+    }
+  });
+
+  it('a deactivation in that window → session:revoked(deactivated), disconnect, and no presence left', async () => {
+    const { hooked, url, injectOnce } = await hookedApp();
+    try {
+      await insertUser('admin', { role: 'admin' });
+      const bob = await insertUser('bob');
+      const adminCookie = await login(hooked, 'admin');
+      const cookie = await login(hooked, 'bob');
+      injectOnce(async () => {
+        const res = await api(hooked, 'POST', `/api/admin/users/${bob.id}/deactivate`, {
+          cookie: adminCookie,
+        });
+        expect(res.statusCode).toBe(204);
+      });
+      const client = connectTo(url, cookie);
+      const events = recordRevocation(client);
+      await waitUntil(() => events.includes('disconnect'), { message: 'disconnect' });
+      expect(events).toEqual(['revoked:deactivated', 'disconnect']);
+      await waitUntil(() => !hooked.realtime.onlineUserIds().includes(bob.id), { message: 'bob offline' });
+    } finally {
+      await hooked.close();
+    }
+  });
+
+  it('with nothing revoked, the socket stays connected', async () => {
+    const { hooked, url, injectOnce } = await hookedApp();
+    try {
+      await insertUser('alice');
+      const cookie = await login(hooked, 'alice');
+      injectOnce(() => Promise.resolve());
+      const client = connectTo(url, cookie);
+      const events = recordRevocation(client);
+      await connected(client);
+      // The re-check is one DB read; give it ample time to (not) act.
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      expect(events).toEqual([]);
+      expect(client.connected).toBe(true);
+    } finally {
+      await hooked.close();
+    }
+  });
+});
+
 describe('session revocation', () => {
   it('logout emits session:revoked(logout) and disconnects only that session', async () => {
     const { cookie, client } = await userWithSocket('alice');

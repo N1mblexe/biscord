@@ -100,7 +100,8 @@ async function remoteDebug(p: RemoteParticipant): Promise<HearthVoiceDebugRemote
   };
 }
 
-async function voiceDebug(room: Room): Promise<HearthVoiceDebug> {
+/** The e2e voice report for `room` (installed by debugHook.ts while the voice engine is loaded). */
+export async function voiceDebug(room: Room): Promise<HearthVoiceDebug> {
   const s = useVoiceSession.getState();
   const inRoom = room.state !== ConnectionState.Disconnected;
   const remotes = await Promise.all([...room.remoteParticipants.values()].map((p) => remoteDebug(p)));
@@ -120,20 +121,5 @@ async function voiceDebug(room: Room): Promise<HearthVoiceDebug> {
       camera: inRoom && room.localParticipant.isCameraEnabled,
       screen: inRoom && room.localParticipant.isScreenShareEnabled,
     },
-  };
-}
-
-/**
- * E2E builds only (`VITE_E2E=true`): `window.__hearthDebug.voice()` reports the LiveKit room as the
- * voice specs need it (connection state, subscriptions, received audio bytes, local playback mute,
- * received video and what we publish).
- * In every other build `import.meta.env.VITE_E2E` is replaced statically, so this is dead code.
- */
-export function installVoiceDebug(room: Room): () => void {
-  if (import.meta.env.VITE_E2E !== 'true') return () => undefined;
-  const hook = { voice: () => voiceDebug(room) };
-  window.__hearthDebug = hook;
-  return () => {
-    if (window.__hearthDebug === hook) delete window.__hearthDebug;
   };
 }

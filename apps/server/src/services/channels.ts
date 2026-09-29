@@ -7,10 +7,12 @@ import type { ChannelRow, Queryable } from '../db/types.js';
 import { AppError, loggableError } from '../lib/errors.js';
 import { ignoreNotFound, type VoiceBackend } from '../livekit/client.js';
 import { storageKeysOfChannel } from './attachments.js';
+import { assertStillAdmin, lockStillAdmin } from './users.js';
 
 /**
  * Key for `pg_advisory_xact_lock`: serializes channel create / reorder / delete, so the 50-channel cap and
- * the reorder set check see a stable set of channels. ASCII "HCHN".
+ * the reorder set check see a stable set of channels. ASCII "HCHN". Always taken after the users lock
+ * (`lockStillAdmin`), never before it.
  */
 export const CHANNELS_LOCK_KEY = 0x4843484e;
 
@@ -57,9 +59,19 @@ export async function listVoiceChannelIds(db: Queryable, ids?: readonly string[]
   return rows.map((row) => row.id);
 }
 
+/**
+ * Every mutation below takes `actorId`, the requesting admin, who must still be one inside the transaction
+ * (B.7b rule 7: `FORBIDDEN` after a concurrent demotion or deactivation).
+ */
+
 /** Appends at `max(position) + 1`; 409 CHANNEL_LIMIT once there are 50 text/voice channels. */
-export function createChannel(db: Db, input: { type: ChannelType; name: string }): Promise<ChannelRow> {
+export function createChannel(
+  db: Db,
+  actorId: string,
+  input: { type: ChannelType; name: string },
+): Promise<ChannelRow> {
   return db.transaction(async (tx) => {
+    await lockStillAdmin(tx, actorId);
     await lockChannels(tx);
     const [stats] = await tx
       .select({ n: count(), maxPosition: max(channels.position) })
@@ -78,23 +90,27 @@ export function createChannel(db: Db, input: { type: ChannelType; name: string }
 }
 
 /** 404 NOT_FOUND for an unknown id or a DM. */
-export async function renameChannel(db: Queryable, id: string, name: string): Promise<ChannelRow> {
-  const [row] = await db
-    .update(channels)
-    .set({ name })
-    .where(and(eq(channels.id, id), notDm()))
-    .returning();
-  if (row === undefined) throw notFound();
-  return row;
+export function renameChannel(db: Db, actorId: string, id: string, name: string): Promise<ChannelRow> {
+  return db.transaction(async (tx) => {
+    await lockStillAdmin(tx, actorId);
+    const [row] = await tx
+      .update(channels)
+      .set({ name })
+      .where(and(eq(channels.id, id), notDm()))
+      .returning();
+    if (row === undefined) throw notFound();
+    return row;
+  });
 }
 
 /**
  * `ids` must be exactly the set of text/voice channels (400 VALIDATION otherwise). Rewrites positions to
  * 0..n-1 in that order, in one transaction, and returns the channels in their new order.
  */
-export function reorderChannels(db: Db, ids: readonly string[]): Promise<ChannelRow[]> {
+export function reorderChannels(db: Db, actorId: string, ids: readonly string[]): Promise<ChannelRow[]> {
   const wanted = ids.map((id) => id.toLowerCase());
   return db.transaction(async (tx) => {
+    await lockStillAdmin(tx, actorId);
     await lockChannels(tx);
     const existing = await tx.select({ id: channels.id }).from(channels).where(notDm());
     const existingIds = new Set(existing.map((row) => row.id));
@@ -120,10 +136,12 @@ export function reorderChannels(db: Db, ids: readonly string[]): Promise<Channel
  * CONTRACTS B.7 "delete channel": a voice channel's LiveKit room is deleted first (503 LIVEKIT_UNAVAILABLE and
  * no DB change if that fails). The DB delete cascades to messages, reactions, mentions, read states
  * and attachment rows. Returns the deleted row and the storage keys of its attachments, which the caller
- * unlinks after the commit; 404 NOT_FOUND for an unknown id or a DM.
+ * unlinks after the commit; 404 NOT_FOUND for an unknown id or a DM. The caller deletes a voice room once
+ * more after the commit (B.7b rule 7).
  */
 export async function deleteChannel(
   db: Db,
+  actorId: string,
   id: string,
   { voiceBackend, log }: { voiceBackend: VoiceBackend; log: FastifyBaseLogger },
 ): Promise<{ channel: ChannelRow; storageKeys: string[] }> {
@@ -131,6 +149,9 @@ export async function deleteChannel(
   if (channel === null) throw notFound();
 
   if (channel.type === 'voice') {
+    // Not a guarantee (that is the check in the transaction below), but a demoted admin shouldn't get to
+    // close a room just because the channel delete itself will be refused.
+    await assertStillAdmin(db, actorId);
     // B.7 step 1: close the LiveKit room first (a 404 counts as success). Any other failure keeps the channel.
     try {
       await ignoreNotFound(voiceBackend.deleteRoom(voiceRoomName(channel.id)));
@@ -141,6 +162,7 @@ export async function deleteChannel(
   }
 
   return db.transaction(async (tx) => {
+    await lockStillAdmin(tx, actorId);
     await lockChannels(tx);
     // Lock the channel row first: a concurrent message insert needs a key-share lock on it, so no new
     // message (and no newly claimed attachment) can appear between collecting the keys and the delete.

@@ -1,8 +1,9 @@
 import { LIMITS, RateLimitedDetails } from '@hearth/shared';
 import type { FastifyInstance } from 'fastify';
 import { afterAll, afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { CHANGE_PASSWORD_RATE_LIMIT } from '../src/plugins/rate-limit.js';
 import { makeApp, testEnv } from './helpers/app.js';
-import { api, expectError, insertUser, PASSWORD } from './helpers/auth.js';
+import { api, expectError, insertUser, login, PASSWORD } from './helpers/auth.js';
 import { closeTestDb, truncateAll } from './helpers/db.js';
 
 const { max, windowMs } = LIMITS.rateLimits.login;
@@ -70,8 +71,14 @@ describe('rate limits', () => {
       expect((await api(app, 'POST', '/api/auth/reset-password', { body })).statusCode).toBe(401);
       expect((await api(app, 'GET', '/api/invites/ABC/check')).statusCode).toBe(200);
     }
-    expectError(await api(app, 'POST', '/api/auth/reset-password', { body }), 429, 'RATE_LIMITED');
-    expectError(await api(app, 'GET', '/api/invites/ABC/check'), 429, 'RATE_LIMITED');
+    for (const res of [
+      await api(app, 'POST', '/api/auth/reset-password', { body }),
+      await api(app, 'GET', '/api/invites/ABC/check'),
+    ]) {
+      const { retryAfterMs } = RateLimitedDetails.parse(expectError(res, 429, 'RATE_LIMITED').error.details);
+      expect(retryAfterMs).toBeGreaterThan(0);
+      expect(retryAfterMs).toBeLessThanOrEqual(windowMs);
+    }
     // Unlimited routes are not affected.
     expect((await api(app, 'GET', '/api/health')).statusCode).toBe(200);
   });
@@ -108,5 +115,37 @@ describe('rate limits', () => {
       expect((await badLogin(app, '127.0.0.1', `203.0.113.${i + 10}`)).statusCode).toBe(401);
     }
     expectError(await badLogin(app, '127.0.0.1', '203.0.113.99'), 429, 'RATE_LIMITED');
+  });
+
+  it(`the ${CHANGE_PASSWORD_RATE_LIMIT.max + 1}th password change in a minute → 429 with retryAfterMs, per user`, async () => {
+    expect(CHANGE_PASSWORD_RATE_LIMIT).toEqual({ max: 10, windowMs: 60_000 });
+    await insertUser('alice');
+    await insertUser('bob');
+    const alice = await login(app, 'alice');
+    const bob = await login(app, 'bob');
+    const change = (cookie: string, currentPassword: string) =>
+      api(app, 'POST', '/api/me/password', {
+        cookie,
+        body: { currentPassword, newPassword: 'a brand new passphrase' },
+      });
+
+    for (let i = 0; i < CHANGE_PASSWORD_RATE_LIMIT.max; i++) {
+      expectError(await change(alice, 'wrong password'), 401, 'INVALID_CREDENTIALS');
+    }
+    // Refused before the password is even checked: the correct one changes nothing.
+    const res = await change(alice, PASSWORD);
+    const body = expectError(res, 429, 'RATE_LIMITED');
+    const { retryAfterMs } = RateLimitedDetails.parse(body.error.details);
+    expect(retryAfterMs).toBeGreaterThan(0);
+    expect(retryAfterMs).toBeLessThanOrEqual(CHANGE_PASSWORD_RATE_LIMIT.windowMs);
+    expect(Number(res.headers['retry-after'])).toBeGreaterThan(0);
+    expect((await api(app, 'GET', '/api/me', { cookie: alice })).statusCode).toBe(200);
+    expect(
+      (await api(app, 'POST', '/api/auth/login', { body: { username: 'alice', password: PASSWORD } }))
+        .statusCode,
+    ).toBe(200);
+
+    // Another user (same IP) has their own window.
+    expect((await change(bob, PASSWORD)).statusCode).toBe(204);
   });
 });

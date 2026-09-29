@@ -4,6 +4,7 @@ import {
   LIMITS,
   ListMessagesResponse,
   MessageResponse,
+  RateLimitedDetails,
   ReactionEventPayload,
   type Message,
 } from '@hearth/shared';
@@ -12,6 +13,7 @@ import type { FastifyInstance } from 'fastify';
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { attachments, messageMentions, messageReactions, users as usersTable } from '../src/db/schema.js';
 import type { ChannelRow, UserRow } from '../src/db/types.js';
+import { REACTION_RATE_LIMIT } from '../src/plugins/rate-limit.js';
 import { seedMessages } from '../src/services/messages.js';
 import { makeApp } from './helpers/app.js';
 import { api, expectError, insertUser, login } from './helpers/auth.js';
@@ -201,6 +203,25 @@ describe('PUT / DELETE /api/messages/:id/reactions/:emoji', () => {
   it('anonymous → 401', async () => {
     const message = await insertMessage(general.id, users.alice.id);
     expectError(await api(app, 'PUT', reactionUrl(message.id, '👍')), 401, 'UNAUTHENTICATED');
+  });
+
+  it(`the ${REACTION_RATE_LIMIT.max + 1}th PUT/DELETE within 10 s → 429 with retryAfterMs, per user, nothing stored`, async () => {
+    expect(REACTION_RATE_LIMIT).toEqual({ max: 30, windowMs: 10_000 });
+    const message = await insertMessage(general.id, users.alice.id);
+    for (let i = 0; i < REACTION_RATE_LIMIT.max; i += 1) {
+      const res = i % 2 === 0 ? await put('bob', message.id, '👍') : await del('bob', message.id, '👍');
+      expect(res.statusCode, res.payload).toBe(204);
+    }
+    for (const res of [await put('bob', message.id, '🎉'), await del('bob', message.id, '👍')]) {
+      const body = expectError(res, 429, 'RATE_LIMITED');
+      const { retryAfterMs } = RateLimitedDetails.parse(body.error.details);
+      expect(retryAfterMs).toBeGreaterThan(0);
+      expect(retryAfterMs).toBeLessThanOrEqual(REACTION_RATE_LIMIT.windowMs);
+      expect(Number(res.headers['retry-after'])).toBeGreaterThan(0);
+    }
+    expect(await reactionRows(message.id)).toEqual([]);
+    // Another user has their own window.
+    expect((await put('carol', message.id, '🎉')).statusCode).toBe(204);
   });
 });
 

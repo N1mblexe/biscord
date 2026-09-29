@@ -20,8 +20,10 @@ old_images="$(docker images -q hearth-server hearth-web 2>/dev/null || true)"
 echo "Starting Hearth LAN profile on ${LAN_IP} ..."
 "${compose[@]}" build web
 # Caddy runs unprivileged (Phase 8). A caddy_data volume created by an older root image keeps root ownership;
-# re-own it so the existing local CA (already trusted on your devices) keeps working.
-"${compose[@]}" run --rm --no-deps --user root --entrypoint chown web -R caddy:caddy /data /config >/dev/null
+# re-own it so the existing local CA (already trusted on your devices) keeps working. Plain `docker run` with no
+# network: `compose run web` would collide with the running web container's fixed IP.
+docker volume create hearth_caddy_data >/dev/null
+docker run --rm --network none --user root --entrypoint chown -v hearth_caddy_data:/data hearth-web -R caddy:caddy /data
 "${compose[@]}" up --build -d --wait
 
 # Caddy creates its local CA on first start; wait for the root certificate, then export it.

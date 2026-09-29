@@ -1,6 +1,6 @@
 import fastifyMultipart from '@fastify/multipart';
 import Fastify, { type FastifyInstance, type FastifyServerOptions } from 'fastify';
-import { LIMITS } from '@hearth/shared';
+import { LIMITS, type SocketData } from '@hearth/shared';
 import type { Db } from './db/client.js';
 import type { Env } from './env.js';
 import { registerCsrf } from './lib/csrf.js';
@@ -31,6 +31,7 @@ import { registerReadRoutes } from './routes/reads.js';
 import { registerTestResetRoutes } from './routes/test-reset.js';
 import { registerUserRoutes } from './routes/users.js';
 import { registerVoiceRoutes } from './routes/voice.js';
+import { createLifecycle } from './services/lifecycle.js';
 import { warmUpDummyHash } from './services/passwords.js';
 import { runUploadGc, startGcScheduler, type GcScheduler } from './storage/gc.js';
 import { createStorage, resolveUploadDir, type StatfsFn } from './storage/paths.js';
@@ -54,6 +55,11 @@ export interface BuildAppOptions {
   statfs?: StatfsFn;
   /** Test-only: replaces the LiveKit `RoomServiceClient` (a fake, or one with other credentials). */
   voiceBackend?: VoiceBackend;
+  /** Test-only hooks into otherwise unreachable windows (never set outside tests). */
+  testHooks?: {
+    /** Runs between a socket handshake's session lookup and the socket joining its rooms. */
+    afterSocketHandshakeResolved?: (data: SocketData) => Promise<void>;
+  };
 }
 
 declare module 'fastify' {
@@ -114,6 +120,7 @@ export function buildApp({
   timings = {},
   statfs,
   voiceBackend = createLiveKitBackend(env),
+  testHooks = {},
 }: BuildAppOptions): FastifyInstance {
   // `false`, or the list of proxy IPs/CIDRs from TRUST_PROXY (never `true`, see env.ts).
   const app = Fastify({
@@ -156,6 +163,9 @@ export function buildApp({
     ...(timings.presenceOfflineGraceMs === undefined
       ? {}
       : { presenceOfflineGraceMs: timings.presenceOfflineGraceMs }),
+    ...(testHooks.afterSocketHandshakeResolved === undefined
+      ? {}
+      : { afterHandshakeResolved: testHooks.afterSocketHandshakeResolved }),
   });
   const typing = registerTyping({
     db,
@@ -181,6 +191,16 @@ export function buildApp({
   });
   app.addHook('onClose', () => reconciler.stop());
   registerHealthRoutes(app, { db, livekitHealth });
+  const lifecycle = createLifecycle({
+    db,
+    maxUsers: env.MAX_USERS,
+    realtime,
+    voice,
+    voiceBackend,
+    livekitHealth,
+    storage,
+    log: app.log,
+  });
 
   const deps: RouteDeps = {
     db,
@@ -194,6 +214,7 @@ export function buildApp({
     voiceEvents,
     voiceBackend,
     livekitHealth,
+    lifecycle,
   };
   // Routes live in a child context loaded after @fastify/rate-limit, whose onRoute hook reads `config.rateLimit`.
   void app.register((instance, _opts, done) => {

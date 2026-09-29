@@ -1,5 +1,5 @@
 import type { FastifyInstance } from 'fastify';
-import { ChannelIdParams, VoiceTokenResponse } from '@hearth/shared';
+import { ChannelIdParams, VoiceParticipantParams, VoiceTokenResponse } from '@hearth/shared';
 import { AppError } from '../lib/errors.js';
 import { send } from '../lib/respond.js';
 import { parse } from '../lib/validate.js';
@@ -11,11 +11,22 @@ import type { RouteDeps } from './deps.js';
 /**
  * CONTRACTS B.4 row 29 / B.6 / B.6a rule 2. Voice channels only (unknown, text or DM → 404); an inactive
  * user has no session (401). Minting is local: LIVEKIT_UNAVAILABLE only while the cached health says down.
+ * Row 31 / B.7b rule 4: an admin disconnects someone from a voice channel.
  */
 export function registerVoiceRoutes(
   app: FastifyInstance,
-  { db, env, guards, rateLimiter, livekitHealth }: RouteDeps,
+  { db, env, guards, rateLimiter, livekitHealth, lifecycle }: RouteDeps,
 ): void {
+  app.post(
+    '/api/voice/:channelId/participants/:userId/disconnect',
+    { preHandler: [guards.requireAdmin, rateLimiter.adminMutation] },
+    async (request, reply) => {
+      const { channelId, userId } = parse(VoiceParticipantParams, request.params);
+      await lifecycle.disconnectFromVoice(channelId, userId, request.log);
+      return reply.status(204).send();
+    },
+  );
+
   app.post(
     '/api/voice/:channelId/token',
     { preHandler: guards.requireUser, config: rateLimiter.voiceToken },

@@ -38,6 +38,7 @@ export function makeApp(
     statfs?: BuildAppOptions['statfs'];
     /** Defaults to a fresh `FakeVoiceBackend` (no LiveKit needed); pass a real one for container tests. */
     voiceBackend?: BuildAppOptions['voiceBackend'];
+    testHooks?: BuildAppOptions['testHooks'];
   } = {},
 ): FastifyInstance {
   return buildApp({
@@ -47,5 +48,6 @@ export function makeApp(
     ...(options.timings === undefined ? {} : { timings: options.timings }),
     ...(options.statfs === undefined ? {} : { statfs: options.statfs }),
     voiceBackend: options.voiceBackend ?? new FakeVoiceBackend(),
+    ...(options.testHooks === undefined ? {} : { testHooks: options.testHooks }),
   });
 }

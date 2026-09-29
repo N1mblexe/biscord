@@ -1,4 +1,3 @@
-import { sql } from 'drizzle-orm';
 import type {
   ChangePasswordRequest,
   LoginRequest,
@@ -19,10 +18,7 @@ import {
   type AuthContext,
   type CreatedSession,
 } from './sessions.js';
-import { countActiveUsers, findUserByUsername, updatePasswordHash } from './users.js';
-
-/** Key for `pg_advisory_xact_lock`: serializes registrations (user cap + invite use). ASCII "HRTH". */
-export const REGISTER_LOCK_KEY = 0x48525448;
+import { countActiveUsers, findUserByUsername, lockUsers, updatePasswordHash } from './users.js';
 
 export interface AuthConfig {
   maxUsers: number;
@@ -63,7 +59,8 @@ export async function register(
   const passwordHash = await hashPassword(input.password);
 
   return db.transaction(async (tx) => {
-    await tx.execute(sql`select pg_advisory_xact_lock(${REGISTER_LOCK_KEY})`);
+    // The users lock: also taken by reactivation, which checks the same cap (B.7b).
+    await lockUsers(tx);
 
     if ((await countActiveUsers(tx)) >= config.maxUsers) {
       throw new AppError('USER_LIMIT', 'This server has reached its user limit');

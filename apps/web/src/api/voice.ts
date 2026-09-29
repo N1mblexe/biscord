@@ -9,3 +9,11 @@ export function fetchVoiceToken(channelId: string, signal?: AbortSignal): Promis
     signal,
   });
 }
+
+/** POST /voice/:channelId/participants/:userId/disconnect (row 31, admin): removes them from the room. */
+export function disconnectVoiceParticipant(channelId: string, userId: string): Promise<undefined> {
+  return apiFetch(
+    `/voice/${encodeURIComponent(channelId)}/participants/${encodeURIComponent(userId)}/disconnect`,
+    { method: 'POST' },
+  );
+}

@@ -81,6 +81,9 @@ export default defineConfig({
             UPLOAD_DIR: UPLOAD_DIR_E2E,
             // Fast voice reconcile with LiveKit (CONTRACTS B.8): the safety net behind the webhooks.
             VOICE_RECONCILE_MS: '5000',
+            // A reachable account cap for the USER_LIMIT scenario (admin.spec.ts, scenario 5). No other
+            // spec registers more than 3 users.
+            MAX_USERS: '5',
           }),
         },
         {

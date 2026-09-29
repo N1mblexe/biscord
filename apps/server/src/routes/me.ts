@@ -10,7 +10,10 @@ import { updateDisplayName } from '../services/users.js';
 import type { RouteDeps } from './deps.js';
 
 /** CONTRACTS B.4 rows 7–9. */
-export function registerMeRoutes(app: FastifyInstance, { db, guards, realtime }: RouteDeps): void {
+export function registerMeRoutes(
+  app: FastifyInstance,
+  { db, guards, realtime, rateLimiter }: RouteDeps,
+): void {
   app.get('/api/me', { preHandler: guards.requireUser }, async (request, reply) => {
     return send(reply, UserResponse, { user: toMe(authOf(request).user) });
   });
@@ -24,10 +27,15 @@ export function registerMeRoutes(app: FastifyInstance, { db, guards, realtime }:
     return send(reply, UserResponse, { user: toMe(updated) });
   });
 
-  app.post('/api/me/password', { preHandler: guards.requireUser }, async (request, reply) => {
-    const input = parse(ChangePasswordRequest, request.body);
-    const revoked = await changePassword(db, authOf(request), input);
-    realtime.revokeSessions(revoked, 'password_changed');
-    return reply.status(204).send();
-  });
+  // B.7b rule 7: 10 per minute per user (429 RATE_LIMITED with retryAfterMs).
+  app.post(
+    '/api/me/password',
+    { preHandler: guards.requireUser, config: rateLimiter.changePassword },
+    async (request, reply) => {
+      const input = parse(ChangePasswordRequest, request.body);
+      const revoked = await changePassword(db, authOf(request), input);
+      realtime.revokeSessions(revoked, 'password_changed');
+      return reply.status(204).send();
+    },
+  );
 }

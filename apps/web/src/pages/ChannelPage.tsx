@@ -10,9 +10,12 @@ import { useAttachmentUploads } from '../components/chat/useAttachmentUploads';
 import { PageAlert } from '../components/forms';
 import { MembersPanel } from '../components/MembersPanel';
 import { usePageAlert } from '../components/usePageAlert';
-import { channelViewState } from '../lib/bootstrapPatch';
+import { authorName, channelViewState } from '../lib/bootstrapPatch';
 import { useMessageStore } from '../stores/messages';
 import { NOTICES, useNoticeStore } from '../stores/notice';
+
+/** The composer's caption in a DM with a deactivated user (docs/plans/phase-8.md, "Web UI contract"). */
+export const READ_ONLY_DM = 'This conversation is read-only.';
 
 /** `/channels/:channelId` — a text channel or a DM. Access is checked by the route loader. */
 export function ChannelPage() {
@@ -47,14 +50,12 @@ function ChannelView({ channelId }: { channelId: string }) {
   const { resolved } = view;
 
   const isDm = resolved.kind === 'dm';
-  const title = isDm ? (resolved.otherUser?.displayName ?? 'Unknown user') : `#${resolved.channel.name}`;
-  const placeholder = isDm
-    ? `Message ${resolved.otherUser?.displayName ?? ''}`.trim()
-    : `Message #${resolved.channel.name}`;
-  const disabledReason =
-    isDm && (resolved.otherUser?.deactivated ?? true)
-      ? "This user's account is deactivated; you can't reply."
-      : null;
+  // A deactivated DM partner shows as "Deleted user" (CONTRACTS B.7b rule 5).
+  const dmTitle = isDm ? authorName(resolved.otherUser) : '';
+  const title = isDm ? dmTitle : `#${resolved.channel.name}`;
+  const placeholder = isDm ? `Message ${dmTitle}` : `Message #${resolved.channel.name}`;
+  // A DM with a deactivated (or unknown) user is read-only; the server enforces it too.
+  const disabledReason = isDm && (resolved.otherUser?.deactivated ?? true) ? READ_ONLY_DM : null;
 
   const canPost = disabledReason === null;
 

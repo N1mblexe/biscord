@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import {
   BootstrapResponse,
   LIMITS,
+  RateLimitedDetails,
   VoiceTokenResponse,
   voiceRoomName,
   type Ack,
@@ -15,6 +16,7 @@ import { afterAll, afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { channels, users as usersTable } from '../src/db/schema.js';
 import type { ChannelRow, UserRow } from '../src/db/types.js';
 import { VOICE_TOKEN_RATE_LIMIT } from '../src/plugins/rate-limit.js';
+import { VOICE_STATE_BUCKET_MAX, VOICE_STATE_BUCKET_WINDOW_MS } from '../src/realtime/voice-state.js';
 import { makeApp, testEnv } from './helpers/app.js';
 import { api, expectError, insertUser, login } from './helpers/auth.js';
 import { connectRecording, insertChannel, insertDm, listen, type RecordingClient } from './helpers/chat.js';
@@ -196,11 +198,14 @@ describe('POST /api/voice/:channelId/token', () => {
       const res = await api(app, 'POST', `/api/voice/${lounge.id}/token`, { cookie: cookies.bob });
       expect(res.statusCode).toBe(200);
     }
-    expectError(
+    const limited = expectError(
       await api(app, 'POST', `/api/voice/${lounge.id}/token`, { cookie: cookies.bob }),
       429,
       'RATE_LIMITED',
     );
+    const { retryAfterMs } = RateLimitedDetails.parse(limited.error.details);
+    expect(retryAfterMs).toBeGreaterThan(0);
+    expect(retryAfterMs).toBeLessThanOrEqual(VOICE_TOKEN_RATE_LIMIT.windowMs);
     // Per user: carol is unaffected.
     expect(
       (await api(app, 'POST', `/api/voice/${lounge.id}/token`, { cookie: cookies.carol })).statusCode,
@@ -444,6 +449,26 @@ describe('voice:state', () => {
       ok: false,
       error: { code: 'VALIDATION' },
     });
+  });
+
+  it(`the ${VOICE_STATE_BUCKET_MAX + 1}th voice:state within 5 s → ack RATE_LIMITED with retryAfterMs, per user`, async () => {
+    const alice = await connect('alice');
+    const carol = await connect('carol');
+    await join(lounge, 'alice', 'PA_a1');
+    const state = { channelId: lounge.id, ...flags };
+    for (let i = 0; i < VOICE_STATE_BUCKET_MAX; i += 1) {
+      expect(await sendVoiceState(alice, { ...state, selfMute: i % 2 === 0 })).toEqual({
+        ok: true,
+        data: null,
+      });
+    }
+    const ack = await sendVoiceState(alice, state);
+    expect(ack).toMatchObject({ ok: false, error: { code: 'RATE_LIMITED' } });
+    const { retryAfterMs } = RateLimitedDetails.parse(ack.ok ? null : ack.error.details);
+    expect(retryAfterMs).toBeGreaterThan(0);
+    expect(retryAfterMs).toBeLessThanOrEqual(VOICE_STATE_BUCKET_WINDOW_MS);
+    // Carol has her own bucket (outside the channel → VALIDATION, not RATE_LIMITED).
+    expect(await sendVoiceState(carol, state)).toMatchObject({ ok: false, error: { code: 'VALIDATION' } });
   });
 
   it('a state sent before the join webhook arrives becomes the initial flags', async () => {
@@ -700,16 +725,19 @@ describe('voice channel delete', () => {
     const carol = await connect('carol');
     backend.put(lounge.id, users.bob.id, 'PA_b1');
     await join(lounge, 'bob', 'PA_b1');
-    let existedDuringDeleteRoom: boolean | null = null;
+    // One entry per deleteRoom call: did the channel row still exist at that moment?
+    const existedDuringDeleteRoom: boolean[] = [];
     backend.onCall = async (call) => {
       if (call.op !== 'deleteRoom') return;
       const rows = await testDb().db.select().from(channels).where(eq(channels.id, lounge.id));
-      existedDuringDeleteRoom = rows.length === 1;
+      existedDuringDeleteRoom.push(rows.length === 1);
     };
     const res = await api(app, 'DELETE', `/api/channels/${lounge.id}`, { cookie: cookies.alice });
     expect(res.statusCode, res.payload).toBe(204);
-    expect(backend.callsOf('deleteRoom')).toEqual([{ op: 'deleteRoom', room: voiceRoomName(lounge.id) }]);
-    expect(existedDuringDeleteRoom).toBe(true);
+    // B.7b item 7: deleteRoom before the DB delete, and once more after the commit.
+    const room = { op: 'deleteRoom', room: voiceRoomName(lounge.id) };
+    expect(backend.callsOf('deleteRoom')).toEqual([room, room]);
+    expect(existedDuringDeleteRoom).toEqual([true, false]);
     expect(await testDb().db.select().from(channels).where(eq(channels.id, lounge.id))).toEqual([]);
     expect(await voiceOf()).toEqual({});
     await carol.waitFor('channel:deleted');

@@ -98,7 +98,12 @@ export function MessageItem({
       }`}
     >
       <div className="pt-0.5">
-        <Avatar userId={message.authorId} name={authorName} avatarUrl={author?.avatarUrl ?? null} />
+        <Avatar
+          userId={message.authorId}
+          name={authorName}
+          avatarUrl={author?.avatarUrl ?? null}
+          deleted={author?.deactivated === true}
+        />
       </div>
       <div className="min-w-0 flex-1">
         <div className="flex items-baseline gap-2">

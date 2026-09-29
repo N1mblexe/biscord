@@ -10,10 +10,11 @@ import { mkdir, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import type { FastifyInstance } from 'fastify';
 import { afterAll, afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { ADMIN_MUTATION_RATE_LIMIT, REACTION_RATE_LIMIT } from '../src/plugins/rate-limit.js';
 import { invites, messages, users } from '../src/db/schema.js';
 import { makeApp, testEnv } from './helpers/app.js';
 import { api, expectError, insertInvite, insertUser, login, registerViaApi } from './helpers/auth.js';
-import { insertChannel } from './helpers/chat.js';
+import { insertChannel, insertMessage } from './helpers/chat.js';
 import { closeTestDb, testDb, truncateAll } from './helpers/db.js';
 import { freshUploadDir, listFiles, removeDir } from './helpers/uploads.js';
 
@@ -121,6 +122,32 @@ describe('POST /api/__test__/reset', () => {
     expectError(await api(app, 'POST', '/api/auth/login', { body }), 429, 'RATE_LIMITED');
     expect((await reset(app, TOKEN)).statusCode).toBe(200);
     expectError(await api(app, 'POST', '/api/auth/login', { body }), 401, 'INVALID_CREDENTIALS');
+  });
+
+  it('clears the per-user reaction and per-admin mutation windows', async () => {
+    const alice = await insertUser('alice', { role: 'admin' });
+    const cookie = await login(app, 'alice');
+    const general = await insertChannel('general');
+    const message = await insertMessage(general.id, alice.id);
+    const react = (id: number | string) =>
+      api(app, 'PUT', `/api/messages/${id}/reactions/${encodeURIComponent('👍')}`, { cookie });
+    const invite = () => api(app, 'POST', '/api/admin/invites', { cookie });
+    for (let i = 0; i < REACTION_RATE_LIMIT.max; i++) expect((await react(message.id)).statusCode).toBe(204);
+    expectError(await react(message.id), 429, 'RATE_LIMITED');
+    for (let i = 0; i < ADMIN_MUTATION_RATE_LIMIT.max; i++) expect((await invite()).statusCode).toBe(201);
+    expectError(await invite(), 429, 'RATE_LIMITED');
+
+    expect((await reset(app, TOKEN)).statusCode).toBe(200);
+    // Same user id as before (the windows are keyed by it), so only the reset can have cleared them.
+    await testDb().db.insert(users).values(alice);
+    const again = await login(app, 'alice');
+    const channel = await insertChannel('general');
+    const fresh = await insertMessage(channel.id, alice.id);
+    const reacted = await api(app, 'PUT', `/api/messages/${fresh.id}/reactions/${encodeURIComponent('👍')}`, {
+      cookie: again,
+    });
+    expect(reacted.statusCode, reacted.payload).toBe(204);
+    expect((await api(app, 'POST', '/api/admin/invites', { cookie: again })).statusCode).toBe(201);
   });
 
   it('clears the per-user message send counters', async () => {
