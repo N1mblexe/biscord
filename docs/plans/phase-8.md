@@ -1,6 +1,6 @@
 # Phase 8 plan — Admin, moderation, hardening
 
-Status: **awaiting approval**. Source: PLAN.md §2 (roles and lifecycle), §5 Phase 8, §6 (limits and security); CONTRACTS.md B.4 rows 18, 31, 35–38, B.7, B.8.
+Status: **approved 2026-09-29**. Adjustments: GC already done in Phase 5 (review only); the reset-code page folds into `/admin/users` (update the Phase 2 e2e spec); CSP also covers the LAN profile (`wss://<LAN_IP>:7443`); fix the presence dot overlapping small avatars (Phase 5 note).. Source: PLAN.md §2 (roles and lifecycle), §5 Phase 8, §6 (limits and security); CONTRACTS.md B.4 rows 18, 31, 35–38, B.7, B.8.
 Starts only after Phase 7 is committed. It relies on the LiveKit room service (Phase 6), attachment storage (Phase 5) and presence (Phase 4).
 
 ## Goal

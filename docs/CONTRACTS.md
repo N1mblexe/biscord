@@ -345,22 +345,23 @@ Client → server (zod-validated, ack `Ack<T>`, rate-limited in memory):
 
 Server → client (schemas also exported, for types and dev-mode assertion):
 
-| Event                                 | Payload                                                                                   | Receivers                      |
-| ------------------------------------- | ----------------------------------------------------------------------------------------- | ------------------------------ |
-| `message:created` / `message:updated` | `{message: Message}`                                                                      | channel audience               |
-| `message:deleted`                     | `{channelId, messageId}`                                                                  | channel audience               |
-| `reaction:added` / `reaction:removed` | `{channelId, messageId, emoji, userId}`                                                   | channel audience               |
-| `typing`                              | `{channelId, userId}` (client expires after 5 s)                                          | channel audience except sender |
-| `readstate:updated`                   | `{readState: ReadState}`                                                                  | `user:<self>` (multi-tab sync) |
-| `channel:created` / `channel:updated` | `{channel: Channel}`                                                                      | `all`                          |
-| `channel:deleted`                     | `{channelId}`                                                                             | `all`                          |
-| `channels:reordered`                  | `{channels: Channel[]}`                                                                   | `all`                          |
-| `dm:created`                          | `{channel: DmChannel}`                                                                    | both members                   |
-| `user:updated`                        | `{user: PublicUser}`                                                                      | `all`                          |
-| `presence`                            | `{userId, online: boolean}` (offline after a 3 s grace period)                            | `all`                          |
-| `voice:joined` / `voice:updated`      | `{channelId, participant: VoiceParticipant}`                                              | `all`                          |
-| `voice:left`                          | `{channelId, userId}`                                                                     | `all`                          |
-| `session:revoked`                     | `{reason: 'logout'\|'deactivated'\|'password_changed'\|'password_reset'}` then disconnect | `session:<id>` or `user:<id>`  |
+| Event                                 | Payload                                                                                   | Receivers                           |
+| ------------------------------------- | ----------------------------------------------------------------------------------------- | ----------------------------------- |
+| `message:created` / `message:updated` | `{message: Message}`                                                                      | channel audience                    |
+| `message:deleted`                     | `{channelId, messageId}`                                                                  | channel audience                    |
+| `reaction:added` / `reaction:removed` | `{channelId, messageId, emoji, userId}`                                                   | channel audience                    |
+| `typing`                              | `{channelId, userId}` (client expires after 5 s)                                          | channel audience except sender      |
+| `readstate:updated`                   | `{readState: ReadState}`                                                                  | `user:<self>` (multi-tab sync)      |
+| `channel:created` / `channel:updated` | `{channel: Channel}`                                                                      | `all`                               |
+| `channel:deleted`                     | `{channelId}`                                                                             | `all`                               |
+| `channels:reordered`                  | `{channels: Channel[]}`                                                                   | `all`                               |
+| `dm:created`                          | `{channel: DmChannel}`                                                                    | both members                        |
+| `user:updated`                        | `{user: PublicUser}`                                                                      | `all`                               |
+| `presence`                            | `{userId, online: boolean}` (offline after a 3 s grace period)                            | `all`                               |
+| `voice:joined` / `voice:updated`      | `{channelId, participant: VoiceParticipant}`                                              | `all`                               |
+| `voice:left`                          | `{channelId, userId}`                                                                     | `all`                               |
+| `voice:kicked`                        | `{channelId, reason: 'admin'\|'channel_deleted'\|'deactivated'}`                          | `user:<id>` (the removed user only) |
+| `session:revoked`                     | `{reason: 'logout'\|'deactivated'\|'password_changed'\|'password_reset'}` then disconnect | `session:<id>` or `user:<id>`       |
 
 Reconnect protocol: on every `connect`, the client refetches `GET /bootstrap`, plus `GET messages?after=<lastSeenId>` for each loaded channel. All client stores upsert by id, so events are idempotent.
 
@@ -473,6 +474,15 @@ Reconnect protocol: on every `connect`, the client refetches `GET /bootstrap`, p
 - **Upload:** stream to `UPLOAD_DIR/tmp/<uuid>` with a byte counter → sniff the type → `rename` into `UPLOAD_DIR/yyyy/mm/<uuid>` → insert the row. On abort or overflow, unlink the temp file; no row is ever written. The GC deletes unattached rows (and their files) older than 24 h, and temp files older than 1 h.
 
 ---
+
+### B.7b Admin, moderation and lifecycle (Phase 8)
+
+1. **Last-admin guard:** "the last active admin" is counted inside the same transaction under an advisory lock, so two admins demoting each other at the same time can't leave zero admins. The guard covers both demotion (row 35) and deactivation (row 36), whether the target is yourself or someone else.
+2. **Deactivate is idempotent:** deactivating an already-deactivated user gives 204 with no events. Reactivating an active user gives 204 with no events.
+3. **Reactivation:** restores the account, but not its sessions, so the user has to log in again. The username stays reserved while the account is deactivated (unchanged from §2).
+4. **Voice disconnect (row 31):** a user who isn't in that room gives `NOT_FOUND`; LiveKit being unreachable gives `LIVEKIT_UNAVAILABLE`. The server also tells the client why via a new server→client event `voice:kicked {channelId, reason: 'admin'|'channel_deleted'|'deactivated'}` sent to `user:<id>`, so the UI can show a notice instead of a silent drop. **Contract addition: add it to B.5 and to the shared socket maps.**
+5. **Deleted-user rendering:** clients render `PublicUser.deactivated === true` as "Deleted user" with a neutral avatar, both in message authors and in DM titles. A DM with a deactivated user becomes read-only (already enforced on the server in Phase 3).
+6. **GC schedule:** already implemented in Phase 5 (B.7a rule 8 and `UPLOAD_GC_INTERVAL_MINUTES`): runs at startup and every interval, removes unattached uploads older than 24 h, temp files older than 1 h and orphan files on disk, under a session advisory lock. Phase 8 only reviews it.
 
 ### B.7a Uploads and avatars (Phase 5 rules)
 

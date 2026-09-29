@@ -18,6 +18,10 @@ compose=(docker compose -f docker-compose.yml -f docker-compose.lan.yml)
 # Remember the current Hearth images; the rebuild leaves them untagged (removed below).
 old_images="$(docker images -q hearth-server hearth-web 2>/dev/null || true)"
 echo "Starting Hearth LAN profile on ${LAN_IP} ..."
+"${compose[@]}" build web
+# Caddy runs unprivileged (Phase 8). A caddy_data volume created by an older root image keeps root ownership;
+# re-own it so the existing local CA (already trusted on your devices) keeps working.
+"${compose[@]}" run --rm --no-deps --user root --entrypoint chown web -R caddy:caddy /data /config >/dev/null
 "${compose[@]}" up --build -d --wait
 
 # Caddy creates its local CA on first start; wait for the root certificate, then export it.

@@ -86,6 +86,13 @@ export type VoiceParticipantEventPayload = z.infer<typeof VoiceParticipantEventP
 export const VoiceLeftPayload = z.object({ channelId: Uuid, userId: Uuid });
 export type VoiceLeftPayload = z.infer<typeof VoiceLeftPayload>;
 
+/** Why the server removed you from voice (sent only to `user:<id>`, B.7b). */
+export const VoiceKickedReason = z.enum(['admin', 'channel_deleted', 'deactivated']);
+export type VoiceKickedReason = z.infer<typeof VoiceKickedReason>;
+
+export const VoiceKickedPayload = z.object({ channelId: Uuid, reason: VoiceKickedReason });
+export type VoiceKickedPayload = z.infer<typeof VoiceKickedPayload>;
+
 export const SessionRevokedReason = z.enum(['logout', 'deactivated', 'password_changed', 'password_reset']);
 export type SessionRevokedReason = z.infer<typeof SessionRevokedReason>;
 
@@ -111,6 +118,7 @@ export const serverEventSchemas = {
   'voice:joined': VoiceParticipantEventPayload,
   'voice:updated': VoiceParticipantEventPayload,
   'voice:left': VoiceLeftPayload,
+  'voice:kicked': VoiceKickedPayload,
   'session:revoked': SessionRevokedPayload,
 } as const;
 export type ServerEventName = keyof typeof serverEventSchemas;
@@ -140,6 +148,7 @@ export interface ServerToClientEvents {
   'voice:joined': (payload: VoiceParticipantEventPayload) => void;
   'voice:updated': (payload: VoiceParticipantEventPayload) => void;
   'voice:left': (payload: VoiceLeftPayload) => void;
+  'voice:kicked': (payload: VoiceKickedPayload) => void;
   'session:revoked': (payload: SessionRevokedPayload) => void;
 }
 

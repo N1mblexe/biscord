@@ -45,6 +45,7 @@ describe('socket event maps', () => {
         'presence',
         'voice:joined',
         'voice:updated',
+        'voice:kicked',
         'voice:left',
         'session:revoked',
       ].sort(),

@@ -5,6 +5,17 @@
 }
 
 :8080 {
+	# Security headers (B.7b / PLAN §6). `?` sets a header only when the upstream didn't, so the server's
+	# stricter per-file CSP on attachment downloads is kept.
+	header {
+		?Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' blob: data:; media-src 'self' blob:; connect-src 'self' ws://localhost:7880; font-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'; object-src 'none'"
+		?X-Content-Type-Options "nosniff"
+		?Referrer-Policy "no-referrer"
+		?Permissions-Policy "camera=(self), microphone=(self), display-capture=(self), geolocation=()"
+		?Cross-Origin-Opener-Policy "same-origin"
+		-Server
+	}
+
 	request_body {
 		max_size 26MiB
 	}

@@ -17,6 +17,10 @@ COPY apps/web apps/web
 RUN pnpm --filter @hearth/web build
 
 FROM caddy:2.11.4-alpine AS runtime
+# Run as an unprivileged user. Every listener is above 1024 (8080 locally, 8443/7443 in the LAN profile),
+# so no cap_net_bind_service is needed here; the prod image (Phase 9) handles 80/443.
+RUN addgroup -S caddy && adduser -S -D -H -G caddy caddy && chown -R caddy:caddy /data /config
 COPY --from=build /app/apps/web/dist /srv
 COPY infra/caddy/Caddyfile /etc/caddy/Caddyfile
+USER caddy
 EXPOSE 8080
