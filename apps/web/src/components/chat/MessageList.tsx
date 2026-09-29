@@ -141,6 +141,23 @@ export function MessageList({ channelId, boot, me, isDm, canReact, onError }: Me
     useViewingStore.getState().setViewing(channelId, atBottomRef.current);
   });
 
+  // Content that grows after render (an image finishing loading) keeps a list at the bottom pinned
+  // there, and keeps the snapshot height current for the prepend arithmetic above.
+  const listRef = useRef<HTMLOListElement>(null);
+  useEffect(() => {
+    const el = scrollRef.current;
+    const list = listRef.current;
+    if (!el || !list) return;
+    const observer = new ResizeObserver(() => {
+      if (atBottomRef.current) el.scrollTop = el.scrollHeight;
+      if (snapshotRef.current) snapshotRef.current.scrollHeight = el.scrollHeight;
+    });
+    observer.observe(list);
+    return () => {
+      observer.disconnect();
+    };
+  }, []);
+
   // Reading at the bottom of a visible tab marks the newest loaded message read.
   useMarkRead(channelId, loaded ? ids.at(-1) : undefined);
 
@@ -205,7 +222,7 @@ export function MessageList({ channelId, boot, me, isDm, canReact, onError }: Me
           <p className="px-4 pt-6 pb-2 text-xs text-muted">This is the beginning of the conversation.</p>
         )
       )}
-      <ol className="flex flex-col pb-2">
+      <ol ref={listRef} className="flex flex-col pb-2">
         {ids.map((id) => {
           const message = byId[id];
           if (!message) return null;
@@ -231,6 +248,7 @@ export function MessageList({ channelId, boot, me, isDm, canReact, onError }: Me
             key={p.nonce}
             pending={p}
             authorName={me.displayName}
+            authorAvatarUrl={me.avatarUrl}
             usernames={usernames}
             onError={onError}
           />

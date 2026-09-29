@@ -11,6 +11,8 @@ export interface RateLimiter {
    * `requireUser`, so the key is the authenticated user id (anonymous requests are refused before it).
    */
   readonly messageSend: FastifyContextConfig;
+  /** Route `config` for uploads (row 27): 20 per minute per **user**, as a preHandler like `messageSend`. */
+  readonly upload: FastifyContextConfig;
   /** Forgets every counter (test reset). Old keys simply age out of the in-memory store. */
   reset(): void;
 }
@@ -43,6 +45,14 @@ export function registerRateLimit(app: FastifyInstance): RateLimiter {
         timeWindow: LIMITS.rateLimits.messageSend.windowMs,
         hook: 'preHandler',
         keyGenerator: (request) => `${generation}|user:${request.auth?.user.id ?? request.ip}`,
+      },
+    },
+    upload: {
+      rateLimit: {
+        max: LIMITS.rateLimits.uploads.max,
+        timeWindow: LIMITS.rateLimits.uploads.windowMs,
+        hook: 'preHandler',
+        keyGenerator: (request) => `${generation}|upload:${request.auth?.user.id ?? request.ip}`,
       },
     },
     reset: () => {

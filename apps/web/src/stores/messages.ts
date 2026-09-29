@@ -1,4 +1,4 @@
-import type { Message, Reaction } from '@hearth/shared';
+import type { Attachment, Message, Reaction } from '@hearth/shared';
 import { create } from 'zustand';
 
 /**
@@ -43,6 +43,8 @@ export interface PendingMessage {
   channelId: string;
   authorId: string;
   content: string;
+  /** Uploaded (unattached) files the send claims; shown on the optimistic copy. */
+  attachments: Attachment[];
   createdAt: string;
   status: PendingStatus;
 }
@@ -90,7 +92,9 @@ export interface MessagesState {
   /** Drops a channel's entry (channel deleted or no longer accessible). */
   forgetChannel: (channelId: string) => void;
 
-  addPending: (pending: Omit<PendingMessage, 'status'>) => void;
+  addPending: (
+    pending: Omit<PendingMessage, 'status' | 'attachments'> & { attachments?: Attachment[] },
+  ) => void;
   /** The REST response for a send: upserts the real message and drops the optimistic copy. */
   resolvePending: (nonce: string, message: Message) => void;
   failPending: (nonce: string) => void;
@@ -337,7 +341,12 @@ export const useMessageStore = create<MessagesState>()((set, get) => {
     },
 
     addPending: (pending) => {
-      set((state) => ({ pending: { ...state.pending, [pending.nonce]: { ...pending, status: 'sending' } } }));
+      set((state) => ({
+        pending: {
+          ...state.pending,
+          [pending.nonce]: { ...pending, attachments: pending.attachments ?? [], status: 'sending' },
+        },
+      }));
     },
 
     resolvePending: (nonce, message) => {

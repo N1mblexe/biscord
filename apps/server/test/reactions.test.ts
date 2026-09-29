@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import {
   EMOJI_PALETTE,
   LIMITS,
@@ -9,7 +10,7 @@ import {
 import { eq } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { messageMentions, messageReactions, users as usersTable } from '../src/db/schema.js';
+import { attachments, messageMentions, messageReactions, users as usersTable } from '../src/db/schema.js';
 import type { ChannelRow, UserRow } from '../src/db/types.js';
 import { seedMessages } from '../src/services/messages.js';
 import { makeApp } from './helpers/app.js';
@@ -238,7 +239,7 @@ describe('Message.reactions', () => {
     expect(edited.mentionUserIds).toEqual([]);
   });
 
-  it('history pages aggregate reactions and mentions per message with a bounded query count (no N+1)', async () => {
+  it('history pages aggregate attachments, reactions and mentions per message with a bounded query count (no N+1)', async () => {
     const { db, pool } = testDb();
     const { firstId, lastId } = await seedMessages(db, {
       channelId: general.id,
@@ -267,6 +268,21 @@ describe('Message.reactions', () => {
         channelId: general.id,
       })),
     );
+    // One attachment per message, a second on every fourth (rows only; serving isn't under test here).
+    await db.insert(attachments).values(
+      ids.flatMap((id) =>
+        (id % 4 === 0 ? [0, 1] : [0]).map((n) => ({
+          uploaderId: users.alice.id,
+          messageId: id,
+          storageKey: `2026/09/${randomUUID()}`,
+          filename: `file-${id}-${n}.bin`,
+          mimeType: 'application/octet-stream',
+          sizeBytes: id + n,
+          // Distinct upload times: attachments are listed by upload time, then id.
+          createdAt: new Date(Date.UTC(2026, 8, 1, 0, 0, n)),
+        })),
+      ),
+    );
 
     const query = vi.spyOn(pool, 'query');
     const countQueries = async (q: string): Promise<{ n: number; page: Message[] }> => {
@@ -281,10 +297,10 @@ describe('Message.reactions', () => {
     expect(one.page).toHaveLength(1);
     expect(full.page).toHaveLength(50);
     expect(hundred.page).toHaveLength(60);
-    // session + channel access + page + reactions + mentions, independent of the page size.
+    // session + channel access + page + attachments + reactions + mentions, independent of the page size.
     expect(full.n).toBe(one.n);
     expect(hundred.n).toBe(one.n);
-    expect(full.n).toBeLessThanOrEqual(6);
+    expect(full.n).toBeLessThanOrEqual(7);
 
     for (const message of hundred.page) {
       const id = Number(message.id);
@@ -292,6 +308,9 @@ describe('Message.reactions', () => {
       const expected = id % 2 === 0 ? [bobs, { emoji: '🔥', userIds: [users.carol.id] }] : [bobs];
       expect(message.reactions, `message ${id}`).toEqual(expected);
       expect(message.mentionUserIds).toEqual([id % 3 === 0 ? users.carol.id : users.bob.id]);
+      expect(message.attachments.map((a) => [a.filename, a.sizeBytes, a.inline])).toEqual(
+        (id % 4 === 0 ? [0, 1] : [0]).map((n) => [`file-${id}-${n}.bin`, id + n, false]),
+      );
     }
   });
 
@@ -303,6 +322,7 @@ describe('Message.reactions', () => {
     await insertMessage(general.id, users.alice.id);
     query.mockClear();
     await history('alice', general.id);
-    expect(query.mock.calls.length).toBe(emptyCount + 2);
+    // One page with a message: + attachments, reactions and mentions.
+    expect(query.mock.calls.length).toBe(emptyCount + 3);
   });
 });

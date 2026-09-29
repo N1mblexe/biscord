@@ -118,6 +118,41 @@ describe('message sync', () => {
     expect(store().channels[GONE]).toBeUndefined();
   });
 
+  it('sends the attachment ids of a pending message and keeps them for a retry', async () => {
+    const attachment = {
+      id: '6f1c1a52-8b0a-4c5e-9d43-1f2e3d4c5b6a',
+      filename: 'cat.png',
+      mimeType: 'image/png',
+      sizeBytes: 10,
+      url: '/api/attachments/6f1c1a52-8b0a-4c5e-9d43-1f2e3d4c5b6a/cat.png',
+      inline: true,
+    };
+    const bodies: unknown[] = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((_input: string, init?: RequestInit) => {
+        bodies.push(typeof init?.body === 'string' ? JSON.parse(init.body) : null);
+        return Promise.resolve(
+          new Response(JSON.stringify({ error: { code: 'RATE_LIMITED', message: 'slow down' } }), {
+            status: 429,
+          }),
+        );
+      }),
+    );
+    store().addPending({
+      nonce: 'n1',
+      channelId: CH,
+      authorId: AUTHOR,
+      content: '',
+      attachments: [attachment],
+      createdAt: 'x',
+    });
+    await expect(deliverPending('n1')).rejects.toThrow('slow down');
+    expect(bodies).toEqual([{ content: '', nonce: 'n1', attachmentIds: [attachment.id] }]);
+    expect(store().pending.n1?.status).toBe('failed');
+    expect(store().pending.n1?.attachments).toEqual([attachment]);
+  });
+
   it('pages from syncedThrough, not from our own newer message sent over REST', async () => {
     const all = range(1, 10);
     fakeServer(10, all);

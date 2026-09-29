@@ -4,6 +4,7 @@ import type { Db } from '../db/client.js';
 import { channels } from '../db/schema.js';
 import type { ChannelRow, Queryable } from '../db/types.js';
 import { AppError } from '../lib/errors.js';
+import { storageKeysOfChannel } from './attachments.js';
 
 /**
  * Key for `pg_advisory_xact_lock`: serializes channel create / reorder / delete, so the 50-channel cap and
@@ -98,9 +99,13 @@ export function reorderChannels(db: Db, ids: readonly string[]): Promise<Channel
 
 /**
  * CONTRACTS B.7 "delete channel": the DB delete cascades to messages, reactions, mentions, read states
- * and attachment rows. Returns the deleted row; 404 NOT_FOUND for an unknown id or a DM.
+ * and attachment rows. Returns the deleted row and the storage keys of its attachments, which the caller
+ * unlinks after the commit; 404 NOT_FOUND for an unknown id or a DM.
  */
-export async function deleteChannel(db: Db, id: string): Promise<ChannelRow> {
+export async function deleteChannel(
+  db: Db,
+  id: string,
+): Promise<{ channel: ChannelRow; storageKeys: string[] }> {
   const channel = await findChannel(db, id);
   if (channel === null) throw notFound();
 
@@ -111,13 +116,20 @@ export async function deleteChannel(db: Db, id: string): Promise<ChannelRow> {
 
   return db.transaction(async (tx) => {
     await lockChannels(tx);
-    // TODO(phase 5): collect the attachment storage keys of this channel's messages here, and unlink them
-    // after the commit (B.7 "delete text channel").
+    // Lock the channel row first: a concurrent message insert needs a key-share lock on it, so no new
+    // message (and no newly claimed attachment) can appear between collecting the keys and the delete.
+    const [locked] = await tx
+      .select({ id: channels.id })
+      .from(channels)
+      .where(and(eq(channels.id, id), notDm()))
+      .for('update');
+    if (locked === undefined) throw notFound();
+    const storageKeys = await storageKeysOfChannel(tx, id);
     const [deleted] = await tx
       .delete(channels)
       .where(and(eq(channels.id, id), notDm()))
       .returning();
     if (deleted === undefined) throw notFound();
-    return deleted;
+    return { channel: deleted, storageKeys };
   });
 }

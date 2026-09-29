@@ -14,7 +14,10 @@ import { createChannel, deleteChannel, renameChannel, reorderChannels } from '..
 import type { RouteDeps } from './deps.js';
 
 /** CONTRACTS B.4 rows 15–18 (admin). Every broadcast goes to room `all`, after the commit. */
-export function registerChannelRoutes(app: FastifyInstance, { db, guards, realtime }: RouteDeps): void {
+export function registerChannelRoutes(
+  app: FastifyInstance,
+  { db, guards, realtime, storage }: RouteDeps,
+): void {
   app.post('/api/channels', { preHandler: guards.requireAdmin }, async (request, reply) => {
     const input = parse(CreateChannelRequest, request.body);
     const channel = toChannel(await createChannel(db, input));
@@ -39,8 +42,10 @@ export function registerChannelRoutes(app: FastifyInstance, { db, guards, realti
 
   app.delete('/api/channels/:id', { preHandler: guards.requireAdmin }, async (request, reply) => {
     const { id } = parse(IdParams, request.params);
-    const deleted = await deleteChannel(db, id);
-    realtime.emitToAll('channel:deleted', { channelId: deleted.id });
+    const { channel, storageKeys } = await deleteChannel(db, id);
+    realtime.emitToAll('channel:deleted', { channelId: channel.id });
+    // B.7: files go after the commit and the broadcast; failures are logged, never thrown.
+    await storage.removeKeys(storageKeys);
     return reply.status(204).send();
   });
 }

@@ -1,10 +1,21 @@
-import type { ChangePasswordRequest, Me, UpdateMeRequest } from '@hearth/shared';
+import {
+  AVATAR_MIME_TYPES,
+  type BootstrapResponse,
+  type ChangePasswordRequest,
+  type Me,
+  type UpdateMeRequest,
+} from '@hearth/shared';
 import { useMutation, useQuery, useQueryClient, type UseMutationResult } from '@tanstack/react-query';
 import { useState, type ChangeEvent, type SubmitEvent } from 'react';
 import { changePassword, meQuery, updateMe } from '../api/auth';
+import { bootstrapQueryKey } from '../api/chat';
 import { errorMessage, fieldErrors } from '../api/errors';
+import { removeAvatar, setAvatar } from '../api/uploads';
+import { Avatar } from '../components/Avatar';
 import { FormAlert, FormSuccess, formString, TextField } from '../components/forms';
-import { card, primaryButton } from '../components/styles';
+import { card, primaryButton, secondaryButton } from '../components/styles';
+import { avatarUploadError, checkAvatarFile } from '../lib/avatar';
+import { upsertUser } from '../lib/bootstrapPatch';
 import {
   notificationPermission,
   readNotificationsPref,
@@ -14,20 +25,39 @@ import {
 
 type ProfileMutation = UseMutationResult<Me, Error, UpdateMeRequest>;
 type PasswordMutation = UseMutationResult<undefined, Error, ChangePasswordRequest>;
+type AvatarMutation = UseMutationResult<Me, Error, File>;
+type RemoveAvatarMutation = UseMutationResult<Me, Error, void>;
 
 export function SettingsPage() {
   const { data: me } = useQuery(meQuery);
   const queryClient = useQueryClient();
 
-  // Both mutations live here so that submitting one form resets the other: the page never shows more than
+  // Our own user in the caches the header, members list and messages read from. The server also
+  // broadcasts `user:updated`, which patches the same caches (idempotently).
+  const storeMe = (user: Me) => {
+    queryClient.setQueryData(meQuery.queryKey, user);
+    const { id, username, displayName, avatarUrl, role, deactivated } = user;
+    queryClient.setQueryData<BootstrapResponse>(bootstrapQueryKey, (boot) =>
+      boot ? upsertUser(boot, { id, username, displayName, avatarUrl, role, deactivated }) : boot,
+    );
+  };
+
+  // Every mutation lives here so that starting one resets the others: the page never shows more than
   // one role="alert" (same pattern as AdminInvitesPage).
-  const profile: ProfileMutation = useMutation({
-    mutationFn: updateMe,
-    onSuccess: (user) => {
-      queryClient.setQueryData(meQuery.queryKey, user);
-    },
-  });
+  const profile: ProfileMutation = useMutation({ mutationFn: updateMe, onSuccess: storeMe });
   const password: PasswordMutation = useMutation({ mutationFn: changePassword });
+  const avatarSet: AvatarMutation = useMutation({ mutationFn: setAvatar, onSuccess: storeMe });
+  const avatarRemove: RemoveAvatarMutation = useMutation({ mutationFn: removeAvatar, onSuccess: storeMe });
+  // The avatar pre-check's alert (wrong type or too big), shown instead of a request.
+  const [avatarCheck, setAvatarCheck] = useState<string | null>(null);
+
+  const resetAllBut = (keep: 'profile' | 'password' | 'avatar') => {
+    if (keep !== 'profile') profile.reset();
+    if (keep !== 'password') password.reset();
+    if (keep !== 'avatar') setAvatarCheck(null);
+    avatarSet.reset();
+    avatarRemove.reset();
+  };
 
   if (!me) return null;
   return (
@@ -39,17 +69,110 @@ export function SettingsPage() {
         me={me}
         mutation={profile}
         onSubmitStart={() => {
-          password.reset();
+          resetAllBut('profile');
+        }}
+      />
+      <AvatarSection
+        me={me}
+        setMutation={avatarSet}
+        removeMutation={avatarRemove}
+        checkError={avatarCheck}
+        onStart={(checkError) => {
+          resetAllBut('avatar');
+          setAvatarCheck(checkError);
         }}
       />
       <PasswordForm
         mutation={password}
         onSubmitStart={() => {
-          profile.reset();
+          resetAllBut('password');
         }}
       />
       <NotificationsSection />
     </div>
+  );
+}
+
+/**
+ * **Avatar** (docs/plans/phase-5.md, "Web UI contract"): picking a file uploads it at once after a
+ * type and size pre-check; **Remove avatar** only while one is set. The change reaches everyone
+ * through `user:updated`.
+ */
+function AvatarSection({
+  me,
+  setMutation,
+  removeMutation,
+  checkError,
+  onStart,
+}: {
+  me: Me;
+  setMutation: AvatarMutation;
+  removeMutation: RemoveAvatarMutation;
+  checkError: string | null;
+  /** Resets the other forms' results; `checkError` is the pre-check alert (or `null` to go ahead). */
+  onStart: (checkError: string | null) => void;
+}) {
+  const busy = setMutation.isPending || removeMutation.isPending;
+  const failed = setMutation.isError
+    ? setMutation.error
+    : removeMutation.isError
+      ? removeMutation.error
+      : null;
+  const alert = checkError ?? (failed ? avatarUploadError(failed) : null);
+
+  const onChange = (event: ChangeEvent<HTMLInputElement>) => {
+    const input = event.currentTarget;
+    const file = input.files?.[0];
+    // Lets the same file be picked again.
+    input.value = '';
+    if (!file) return;
+    const problem = checkAvatarFile(file);
+    onStart(problem);
+    if (problem === null) setMutation.mutate(file);
+  };
+
+  return (
+    <section className={card}>
+      <h2 className="text-lg font-semibold">Avatar</h2>
+      <p className="mt-1 text-sm text-muted">A PNG, JPEG or WebP image up to 2 MB.</p>
+      <div className="mt-4 flex max-w-sm flex-col gap-4">
+        <div className="flex items-center gap-4">
+          <Avatar userId={me.id} name={me.displayName} avatarUrl={me.avatarUrl} size="lg" />
+          <div className="flex flex-col gap-2">
+            <label htmlFor="settings-avatar" className="text-sm font-medium">
+              Avatar
+            </label>
+            <input
+              id="settings-avatar"
+              name="avatar"
+              type="file"
+              accept={AVATAR_MIME_TYPES.join(',')}
+              disabled={busy}
+              className="text-sm text-muted file:mr-3 file:rounded-lg file:border-0 file:bg-surface-raised file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-text file:ring-1 file:ring-white/10 hover:file:bg-white/10"
+              onChange={onChange}
+            />
+          </div>
+        </div>
+        <FormAlert message={alert} />
+        {setMutation.isSuccess && <FormSuccess>Avatar updated.</FormSuccess>}
+        {removeMutation.isSuccess && <FormSuccess>Avatar removed.</FormSuccess>}
+        {me.avatarUrl !== null && (
+          <div>
+            <button
+              type="button"
+              className={secondaryButton}
+              disabled={busy}
+              onClick={() => {
+                onStart(null);
+                removeMutation.mutate();
+              }}
+            >
+              Remove avatar
+            </button>
+          </div>
+        )}
+      </div>
+    </section>
   );
 }
 

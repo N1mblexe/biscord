@@ -7,7 +7,7 @@ import { errorMessage } from '../api/errors';
 import { dmName } from '../lib/bootstrapPatch';
 import { useIsOnline } from '../stores/presence';
 import { useUnreadSummary } from '../stores/reads';
-import { PresenceDot } from './PresenceDot';
+import { AvatarWithPresence } from './Avatar';
 
 function linkClass(isActive: boolean, unread: boolean): string {
   const tone = unread ? 'font-semibold text-text' : isActive ? 'font-medium text-text' : 'text-muted';
@@ -25,12 +25,14 @@ function linkClass(isActive: boolean, unread: boolean): string {
 function ChannelLink({
   channelId,
   dmUserId,
+  dmAvatarUrl = null,
   icon,
   label,
 }: {
   channelId: string;
-  /** For a DM: the other member, whose presence the link shows. */
+  /** For a DM: the other member, whose avatar and presence the link shows. */
   dmUserId?: string;
+  dmAvatarUrl?: string | null;
   icon?: ReactNode;
   label: string;
 }) {
@@ -45,7 +47,17 @@ function ChannelLink({
       to={`/channels/${channelId}`}
       className={({ isActive }) => linkClass(isActive, unread)}
     >
-      {isDm ? <PresenceDot online={online} /> : icon}
+      {isDm ? (
+        <AvatarWithPresence
+          userId={dmUserId}
+          name={label}
+          avatarUrl={dmAvatarUrl}
+          size="xs"
+          online={online}
+        />
+      ) : (
+        icon
+      )}
       <span data-testid="channel-link-name" className="min-w-0 flex-1 truncate">
         {label}
       </span>
@@ -103,7 +115,11 @@ function SidebarLists({ boot }: { boot: BootstrapResponse }) {
   const text = boot.channels.filter((c) => c.type === 'text');
   const voice = boot.channels.filter((c) => c.type === 'voice');
   const dms = boot.dms
-    .map((dm) => ({ dm, name: dmName(boot, dm) }))
+    .map((dm) => ({
+      dm,
+      name: dmName(boot, dm),
+      avatarUrl: boot.users.find((u) => u.id === dm.otherUserId)?.avatarUrl ?? null,
+    }))
     .toSorted((a, b) => a.name.localeCompare(b.name));
 
   return (
@@ -147,9 +163,14 @@ function SidebarLists({ boot }: { boot: BootstrapResponse }) {
           <Empty>No conversations yet.</Empty>
         ) : (
           <ul className="flex flex-col gap-0.5">
-            {dms.map(({ dm, name }) => (
+            {dms.map(({ dm, name, avatarUrl }) => (
               <li key={dm.id}>
-                <ChannelLink channelId={dm.id} dmUserId={dm.otherUserId} label={name} />
+                <ChannelLink
+                  channelId={dm.id}
+                  dmUserId={dm.otherUserId}
+                  dmAvatarUrl={avatarUrl}
+                  label={name}
+                />
               </li>
             ))}
           </ul>

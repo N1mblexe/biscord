@@ -11,6 +11,7 @@ export type InviteRow = typeof schema.invites.$inferSelect;
 export type ChannelRow = typeof schema.channels.$inferSelect;
 export type DmChannelRow = typeof schema.dmChannels.$inferSelect;
 export type MessageRow = typeof schema.messages.$inferSelect;
+export type AttachmentRow = typeof schema.attachments.$inferSelect;
 
 interface PgErrorLike {
   code?: unknown;

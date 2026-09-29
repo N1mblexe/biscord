@@ -4,6 +4,9 @@ export const LIMITS = {
   messageMaxChars: 4000,
   attachmentsPerMessage: 10,
   uploadMaxBytes: 25 * 1024 * 1024,
+  /** Per-user cap on uploads not yet attached to a message (disk-fill guard). */
+  unattachedUploadsMaxFiles: 30,
+  unattachedUploadsMaxBytes: 250 * 1024 * 1024,
   avatarMaxBytes: 2 * 1024 * 1024,
   distinctReactionsPerMessage: 20,
   messageHistoryPageDefault: 50,

@@ -13,16 +13,18 @@ const EXPECTED: Record<ErrorCode, number> = {
   USERNAME_TAKEN: 409,
   LAST_ADMIN: 409,
   CHANNEL_LIMIT: 409,
+  UPLOAD_QUOTA: 409,
   PAYLOAD_TOO_LARGE: 413,
   UNSUPPORTED_MEDIA: 415,
   RATE_LIMITED: 429,
   INTERNAL: 500,
   LIVEKIT_UNAVAILABLE: 503,
+  STORAGE_FULL: 507,
 };
 
 describe('errors', () => {
-  it('has exactly the 16 B.3 codes', () => {
-    expect(ErrorCode.options).toHaveLength(16);
+  it('has exactly the 18 B.3 codes', () => {
+    expect(ErrorCode.options).toHaveLength(18);
     expect([...ErrorCode.options].sort()).toEqual(Object.keys(EXPECTED).sort());
   });
 

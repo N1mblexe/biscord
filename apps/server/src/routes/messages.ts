@@ -18,11 +18,11 @@ import type { RouteDeps } from './deps.js';
 
 /**
  * CONTRACTS B.4 rows 20–23. Broadcasts go to the channel audience (B.5), after the commit. Messages carry
- * their reactions and mentions (batch-loaded per page).
+ * their attachments, reactions and mentions (batch-loaded per page).
  */
 export function registerMessageRoutes(
   app: FastifyInstance,
-  { db, guards, rateLimiter, realtime }: RouteDeps,
+  { db, guards, rateLimiter, realtime, storage }: RouteDeps,
 ): void {
   app.get('/api/channels/:id/messages', { preHandler: guards.requireUser }, async (request, reply) => {
     const { id } = parse(IdParams, request.params);
@@ -65,11 +65,13 @@ export function registerMessageRoutes(
 
   app.delete('/api/messages/:id', { preHandler: guards.requireUser }, async (request, reply) => {
     const { id } = parse(MessageIdParams, request.params);
-    const { message, access } = await deleteMessage(db, authOf(request).user, id);
+    const { message, access, storageKeys } = await deleteMessage(db, authOf(request).user, id);
     emitToChannel(realtime, access, 'message:deleted', {
       channelId: message.channelId,
       messageId: String(message.id),
     });
+    // B.7: files go after the commit and the broadcast; failures are logged, never thrown.
+    await storage.removeKeys(storageKeys);
     return reply.status(204).send();
   });
 }

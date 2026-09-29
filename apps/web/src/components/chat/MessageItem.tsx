@@ -5,8 +5,10 @@ import { errorMessage } from '../../api/errors';
 import { useMessageStore, type PendingMessage } from '../../stores/messages';
 import { deliverPending } from '../../lib/messageSync';
 import { setReaction } from '../../lib/reactions';
+import { Avatar } from '../Avatar';
 import { Markdown } from '../Markdown';
 import { inputClass } from '../styles';
+import { AttachmentList } from './Attachments';
 import { AddReaction, ReactionBar } from './Reactions';
 
 const actionButton =
@@ -62,6 +64,7 @@ export function MessageItem({
 }: MessageItemProps) {
   const [editing, setEditing] = useState(false);
   const [busy, setBusy] = useState(false);
+  const author = usersById.get(message.authorId);
   const mentionsMe = message.mentionUserIds.includes(me.id);
   const highlight = mentionsMe && !isDm;
 
@@ -90,55 +93,61 @@ export function MessageItem({
       data-testid="message-item"
       data-message-id={message.id}
       data-mentions-me={mentionsMe ? 'true' : undefined}
-      className={`group relative py-1.5 pr-4 hover:bg-white/[0.03] ${
+      className={`group relative flex gap-3 py-1.5 pr-4 hover:bg-white/[0.03] ${
         highlight ? 'border-l-2 border-accent bg-accent/[0.06] pl-[14px]' : 'pl-4'
       }`}
     >
-      <div className="flex items-baseline gap-2">
-        <span data-testid="message-author" className="text-sm font-semibold">
-          {authorName}
-        </span>
-        <time
-          dateTime={message.createdAt}
-          title={formatFull(message.createdAt)}
-          className="text-xs text-muted"
-        >
-          {formatTime(message.createdAt)}
-        </time>
+      <div className="pt-0.5">
+        <Avatar userId={message.authorId} name={authorName} avatarUrl={author?.avatarUrl ?? null} />
       </div>
-      {editing ? (
-        <EditForm
-          message={message}
-          onDone={() => {
-            setEditing(false);
-          }}
-          onError={onError}
-        />
-      ) : (
-        <div className="text-sm leading-relaxed">
-          <div data-testid="message-content" className="markdown break-words">
-            <Markdown selfUsername={me.username} usernames={usernames}>
-              {message.content}
-            </Markdown>
-          </div>
-          {message.editedAt && (
-            <span
-              data-testid="message-edited"
-              title={formatFull(message.editedAt)}
-              className="text-[11px] text-muted"
-            >
-              (edited)
-            </span>
-          )}
+      <div className="min-w-0 flex-1">
+        <div className="flex items-baseline gap-2">
+          <span data-testid="message-author" className="text-sm font-semibold">
+            {authorName}
+          </span>
+          <time
+            dateTime={message.createdAt}
+            title={formatFull(message.createdAt)}
+            className="text-xs text-muted"
+          >
+            {formatTime(message.createdAt)}
+          </time>
         </div>
-      )}
-      <ReactionBar
-        message={message}
-        meId={me.id}
-        usersById={usersById}
-        disabled={!canReact}
-        onToggle={react}
-      />
+        {editing ? (
+          <EditForm
+            message={message}
+            onDone={() => {
+              setEditing(false);
+            }}
+            onError={onError}
+          />
+        ) : (
+          <div className="text-sm leading-relaxed">
+            <div data-testid="message-content" className="markdown break-words">
+              <Markdown selfUsername={me.username} usernames={usernames}>
+                {message.content}
+              </Markdown>
+            </div>
+            {message.editedAt && (
+              <span
+                data-testid="message-edited"
+                title={formatFull(message.editedAt)}
+                className="text-[11px] text-muted"
+              >
+                (edited)
+              </span>
+            )}
+          </div>
+        )}
+        <AttachmentList attachments={message.attachments} />
+        <ReactionBar
+          message={message}
+          meId={me.id}
+          usersById={usersById}
+          disabled={!canReact}
+          onToggle={react}
+        />
+      </div>
       {!editing && (canReact || canEdit || canDelete) && (
         <div className="absolute top-1 right-4 flex gap-1 rounded-md bg-surface-raised p-0.5 opacity-0 shadow ring-1 ring-white/10 transition group-focus-within:opacity-100 group-hover:opacity-100">
           {canReact && (
@@ -256,11 +265,13 @@ function EditForm({
 export function PendingItem({
   pending,
   authorName,
+  authorAvatarUrl,
   usernames,
   onError,
 }: {
   pending: PendingMessage;
   authorName: string;
+  authorAvatarUrl: string | null;
   usernames: ReadonlySet<string>;
   onError: ErrorSink;
 }) {
@@ -277,36 +288,44 @@ export function PendingItem({
       data-testid="message-item"
       data-pending="true"
       data-failed={failed ? 'true' : undefined}
-      className="px-4 py-1.5"
+      className="flex gap-3 px-4 py-1.5"
     >
-      <div className="flex items-baseline gap-2">
-        <span data-testid="message-author" className="text-sm font-semibold">
-          {authorName}
-        </span>
-        <span className="text-xs text-muted">{failed ? 'Not sent' : 'Sending…'}</span>
+      <div className="pt-0.5">
+        <Avatar userId={pending.authorId} name={authorName} avatarUrl={authorAvatarUrl} />
       </div>
-      <div
-        data-testid="message-content"
-        className={`markdown text-sm break-words ${failed ? 'text-danger/80' : 'opacity-60'}`}
-      >
-        <Markdown usernames={usernames}>{pending.content}</Markdown>
-      </div>
-      {failed && (
-        <div className="mt-1 flex gap-1">
-          <button type="button" className={actionButton} onClick={retry}>
-            Retry
-          </button>
-          <button
-            type="button"
-            className={actionButton}
-            onClick={() => {
-              useMessageStore.getState().discardPending(pending.nonce);
-            }}
-          >
-            Discard
-          </button>
+      <div className="min-w-0 flex-1">
+        <div className="flex items-baseline gap-2">
+          <span data-testid="message-author" className="text-sm font-semibold">
+            {authorName}
+          </span>
+          <span className="text-xs text-muted">{failed ? 'Not sent' : 'Sending…'}</span>
         </div>
-      )}
+        <div
+          data-testid="message-content"
+          className={`markdown text-sm break-words ${failed ? 'text-danger/80' : 'opacity-60'}`}
+        >
+          <Markdown usernames={usernames}>{pending.content}</Markdown>
+        </div>
+        <div className={failed ? '' : 'opacity-60'}>
+          <AttachmentList attachments={pending.attachments} />
+        </div>
+        {failed && (
+          <div className="mt-1 flex gap-1">
+            <button type="button" className={actionButton} onClick={retry}>
+              Retry
+            </button>
+            <button
+              type="button"
+              className={actionButton}
+              onClick={() => {
+                useMessageStore.getState().discardPending(pending.nonce);
+              }}
+            >
+              Discard
+            </button>
+          </div>
+        )}
+      </div>
     </li>
   );
 }

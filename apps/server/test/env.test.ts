@@ -24,6 +24,27 @@ describe('loadEnv', () => {
     expect(env.LOG_LEVEL).toBe('info');
     expect(env.HEARTH_TEST_MODE).toBe(false);
     expect(env.HEARTH_TEST_TOKEN).toBeUndefined();
+    expect(env.UPLOAD_DIR).toBe('./data/uploads');
+    expect(env.UPLOAD_GC_INTERVAL_MINUTES).toBe(60);
+    expect(env.UPLOAD_MIN_FREE_MB).toBe(2048);
+  });
+
+  it('UPLOAD_MIN_FREE_MB: 0 disables, negatives and non-integers are refused', () => {
+    expect(loadEnv({ ...base, UPLOAD_MIN_FREE_MB: '0' }).UPLOAD_MIN_FREE_MB).toBe(0);
+    expect(loadEnv({ ...base, UPLOAD_MIN_FREE_MB: '512' }).UPLOAD_MIN_FREE_MB).toBe(512);
+    for (const bad of ['-1', '1.5', 'lots']) {
+      expect(() => loadEnv({ ...base, UPLOAD_MIN_FREE_MB: bad })).toThrow(/UPLOAD_MIN_FREE_MB/);
+    }
+  });
+
+  it('UPLOAD_GC_INTERVAL_MINUTES: 0 disables, negatives and non-integers are refused', () => {
+    expect(loadEnv({ ...base, UPLOAD_GC_INTERVAL_MINUTES: '0' }).UPLOAD_GC_INTERVAL_MINUTES).toBe(0);
+    expect(loadEnv({ ...base, UPLOAD_GC_INTERVAL_MINUTES: '15' }).UPLOAD_GC_INTERVAL_MINUTES).toBe(15);
+    for (const bad of ['-1', '1.5', 'soon']) {
+      expect(() => loadEnv({ ...base, UPLOAD_GC_INTERVAL_MINUTES: bad })).toThrow(
+        /UPLOAD_GC_INTERVAL_MINUTES/,
+      );
+    }
   });
 
   it('splits APP_ORIGIN on commas', () => {

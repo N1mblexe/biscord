@@ -5,6 +5,9 @@ import {
   TestSeedMessagesResponse,
   UserResponse,
 } from '@hearth/shared';
+import { randomUUID } from 'node:crypto';
+import { mkdir, stat, writeFile } from 'node:fs/promises';
+import path from 'node:path';
 import type { FastifyInstance } from 'fastify';
 import { afterAll, afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { invites, messages, users } from '../src/db/schema.js';
@@ -12,6 +15,7 @@ import { makeApp, testEnv } from './helpers/app.js';
 import { api, expectError, insertInvite, insertUser, login, registerViaApi } from './helpers/auth.js';
 import { insertChannel } from './helpers/chat.js';
 import { closeTestDb, testDb, truncateAll } from './helpers/db.js';
+import { freshUploadDir, listFiles, removeDir } from './helpers/uploads.js';
 
 const TOKEN = 'unit-test-token';
 
@@ -78,6 +82,35 @@ describe('POST /api/__test__/reset', () => {
     expect(reg.statusCode).toBe(201);
     expect(UserResponse.parse(reg.json()).user.role).toBe('admin');
     expectError(await registerViaApi(app, 'second', adminInviteCode), 400, 'INVITE_INVALID');
+  });
+
+  it("empties this server's UPLOAD_DIR (only the trees it creates) and recreates tmp/ and avatars/", async () => {
+    const dir = await freshUploadDir();
+    const own = makeApp({
+      env: testEnv({ HEARTH_TEST_MODE: 'true', HEARTH_TEST_TOKEN: TOKEN, UPLOAD_DIR: dir }),
+    });
+    try {
+      await own.ready();
+      const files = [
+        `tmp/${randomUUID()}`,
+        `avatars/${randomUUID()}`,
+        `2026/09/${randomUUID()}`,
+        `1999/01/${randomUUID()}`,
+        'README',
+        'other/keep.txt',
+      ];
+      for (const file of files) {
+        await mkdir(path.dirname(path.join(dir, file)), { recursive: true });
+        await writeFile(path.join(dir, file), 'x');
+      }
+      expect((await reset(own, TOKEN)).statusCode).toBe(200);
+      expect(await listFiles(dir)).toEqual(['README', 'other/keep.txt']);
+      expect((await stat(path.join(dir, 'tmp'))).isDirectory()).toBe(true);
+      expect((await stat(path.join(dir, 'avatars'))).isDirectory()).toBe(true);
+    } finally {
+      await own.close();
+      await removeDir(dir);
+    }
   });
 
   it('clears the in-memory rate-limit counters', async () => {

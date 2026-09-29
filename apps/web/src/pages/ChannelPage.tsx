@@ -1,11 +1,12 @@
 import { useQuery } from '@tanstack/react-query';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent } from 'react';
 import { useNavigate, useParams } from 'react-router';
 import { meQuery } from '../api/auth';
 import { bootstrapQuery } from '../api/chat';
 import { Composer } from '../components/chat/Composer';
 import { MessageList } from '../components/chat/MessageList';
 import { TypingIndicator } from '../components/chat/TypingIndicator';
+import { useAttachmentUploads } from '../components/chat/useAttachmentUploads';
 import { PageAlert } from '../components/forms';
 import { MembersPanel } from '../components/MembersPanel';
 import { channelViewState } from '../lib/bootstrapPatch';
@@ -26,6 +27,9 @@ function ChannelView({ channelId }: { channelId: string }) {
   const setAlert = useCallback((message: string | null) => {
     setAlertState(message);
   }, []);
+
+  const uploads = useAttachmentUploads(setAlert);
+  const drop = useFileDrop(uploads.addFiles);
 
   const navigate = useNavigate();
   const users = boot?.users;
@@ -54,9 +58,23 @@ function ChannelView({ channelId }: { channelId: string }) {
       ? "This user's account is deactivated; you can't reply."
       : null;
 
+  const canPost = disabledReason === null;
+
   return (
     <div className="flex min-h-0 flex-1">
-      <section aria-labelledby="channel-title" className="flex min-w-0 flex-1 flex-col">
+      <section
+        aria-labelledby="channel-title"
+        className="relative flex min-w-0 flex-1 flex-col"
+        {...(canPost ? drop.handlers : {})}
+      >
+        {canPost && drop.active && (
+          <div
+            aria-hidden="true"
+            className="pointer-events-none absolute inset-2 z-10 flex items-center justify-center rounded-xl border-2 border-dashed border-accent bg-bg/80 text-sm font-semibold text-accent"
+          >
+            Drop files to attach
+          </div>
+        )}
         <header className="flex h-12 shrink-0 items-center border-b border-white/5 px-4">
           <h1 id="channel-title" data-testid="channel-title" className="truncate text-base font-semibold">
             {title}
@@ -77,7 +95,7 @@ function ChannelView({ channelId }: { channelId: string }) {
           boot={boot}
           me={me}
           isDm={isDm}
-          canReact={disabledReason === null}
+          canReact={canPost}
           onError={setAlert}
         />
         <TypingIndicator channelId={channelId} meId={me.id} usersById={usersById} />
@@ -86,10 +104,52 @@ function ChannelView({ channelId }: { channelId: string }) {
           authorId={me.id}
           placeholder={placeholder}
           disabledReason={disabledReason}
+          uploads={uploads}
           onError={setAlert}
         />
       </section>
       <MembersPanel onError={setAlert} />
     </div>
   );
+}
+
+function hasFiles(event: DragEvent): boolean {
+  return Array.from(event.dataTransfer.types).includes('Files');
+}
+
+/**
+ * Drag-and-drop of files onto the channel view: `active` while files are dragged over it (nested
+ * enter/leave events are counted), `onFiles` with what was dropped. Other drags (text, links) are
+ * left alone.
+ */
+function useFileDrop(onFiles: (files: File[]) => void) {
+  const [active, setActive] = useState(false);
+  const depth = useRef(0);
+
+  const handlers = {
+    onDragEnter: (event: DragEvent) => {
+      if (!hasFiles(event)) return;
+      event.preventDefault();
+      depth.current += 1;
+      setActive(true);
+    },
+    onDragOver: (event: DragEvent) => {
+      if (!hasFiles(event)) return;
+      event.preventDefault();
+      event.dataTransfer.dropEffect = 'copy';
+    },
+    onDragLeave: (event: DragEvent) => {
+      if (!hasFiles(event)) return;
+      depth.current = Math.max(0, depth.current - 1);
+      if (depth.current === 0) setActive(false);
+    },
+    onDrop: (event: DragEvent) => {
+      if (!hasFiles(event)) return;
+      event.preventDefault();
+      depth.current = 0;
+      setActive(false);
+      onFiles(Array.from(event.dataTransfer.files));
+    },
+  };
+  return { active, handlers };
 }

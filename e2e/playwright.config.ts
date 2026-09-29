@@ -6,6 +6,7 @@ import {
   isFullStack,
   REPO_ROOT,
   TEST_TOKEN,
+  UPLOAD_DIR_E2E,
   WEB_PORT,
 } from './env.js';
 
@@ -77,7 +78,7 @@ export default defineConfig({
             HEARTH_TEST_TOKEN: TEST_TOKEN,
             APP_ORIGIN: webURL,
             COOKIE_SECURE: 'false',
-            UPLOAD_DIR: `${REPO_ROOT}/data/uploads-e2e`,
+            UPLOAD_DIR: UPLOAD_DIR_E2E,
           }),
         },
         {

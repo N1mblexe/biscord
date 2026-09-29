@@ -61,10 +61,15 @@ export async function fetchMessages(
   return res.messages;
 }
 
-export async function sendMessage(channelId: string, content: string, nonce: string): Promise<Message> {
+export async function sendMessage(
+  channelId: string,
+  content: string,
+  nonce: string,
+  attachmentIds: readonly string[] = [],
+): Promise<Message> {
   const res = await apiFetch(`/channels/${encodeURIComponent(channelId)}/messages`, {
     method: 'POST',
-    body: { content, nonce, attachmentIds: [] },
+    body: { content, nonce, attachmentIds },
     schema: MessageResponse,
   });
   return res.message;

@@ -187,7 +187,12 @@ export async function deliverPending(nonce: string): Promise<void> {
   if (!pending) return;
   store().retryPending(nonce);
   try {
-    const message = await sendMessage(pending.channelId, pending.content, nonce);
+    const message = await sendMessage(
+      pending.channelId,
+      pending.content,
+      nonce,
+      pending.attachments.map((a) => a.id),
+    );
     store().resolvePending(nonce, message);
   } catch (err) {
     store().failPending(nonce);

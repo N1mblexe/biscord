@@ -2,7 +2,8 @@ import { drizzle, type NodePgDatabase } from 'drizzle-orm/node-postgres';
 import { Pool, type PoolConfig } from 'pg';
 import * as schema from './schema.js';
 
-export type Db = NodePgDatabase<typeof schema>;
+/** What `createDb` returns: `$client` is the pool (the upload GC takes a dedicated connection from it). */
+export type Db = NodePgDatabase<typeof schema> & { $client: Pool };
 
 export interface DbHandle {
   pool: Pool;

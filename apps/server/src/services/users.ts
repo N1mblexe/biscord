@@ -1,4 +1,5 @@
 import { and, asc, count, eq, isNull } from 'drizzle-orm';
+import type { Db } from '../db/client.js';
 import { users } from '../db/schema.js';
 import type { Queryable, UserRow } from '../db/types.js';
 
@@ -42,4 +43,29 @@ export async function updateDisplayName(
 
 export async function updatePasswordHash(db: Queryable, id: string, passwordHash: string): Promise<void> {
   await db.update(users).set({ passwordHash }).where(eq(users.id, id));
+}
+
+export interface AvatarChange {
+  user: UserRow;
+  /** The replaced file's storage key, unlinked by the caller after the commit (B.7a rule 5). */
+  previousKey: string | null;
+}
+
+/**
+ * Sets (`key`) or clears (`null`) a user's avatar in one transaction, returning the updated row and the
+ * previous key. The row lock serializes concurrent changes, so every replaced key is reported exactly once.
+ * `null` when the user no longer exists.
+ */
+export function replaceAvatarKey(db: Db, id: string, key: string | null): Promise<AvatarChange | null> {
+  return db.transaction(async (tx) => {
+    const [current] = await tx
+      .select({ avatarKey: users.avatarKey })
+      .from(users)
+      .where(eq(users.id, id))
+      .for('update');
+    if (current === undefined) return null;
+    const [row] = await tx.update(users).set({ avatarKey: key }).where(eq(users.id, id)).returning();
+    if (row === undefined) return null;
+    return { user: row, previousKey: current.avatarKey };
+  });
 }

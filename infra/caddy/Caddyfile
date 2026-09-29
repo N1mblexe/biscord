@@ -6,7 +6,7 @@
 
 :8080 {
 	request_body {
-		max_size 26MB
+		max_size 26MiB
 	}
 
 	handle /api/* {

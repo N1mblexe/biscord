@@ -2,6 +2,59 @@
 
 Updated at the end of every phase (see CLAUDE.md → Workflow).
 
+## Phase 5 — Uploads & avatars ✅ (2026-09-29)
+
+### Built
+
+- **Server:**
+  - Uploads stream to `tmp/`. The 25 MiB cap is enforced mid-stream, the type is detected from the file contents (what the client declares is ignored), and the file is then moved into `yyyy/mm/<uuid>`. On any failure the temp file is removed and no row is written.
+  - All paths go through one check that keeps them inside `UPLOAD_DIR`. Filenames are cleaned up and never used in a path.
+  - `UPLOAD_DIR` resolves against the repo root, which fixes the Phase 1 known issue.
+  - Serving files:
+    - Only the four inline image types keep their own `Content-Type`. Everything else, including SVG, HTML and XML, is sent as `application/octet-stream` with `attachment`.
+    - Every file response has `nosniff` and `default-src 'none'; sandbox`, and filenames are encoded per RFC 5987.
+    - Anonymous gets 401. No access, or someone else's pending upload, gets 404.
+    - HEAD requests don't read the file.
+  - Avatars:
+    - PNG, JPEG or WebP only (checked from the content) and at most 2 MB.
+    - A replaced or deleted avatar's file is removed after the commit.
+    - A `?v=` cache-buster, plus a `user:updated` event.
+    - Rate-limited.
+  - Deleting a message or channel removes its files after the commit.
+  - Disk-fill guards:
+    - At most 30 files or 250 MiB of pending uploads per user (`409 UPLOAD_QUOTA`).
+    - Uploads are refused below `UPLOAD_MIN_FREE_MB` of free space (`507 STORAGE_FULL`).
+  - Upload GC: removes pending uploads older than 24 h, temp files older than 1 h, and files with no row. Runs under a session advisory lock, with a short DB transaction and the disk walk after the commit. Scheduled every `UPLOAD_GC_INTERVAL_MINUTES`.
+- **Web:**
+  - Attaching files through the picker, drag-and-drop or paste, shown as chips (uploading/ready/failed). Send is disabled while an upload is in progress.
+  - Checks before upload: 25 MB and 10 files. Caddy's non-JSON 413 is mapped to the same message.
+  - Inline images and download links.
+  - An `Avatar` component used everywhere, and an avatar section in Settings.
+- **e2e:** 7 upload and avatar scenarios. All test files are generated in memory, and one checks the exact 25 MiB limit.
+- **Infrastructure:** Caddy's cap is `max_size 26MiB`. Caddy reads `MB` as 10⁶ bytes, which put its old cap below the server's.
+
+### Tested (run for real on 2026-09-29)
+
+- `pnpm typecheck` ✅ · `pnpm lint` ✅ · `pnpm format:check` ✅
+- `pnpm test` ✅: 554 tests (shared 66, web 184, server 304), run with shared `dist/` deleted. Includes a real upload aborted mid-stream (no row, no file) and the disk-fill guards refusing before any body is read.
+- `pnpm test:e2e --repeat-each=3` ✅: 90/90 (30 specs × 3), no flakes.
+- `docker compose up --build` ✅:
+  - `@smoke` passes.
+  - Through Caddy, exactly 25 MiB uploads (201) and 27 MB gets 413.
+  - The file survives `docker compose restart server` and downloads byte-identical.
+  - HEAD returns the `octet-stream`, `attachment`, `nosniff` and sandbox CSP headers.
+- A fresh security review found 0 blockers, 2 major and 4 minor issues; all are fixed and tested. There was also one contract gap: an SVG with an `<?xml` line is detected as `application/xml`, so all non-inline files are now served as octet-stream.
+
+### Known issues / notes
+
+- There's no total storage quota per user; only pending uploads are capped. It's a Phase 8 candidate.
+- The presence dot slightly overlaps two-letter initials on small avatars. Cosmetic polish for Phase 8.
+- Attachments are listed in upload order, not in the order of `attachmentIds`.
+
+### Next step
+
+Phase 6: voice via LiveKit, plus the LAN test profile (`docs/plans/phase-6.md`).
+
 ## Phase 4 — Presence, typing, unread, reactions, mentions, notifications ✅ (2026-09-29)
 
 ### Built
@@ -160,7 +213,7 @@ Phase 4: presence, typing, unread, reactions, mentions, notifications (`docs/pla
 - Changing the compose network definition can leave already-running containers without their DNS alias (for example `postgres`). Recover with `docker compose down && docker compose up -d`; volumes are kept.
 - A locked git worktree from another Claude session exists at `.claude/worktrees/docs-local-testing`. It's now ignored by ESLint, Prettier and git; I didn't touch it.
 - The web bundle is about 510 kB (mostly zod). Code-splitting comes later.
-- Carried over from Phase 1: `UPLOAD_DIR` path resolution (Phase 5) and Caddy running as root (Phase 9).
+- Carried over from Phase 1: Caddy running as root (Phase 9). (`UPLOAD_DIR` resolution was fixed in Phase 5.)
 
 ### Next step
 

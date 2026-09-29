@@ -12,10 +12,12 @@ export const ErrorCode = z.enum([
   'USER_LIMIT',
   'LAST_ADMIN',
   'CHANNEL_LIMIT',
+  'UPLOAD_QUOTA',
   'PAYLOAD_TOO_LARGE',
   'UNSUPPORTED_MEDIA',
   'RATE_LIMITED',
   'LIVEKIT_UNAVAILABLE',
+  'STORAGE_FULL',
   'INTERNAL',
 ]);
 export type ErrorCode = z.infer<typeof ErrorCode>;
@@ -33,11 +35,13 @@ export const ERROR_STATUS: Record<ErrorCode, number> = {
   USERNAME_TAKEN: 409,
   LAST_ADMIN: 409,
   CHANNEL_LIMIT: 409,
+  UPLOAD_QUOTA: 409,
   PAYLOAD_TOO_LARGE: 413,
   UNSUPPORTED_MEDIA: 415,
   RATE_LIMITED: 429,
   INTERNAL: 500,
   LIVEKIT_UNAVAILABLE: 503,
+  STORAGE_FULL: 507,
 };
 
 /**

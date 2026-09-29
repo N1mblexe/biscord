@@ -2,10 +2,11 @@ import { and, asc, count, desc, eq, inArray, isNull, sql, type SQL } from 'drizz
 import type { ListMessagesQuery, Message, ReadState } from '@hearth/shared';
 import type { Db } from '../db/client.js';
 import { attachments, messages } from '../db/schema.js';
-import type { MessageRow, Queryable, UserRow } from '../db/types.js';
+import type { AttachmentRow, MessageRow, Queryable, UserRow } from '../db/types.js';
 import { AppError } from '../lib/errors.js';
-import { toMessage } from '../lib/serialize.js';
+import { toAttachment, toMessage } from '../lib/serialize.js';
 import { assertCanPost, loadChannelForUser, type ChannelAccess } from './access.js';
+import { attachmentOrder, attachmentsByMessage, storageKeysOfMessage } from './attachments.js';
 import { mentionsByMessage, resolveMentions, storeMentions } from './mentions.js';
 import { reactionsByMessage } from './reactions.js';
 import { advanceReadState, getReadState } from './reads.js';
@@ -46,15 +47,20 @@ export async function listMessages(
 }
 
 /**
- * Serializes message rows with their reactions and mentions: exactly one query each for the whole set,
- * whatever its size (no N+1), and none for an empty set.
+ * Serializes message rows with their attachments, reactions and mentions: exactly one query each for the
+ * whole set, whatever its size (no N+1), and none for an empty set.
  */
 export async function toMessages(db: Queryable, rows: readonly MessageRow[]): Promise<Message[]> {
   if (rows.length === 0) return [];
   const ids = rows.map((row) => row.id);
-  const [reactions, mentions] = await Promise.all([reactionsByMessage(db, ids), mentionsByMessage(db, ids)]);
+  const [attachments, reactions, mentions] = await Promise.all([
+    attachmentsByMessage(db, ids),
+    reactionsByMessage(db, ids),
+    mentionsByMessage(db, ids),
+  ]);
   return rows.map((row) =>
     toMessage(row, {
+      attachments: attachments.get(row.id) ?? [],
       reactions: reactions.get(row.id) ?? [],
       mentionUserIds: mentions.get(row.id) ?? [],
     }),
@@ -97,8 +103,9 @@ export function createMessage(db: Db, input: CreateMessageInput): Promise<Create
       .returning();
     if (row === undefined) throw new Error('message insert returned no row');
 
+    let claimed: AttachmentRow[] = [];
     if (input.attachmentIds.length > 0) {
-      const claimed = await tx
+      await tx
         .update(attachments)
         .set({ messageId: row.id })
         .where(
@@ -107,8 +114,13 @@ export function createMessage(db: Db, input: CreateMessageInput): Promise<Create
             eq(attachments.uploaderId, input.authorId),
             isNull(attachments.messageId),
           ),
-        )
-        .returning({ id: attachments.id });
+        );
+      // Re-read in display order (UPDATE ... RETURNING has none).
+      claimed = await tx
+        .select()
+        .from(attachments)
+        .where(eq(attachments.messageId, row.id))
+        .orderBy(...attachmentOrder);
       if (claimed.length !== input.attachmentIds.length) {
         throw new AppError('VALIDATION', 'Unknown attachment');
       }
@@ -119,7 +131,8 @@ export function createMessage(db: Db, input: CreateMessageInput): Promise<Create
     await advanceReadState(tx, input.authorId, channelId, String(row.id));
     const authorReadState = await getReadState(tx, input.authorId, channelId);
     // A new message has no reactions yet.
-    return { message: toMessage(row, { reactions: [], mentionUserIds }), authorReadState };
+    const message = toMessage(row, { attachments: claimed.map(toAttachment), reactions: [], mentionUserIds });
+    return { message, authorReadState };
   });
 }
 
@@ -182,13 +195,14 @@ export async function editMessage(
 
 /**
  * CONTRACTS B.4 row 23: the author, or an admin in a text/voice channel (never in a DM). 403 otherwise.
- * Returns the deleted message and its channel's access (for the broadcast).
+ * Returns the deleted message, its channel's access (for the broadcast) and the storage keys of its
+ * attachments, which the caller unlinks after the commit (B.7).
  */
 export async function deleteMessage(
   db: Db,
   user: Pick<UserRow, 'id' | 'role'>,
   id: string,
-): Promise<{ message: MessageRow; access: ChannelAccess }> {
+): Promise<{ message: MessageRow; access: ChannelAccess; storageKeys: string[] }> {
   const { message, access } = await loadMessageForUser(db, user, id);
   const isAuthor = message.authorId === user.id;
   const isChannelAdmin = user.role === 'admin' && access.channel.type !== 'dm';
@@ -196,13 +210,18 @@ export async function deleteMessage(
     throw new AppError('FORBIDDEN', 'You cannot delete this message');
   }
 
-  // TODO(phase 5): collect the attachment storage keys in this transaction and unlink them after the
-  // commit (B.7 "delete message"); the DB delete cascades to the attachment rows.
-  const deleted = await db.transaction(async (tx) =>
-    tx.delete(messages).where(eq(messages.id, message.id)).returning({ id: messages.id }),
-  );
-  if (deleted.length === 0) throw new AppError('NOT_FOUND', 'Message not found');
-  return { message, access };
+  // B.7 "delete message": collect the storage keys in the transaction; the delete cascades to the
+  // attachment rows. Attachments are only ever claimed by a new message, so the set can't grow meanwhile.
+  const storageKeys = await db.transaction(async (tx) => {
+    const keys = await storageKeysOfMessage(tx, message.id);
+    const deleted = await tx
+      .delete(messages)
+      .where(eq(messages.id, message.id))
+      .returning({ id: messages.id });
+    if (deleted.length === 0) throw new AppError('NOT_FOUND', 'Message not found');
+    return keys;
+  });
+  return { message, access, storageKeys };
 }
 
 /**

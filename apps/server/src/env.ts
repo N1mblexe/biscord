@@ -84,7 +84,13 @@ const EnvSchema = z
     MAX_USERS: int(25, 1, 1000),
 
     // --- Uploads ---
+    // A relative path resolves against the repo root, not the working directory (storage/paths.ts).
     UPLOAD_DIR: z.string().min(1).default('./data/uploads'),
+    // Upload GC period (unattached > 24 h, temp > 1 h, orphans); 0 disables it. At most one week.
+    UPLOAD_GC_INTERVAL_MINUTES: int(60, 0, 10_080),
+    // Uploads are refused with STORAGE_FULL when the UPLOAD_DIR filesystem has less free space than this
+    // (B.7a rule 8); 0 disables the check. At most 1 TiB.
+    UPLOAD_MIN_FREE_MB: int(2048, 0, 1_048_576),
 
     // --- LiveKit ---
     LIVEKIT_URL: z.url({ protocol: /^https?$/ }),

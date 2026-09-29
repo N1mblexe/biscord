@@ -11,6 +11,16 @@ const DEFAULT_MESSAGES: Partial<Record<ErrorCode, string>> = {
 
 const FALLBACK_MESSAGE = 'Something went wrong. Please try again.';
 
+/** CONTRACTS B.7a rule 8: the upload disk-fill guards. */
+export const UPLOAD_QUOTA_MESSAGE = 'Too many files waiting to be sent. Send or remove some first.';
+export const STORAGE_FULL_MESSAGE = 'The server is out of storage space. Tell an admin.';
+
+/** Fixed text shared by every upload's page alert (attachments and avatars). */
+export const UPLOAD_ERROR_MESSAGES: Partial<Record<ErrorCode, string>> = {
+  UPLOAD_QUOTA: UPLOAD_QUOTA_MESSAGE,
+  STORAGE_FULL: STORAGE_FULL_MESSAGE,
+};
+
 /**
  * Text for a form's `role="alert"`. `overrides` replaces the default text for a code where the
  * generic wording would mislead (e.g. INVALID_CREDENTIALS on the change-password form).

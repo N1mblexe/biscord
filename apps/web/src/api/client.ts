@@ -35,6 +35,23 @@ export class ApiError extends Error {
   }
 }
 
+/**
+ * The `ApiError` for a non-2xx response whose body parsed as `json` (`undefined` when it wasn't JSON).
+ * A 413 without an `ApiErrorBody` (the reverse proxy's own limit, CONTRACTS B.7a rule 7) is
+ * `PAYLOAD_TOO_LARGE`; any other body that isn't an `ApiErrorBody` is `INTERNAL`.
+ */
+export function errorFromResponse(status: number, json: unknown): ApiError {
+  const parsed = json === undefined ? undefined : ApiErrorBody.safeParse(json);
+  if (parsed?.success) {
+    const { code, message, details } = parsed.data.error;
+    return new ApiError(status, code, message, details);
+  }
+  if (status === 413) return new ApiError(status, 'PAYLOAD_TOO_LARGE', 'The file is too large.');
+  return new ApiError(status, 'INTERNAL', `The server returned an unexpected error (${status}).`);
+}
+
+export const NETWORK_ERROR_MESSAGE = 'Could not reach the server. Check your connection and try again.';
+
 function isAbort(err: unknown, signal: AbortSignal | undefined): boolean {
   return signal?.aborted === true || (err instanceof DOMException && err.name === 'AbortError');
 }
@@ -80,17 +97,12 @@ export async function apiFetch<T>(
     });
   } catch (err) {
     if (isAbort(err, signal)) throw err;
-    throw new ApiError(0, 'INTERNAL', 'Could not reach the server. Check your connection and try again.');
+    throw new ApiError(0, 'INTERNAL', NETWORK_ERROR_MESSAGE);
   }
 
   if (!res.ok) {
     const json = await readJson(res);
-    const parsed = json.ok ? ApiErrorBody.safeParse(json.value) : undefined;
-    if (parsed?.success) {
-      const { code, message, details } = parsed.data.error;
-      throw new ApiError(res.status, code, message, details);
-    }
-    throw new ApiError(res.status, 'INTERNAL', `The server returned an unexpected error (${res.status}).`);
+    throw errorFromResponse(res.status, json.ok ? json.value : undefined);
   }
 
   if (!schema) return undefined;

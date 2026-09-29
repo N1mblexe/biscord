@@ -6,7 +6,7 @@ import { bootstrapQuery, bootstrapQueryKey, openDm } from '../api/chat';
 import { errorMessage } from '../api/errors';
 import { upsertDm } from '../lib/bootstrapPatch';
 import { useIsOnline } from '../stores/presence';
-import { PresenceDot } from './PresenceDot';
+import { AvatarWithPresence } from './Avatar';
 import { secondaryButton } from './styles';
 
 /** Right column: every active user; **Message** opens (or creates) the DM and navigates to it. */
@@ -46,7 +46,12 @@ export function MembersPanel({ onError }: { onError: (message: string | null) =>
       </h2>
       <ul className="flex flex-col gap-0.5">
         {members.map((user) => (
-          <MemberItem key={user.id} userId={user.id} displayName={user.displayName}>
+          <MemberItem
+            key={user.id}
+            userId={user.id}
+            displayName={user.displayName}
+            avatarUrl={user.avatarUrl}
+          >
             {user.id !== boot.me.id && (
               <button
                 type="button"
@@ -66,14 +71,16 @@ export function MembersPanel({ onError }: { onError: (message: string | null) =>
   );
 }
 
-/** One `member-item`, with `data-online` and a status dot. */
+/** One `member-item`, with `data-online`, the avatar and a status dot. */
 function MemberItem({
   userId,
   displayName,
+  avatarUrl,
   children,
 }: {
   userId: string;
   displayName: string;
+  avatarUrl: string | null;
   children: ReactNode;
 }) {
   const online = useIsOnline(userId);
@@ -84,7 +91,13 @@ function MemberItem({
       className="flex items-center justify-between gap-2 rounded-md px-1 py-1 hover:bg-white/5"
     >
       <span className="flex min-w-0 items-center gap-2">
-        <PresenceDot online={online} />
+        <AvatarWithPresence
+          userId={userId}
+          name={displayName}
+          avatarUrl={avatarUrl}
+          size="sm"
+          online={online}
+        />
         <span className={`truncate text-sm ${online ? '' : 'text-muted'}`}>{displayName}</span>
       </span>
       {children}

@@ -1,4 +1,5 @@
 import { existsSync } from 'node:fs';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 // Load the repo-root .env (if present). Node's loadEnvFile never overrides variables that are
@@ -32,3 +33,6 @@ export const DATABASE_URL_E2E: string =
 export const LIVEKIT_HTTP_URL: string = (optional('LIVEKIT_URL') ?? 'http://localhost:7880')
   .replace(/^ws(s?):\/\//, 'http$1://')
   .replace(/\/+$/, '');
+
+/** `UPLOAD_DIR` of the dev-server-mode e2e server (emptied by the test reset, CONTRACTS B.7a). */
+export const UPLOAD_DIR_E2E: string = join(REPO_ROOT, 'data', 'uploads-e2e');

@@ -2,17 +2,21 @@ import {
   test as base,
   expect,
   type APIRequestContext,
+  type APIResponse,
   type BrowserContext,
   type Page,
   type WebSocketRoute,
 } from '@playwright/test';
 import type {
+  Attachment,
+  AttachmentResponse,
   Channel,
   ChannelResponse,
   ChannelType,
   DmChannel,
   DmChannelResponse,
   InviteResponse,
+  Me,
   Message,
   MessageResponse,
   TestResetResponse,
@@ -20,7 +24,9 @@ import type {
   TestSeedMessagesResponse,
   UserResponse,
 } from '@hearth/shared';
-import { isFullStack, TEST_TOKEN } from './env.js';
+import { readdir, readFile } from 'node:fs/promises';
+import { join, relative } from 'node:path';
+import { isFullStack, TEST_TOKEN, UPLOAD_DIR_E2E } from './env.js';
 
 /**
  * Shared Playwright fixtures. Specs import `test` / `expect` from here, never from '@playwright/test'.
@@ -56,15 +62,15 @@ interface RequestOptions {
   headers?: Record<string, string>;
 }
 
+async function parse<T>(res: APIResponse): Promise<ApiResult<T>> {
+  const text = await res.text();
+  // The caller picks T to match the documented response (CONTRACTS B.4); this is not validated.
+  const body = (text === '' ? null : JSON.parse(text)) as T;
+  return { status: res.status(), body };
+}
+
 /** Minimal JSON API client over any APIRequestContext (the `request` fixture, `page.request`, …). */
 export function api(request: APIRequestContext) {
-  async function parse<T>(res: Awaited<ReturnType<APIRequestContext['get']>>): Promise<ApiResult<T>> {
-    const text = await res.text();
-    // The caller picks T to match the documented response (CONTRACTS B.4); this is not validated.
-    const body = (text === '' ? null : JSON.parse(text)) as T;
-    return { status: res.status(), body };
-  }
-
   return {
     async get<T = unknown>(path: string, options: RequestOptions = {}): Promise<ApiResult<T>> {
       return parse<T>(await request.get(path, { headers: { ...CSRF_HEADERS, ...options.headers } }));
@@ -288,13 +294,18 @@ export async function seedMessages(
   return res.body;
 }
 
-/** Sends a message through the API as the request's user (row 21; 10 per 10 s per user). */
+/**
+ * Sends a message through the API as the request's user (row 21; 10 per 10 s per user), optionally
+ * claiming the caller's unattached uploads (`attachmentIds`, ≤ 10).
+ */
 export async function sendMessage(
   request: APIRequestContext,
   channelId: string,
   content: string,
+  attachmentIds?: readonly string[],
 ): Promise<Message> {
-  const res = await api(request).post<MessageResponse>(`/api/channels/${channelId}/messages`, { content });
+  const body = attachmentIds === undefined ? { content } : { content, attachmentIds };
+  const res = await api(request).post<MessageResponse>(`/api/channels/${channelId}/messages`, body);
   expect(res.status, `POST /api/channels/${channelId}/messages`).toBe(201);
   return res.body.message;
 }
@@ -502,4 +513,121 @@ export async function setHidden(page: Page, hidden: boolean): Promise<void> {
     return doc.visibilityState;
   }, hidden);
   expect(state).toBe(hidden ? 'hidden' : 'visible');
+}
+
+// ---- Phase 5 upload helpers (CONTRACTS B.4 rows 10, 11, 14, 27, 28, B.7a; docs/plans/phase-5.md) ----
+// No binary fixtures are committed: every file is generated here, in memory.
+
+/** An in-memory file: accepted by `setInputFiles` and as a Playwright `multipart` part. */
+export interface FilePayload {
+  name: string;
+  mimeType: string;
+  buffer: Buffer;
+}
+
+/** A valid 1×1 RGBA PNG (IHDR, IDAT, IEND with correct CRCs). */
+const TINY_PNG_BASE64 =
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+
+/** A valid 1×1 GIF89a (sniffed as image/gif: inline as an attachment, rejected as an avatar). */
+const TINY_GIF_BASE64 = 'R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
+
+/** A 1×1 PNG; renders with `naturalWidth` 1 and sniffs as `image/png`. */
+export function tinyPng(name = 'pixel.png'): FilePayload {
+  return { name, mimeType: 'image/png', buffer: Buffer.from(TINY_PNG_BASE64, 'base64') };
+}
+
+/** A 1×1 GIF; sniffs as `image/gif`. */
+export function tinyGif(name = 'pixel.gif'): FilePayload {
+  return { name, mimeType: 'image/gif', buffer: Buffer.from(TINY_GIF_BASE64, 'base64') };
+}
+
+/** A minimal one-object PDF; sniffs as `application/pdf` (served as an `attachment`). */
+export function tinyPdf(name = 'report.pdf'): FilePayload {
+  const pdf = [
+    '%PDF-1.4',
+    '1 0 obj',
+    '<< /Type /Catalog /Pages 2 0 R >>',
+    'endobj',
+    '2 0 obj',
+    '<< /Type /Pages /Kids [] /Count 0 >>',
+    'endobj',
+    'trailer',
+    '<< /Root 1 0 R >>',
+    '%%EOF',
+    '',
+  ].join('\n');
+  return { name, mimeType: 'application/pdf', buffer: Buffer.from(pdf, 'latin1') };
+}
+
+/** A UTF-8 text file with a client-declared type (the server ignores it and sniffs, B.7a). */
+export function textFile(name: string, content: string, mimeType = 'text/plain'): FilePayload {
+  return { name, mimeType, buffer: Buffer.from(content, 'utf8') };
+}
+
+/**
+ * `LIMITS.uploadMaxBytes` (25 MiB). Mirrored here because e2e may only `import type` from
+ * `@hearth/shared` (see e2e/tsconfig.json).
+ */
+export const UPLOAD_MAX_BYTES = 25 * 1024 * 1024;
+
+/** Exactly `UPLOAD_MAX_BYTES` of `0x61`, in memory: the largest upload the server accepts. */
+export function maxSizeFile(name = 'max.bin'): FilePayload {
+  return { name, mimeType: 'application/octet-stream', buffer: Buffer.alloc(UPLOAD_MAX_BYTES, 0x61) };
+}
+
+/** 26 MB of zeros: 1 MB over the 25 MB upload cap (LIMITS.uploadMaxBytes). Never written to disk. */
+export function oversizeFile(name = 'huge.bin'): FilePayload {
+  return { name, mimeType: 'application/octet-stream', buffer: Buffer.alloc(26 * 1024 * 1024) };
+}
+
+/**
+ * `POST /api/attachments` (row 27) with the single multipart part `file`, as the request's user.
+ * Returns the raw result so callers can assert errors (413, 429, …); see `uploadAttachmentOk`.
+ */
+export async function uploadAttachment<T = AttachmentResponse>(
+  request: APIRequestContext,
+  file: FilePayload,
+): Promise<ApiResult<T>> {
+  return parse<T>(await request.post('/api/attachments', { headers: CSRF_HEADERS, multipart: { file } }));
+}
+
+/** Uploads `file` (row 27), expects 201 and returns the (still unattached) attachment. */
+export async function uploadAttachmentOk(request: APIRequestContext, file: FilePayload): Promise<Attachment> {
+  const res = await uploadAttachment(request, file);
+  expect(res.status, `POST /api/attachments (${file.name})`).toBe(201);
+  return res.body.attachment;
+}
+
+/** `PUT /api/me/avatar` (row 10) with `file` as the request's user; expects 200 and returns `Me`. */
+export async function setAvatar(request: APIRequestContext, png: FilePayload): Promise<Me> {
+  const res = await parse<UserResponse>(
+    await request.put('/api/me/avatar', { headers: CSRF_HEADERS, multipart: { file: png } }),
+  );
+  expect(res.status, 'PUT /api/me/avatar').toBe(200);
+  return res.body.user;
+}
+
+/**
+ * Finds the stored copy of `content` under the e2e server's `UPLOAD_DIR` (attachments and avatars,
+ * not `tmp/`) and returns its path relative to `UPLOAD_DIR`, or `null`. Use content unique to the
+ * test; the test reset empties `UPLOAD_DIR`. Dev-server mode only.
+ */
+export async function findStoredFile(content: Buffer): Promise<string | null> {
+  let entries;
+  try {
+    entries = await readdir(UPLOAD_DIR_E2E, { recursive: true, withFileTypes: true });
+  } catch (error) {
+    if (error instanceof Error && 'code' in error && error.code === 'ENOENT') return null;
+    throw error;
+  }
+  for (const entry of entries) {
+    if (!entry.isFile()) continue;
+    const rel = relative(UPLOAD_DIR_E2E, join(entry.parentPath, entry.name));
+    if (rel.startsWith('tmp/')) continue;
+    // The file may be unlinked between readdir and readFile (post-commit unlink, GC).
+    const bytes = await readFile(join(UPLOAD_DIR_E2E, rel)).catch(() => null);
+    if (bytes !== null && bytes.equals(content)) return rel;
+  }
+  return null;
 }

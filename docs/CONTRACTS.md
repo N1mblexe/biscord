@@ -249,8 +249,8 @@ VoiceParticipant = { userId, joinedAt, selfMute, selfDeaf, camera, screen }
 
 ```ts
 ErrorCode = z.enum(['VALIDATION','UNAUTHENTICATED','INVALID_CREDENTIALS','FORBIDDEN','NOT_FOUND','CONFLICT',
-  'USERNAME_TAKEN','INVITE_INVALID','USER_LIMIT','LAST_ADMIN','CHANNEL_LIMIT','PAYLOAD_TOO_LARGE',
-  'UNSUPPORTED_MEDIA','RATE_LIMITED','LIVEKIT_UNAVAILABLE','INTERNAL']);
+  'USERNAME_TAKEN','INVITE_INVALID','USER_LIMIT','LAST_ADMIN','CHANNEL_LIMIT','UPLOAD_QUOTA','PAYLOAD_TOO_LARGE',
+  'UNSUPPORTED_MEDIA','RATE_LIMITED','LIVEKIT_UNAVAILABLE','STORAGE_FULL','INTERNAL']);
 ApiErrorBody = { error: { code: ErrorCode, message: string, details?: unknown } }
 // details: VALIDATION → zod flattened issues; RATE_LIMITED → { retryAfterMs }
 Ack<T> = { ok: true, data: T } | { ok: false, error: ApiErrorBody['error'] }   // every socket client→server ack
@@ -262,11 +262,12 @@ HTTP status per code:
 - **401:** UNAUTHENTICATED, INVALID_CREDENTIALS
 - **403:** FORBIDDEN, USER_LIMIT
 - **404:** NOT_FOUND
-- **409:** CONFLICT, USERNAME_TAKEN, LAST_ADMIN, CHANNEL_LIMIT
+- **409:** CONFLICT, USERNAME_TAKEN, LAST_ADMIN, CHANNEL_LIMIT, UPLOAD_QUOTA
 - **413:** PAYLOAD_TOO_LARGE
 - **415:** UNSUPPORTED_MEDIA
 - **429:** RATE_LIMITED
 - **500:** INTERNAL (no internals leaked)
+- **507:** STORAGE_FULL
 - **503:** LIVEKIT_UNAVAILABLE
 
 A socket handshake failure is a `connect_error` with `err.data = { code }`: `UNAUTHENTICATED` (missing, invalid or expired session), `FORBIDDEN` (`Origin` not in `APP_ORIGIN`) or `INTERNAL` (server error during the handshake).
@@ -450,19 +451,25 @@ Reconnect protocol: on every `connect`, the client refetches `GET /bootstrap`, p
 4. **Row 28:**
    - Anonymous → 401. No access, or someone else's unattached upload → **404 `NOT_FOUND`**, not 403, so existence isn't revealed. The `:filename` segment is cosmetic and ignored for lookup.
    - Response headers:
-     - `Content-Type` = the stored `mimeType`
+     - `Content-Type` = the stored `mimeType` **only** for the `INLINE_IMAGE_MIME_TYPES` allowlist; every other file is served as `application/octet-stream`, whatever was sniffed (for example `application/xml` for an SVG with an `<?xml` prolog, or `application/pdf`). The `Attachment.mimeType` in the API still carries the sniffed value.
      - `X-Content-Type-Options: nosniff`
      - `Content-Security-Policy: default-src 'none'; sandbox`
      - `Cache-Control: private, max-age=31536000, immutable`
      - `Content-Disposition`: `inline` only for the `INLINE_IMAGE_MIME_TYPES` allowlist, otherwise `attachment`, always with `filename="<ascii fallback>"; filename*=UTF-8''<percent-encoded>` (RFC 5987/6266).
-   - SVG and HTML are never sniffed as images (file-type doesn't detect text formats), so they're always served as `application/octet-stream` downloads.
+   - SVG and HTML are never served inline: file-type may detect nothing (→ `application/octet-stream`) or `application/xml`, and either way the response is `application/octet-stream` with `attachment` disposition.
 5. **Rows 10, 11, 14:**
    - The sniffed type must be in `AVATAR_MIME_TYPES`, otherwise `415 UNSUPPORTED_MEDIA`. Over 2 MB → `413`.
    - `avatarUrl` = `/api/avatars/<userId>?v=<first 8 chars of the storage uuid>`, or `null`.
    - A replaced or deleted avatar file is unlinked after commit.
    - Deactivated users' avatars are still served, so old messages render.
 6. **New env `UPLOAD_GC_INTERVAL_MINUTES`** (default `60`, `0` disables) in B.8 and `.env.example`.
-7. **Web error mapping:** an HTTP 413 whose body isn't an `ApiErrorBody` (Caddy's own 413 when a body exceeds `max_size 26MB`) is mapped to `PAYLOAD_TOO_LARGE`.
+7. **Web error mapping:** an HTTP 413 whose body isn't an `ApiErrorBody` (Caddy's own 413 when a body exceeds `max_size 26MiB`; Caddy reads `MB` as 10⁶ bytes, so the cap is written in MiB to stay above the server's 25 MiB limit plus multipart framing) is mapped to `PAYLOAD_TOO_LARGE`.
+
+8. **Disk-fill guards (row 27, and row 10 for the free-space check):**
+   - Before streaming, the server refuses an upload when the user already has ≥ `LIMITS.unattachedUploadsMaxFiles` (30) unattached uploads or ≥ `LIMITS.unattachedUploadsMaxBytes` (250 MiB) of them → `409 UPLOAD_QUOTA`. Attaching them to a message (or the 24 h GC) frees the quota.
+   - It also refuses any upload (attachments and avatars) when the free space on the `UPLOAD_DIR` filesystem is below `UPLOAD_MIN_FREE_MB` (default 2048) → `507 STORAGE_FULL`.
+   - Avatar PUT and DELETE each have the upload rate limit (20/min/user, a separate counter per route).
+   - The web maps `UPLOAD_QUOTA` → "Too many files waiting to be sent. Send or remove some first." and `STORAGE_FULL` → "The server is out of storage space. Tell an admin."
 
 ### B.8 Runtime topology (ports, URLs, env)
 
@@ -478,7 +485,7 @@ Reconnect protocol: on every `connect`, the client refetches `GET /bootstrap`, p
 - **Caddy in the local full stack:**
   - `:8080` serves `/srv` (the web build) with SPA fallback.
   - `/api/*` and `/socket.io/*` are proxied to `server:3000`.
-  - Request bodies are capped at 26 MB.
+  - Request bodies are capped at 26 MiB.
 - **LiveKit in dev/e2e/full stack:**
   - One container, `rtc.node_ip: 127.0.0.1`, single UDP port 7882 (mux), TCP fallback 7881.
   - Keys come from the `LIVEKIT_KEYS` env var.
@@ -488,7 +495,7 @@ Reconnect protocol: on every `connect`, the client refetches `GET /bootstrap`, p
   - App: `NODE_ENV, PORT=3000, APP_ORIGIN=http://localhost:5173, LOG_LEVEL=info, TRUST_PROXY=false` (`false`/empty = trust no proxy; otherwise a comma-separated list of proxy IPs/CIDRs whose `X-Forwarded-For` is trusted — the full stack sets Caddy's fixed IP `172.28.0.10`, so rate limits key on the real client IP and direct hits on :3000 cannot forge it)
   - Database: `POSTGRES_USER=hearth, POSTGRES_PASSWORD=hearth, POSTGRES_DB=hearth, DATABASE_URL=postgres://hearth:hearth@localhost:5432/hearth, DATABASE_URL_UNIT=…/hearth_unit, DATABASE_URL_E2E=…/hearth_e2e, MIGRATE_ON_START=false`
   - Accounts: `COOKIE_SECURE=false, SESSION_TTL_DAYS=30, MAX_USERS=25`
-  - Uploads: `UPLOAD_DIR=./data/uploads` (a relative path resolves against the repo root), `UPLOAD_GC_INTERVAL_MINUTES=60` (`0` disables the upload GC)
+  - Uploads: `UPLOAD_DIR=./data/uploads` (a relative path resolves against the repo root), `UPLOAD_GC_INTERVAL_MINUTES=60` (`0` disables the upload GC), `UPLOAD_MIN_FREE_MB=2048` (uploads refused with `STORAGE_FULL` below this much free space)
   - LiveKit: `LIVEKIT_URL=http://localhost:7880, LIVEKIT_PUBLIC_URL=ws://localhost:7880, LIVEKIT_API_KEY=devkey, LIVEKIT_API_SECRET=<≥32 chars>, LIVEKIT_KEYS="devkey: <same secret>"`
   - Testing: `HEARTH_TEST_MODE=false, HEARTH_TEST_TOKEN=`
   - Production: `HEARTH_DOMAIN=` (P9)

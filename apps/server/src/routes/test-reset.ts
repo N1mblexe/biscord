@@ -20,7 +20,7 @@ export const TEST_TOKEN_HEADER = 'x-test-token';
  */
 export function registerTestResetRoutes(
   app: FastifyInstance,
-  { db, env, realtime, rateLimiter, typing }: RouteDeps,
+  { db, env, realtime, rateLimiter, typing, storage }: RouteDeps,
 ): void {
   const expected = env.HEARTH_TEST_TOKEN;
 
@@ -33,12 +33,14 @@ export function registerTestResetRoutes(
 
   /**
    * Truncates every table, drops every socket, clears in-memory state (every rate-limit counter: auth
-   * routes per IP and message sends per user; presence and its pending offline timers; the typing throttle and per-user buckets)
-   * and returns a fresh single-use admin invite valid for 24 h.
+   * routes per IP and message sends per user; presence and its pending offline timers; the typing throttle and per-user buckets),
+   * empties this server's UPLOAD_DIR (only the tmp/, avatars/ and yyyy/ trees it creates) and returns a
+   * fresh single-use admin invite valid for 24 h.
    */
   app.post('/api/__test__/reset', async (request, reply) => {
     assertTestToken(request);
     await truncateAppTables(db);
+    await storage.clear();
     realtime.disconnectAll();
     // After the disconnects, which started offline grace timers that must not fire into the next test.
     realtime.resetPresence();
