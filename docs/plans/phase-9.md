@@ -1,6 +1,6 @@
 # Phase 9 plan — Production deployment (Oracle Cloud)
 
-Status: **approved 2026-09-29**. Hostnames with DuckDNS: the app on `{$HEARTH_DOMAIN}` (for example `myhearth.duckdns.org`) and LiveKit on `lk.{$HEARTH_DOMAIN}`; DuckDNS resolves every name under your DuckDNS name to the same IP, so one registration covers both. Reserve the VM's public IP in Oracle so it never changes. The open questions below are answered by the decisions above; VM shape: 2 OCPUs / 12 GB.. Source: PLAN.md §5 Phase 9, §6 and §7; CONTRACTS.md B.8; CLAUDE.md gotchas (HTTPS for media; LiveKit ports; OCI's two firewall layers).
+Status: **artifacts done 2026-09-30, VM deploy pending** (the real-VM acceptance needs the user; see PROGRESS.md → Phase 9 → Pending). Plan approved 2026-09-29. Hostnames with DuckDNS: the app on `{$HEARTH_DOMAIN}` (for example `myhearth.duckdns.org`) and LiveKit on `lk.{$HEARTH_DOMAIN}`; DuckDNS resolves every name under your DuckDNS name to the same IP, so one registration covers both. Reserve the VM's public IP in Oracle so it never changes. The open questions below are answered by the decisions above; VM shape: 2 OCPUs / 12 GB. Source: PLAN.md §5 Phase 9, §6 and §7; CONTRACTS.md B.8; CLAUDE.md gotchas (HTTPS for media; LiveKit ports; OCI's two firewall layers).
 Starts only after Phase 8 is committed.
 
 ## Decisions from the user (2026-09-29)

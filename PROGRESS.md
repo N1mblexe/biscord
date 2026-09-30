@@ -2,6 +2,22 @@
 
 Updated at the end of every phase (see CLAUDE.md → Workflow).
 
+## Status at a glance (2026-09-30)
+
+- **Done:** Phases 1–8 (the whole v1 feature set: accounts, text channels, DMs, presence, reactions, mentions,
+  notifications, uploads, avatars, voice, camera, screen share, admin tools and hardening), each with its
+  acceptance tests run for real. Then a whole-app bug hunt, with its fixes merged (CONTRACTS.md B.9).
+- **Phase 9 (production):** all the artifacts are done and were dry-run locally (prod compose, Caddy, LiveKit
+  config, backup/restore/deploy/status scripts, `docs/DEPLOY.md`). The real VM deploy hasn't happened yet.
+- **In progress:** the polish pass (`docs/plans/polish.md`): mobile layout, chat UX, visual system and
+  accessibility, docs (README).
+- **Pending, needs you:**
+  1. **Oracle VM deploy:** create the VM and the DuckDNS name, then follow `docs/DEPLOY.md` → Production on Oracle
+     Cloud. Acceptance is listed under Phase 9 → Pending below (valid HTTPS, voice/camera/screen share between two
+     networks with one on mobile data, LiveKit's connection test, the restore drill, surviving a reboot).
+  2. **LAN phone test:** join voice from a real phone or laptop on the same Wi-Fi (`pnpm lan:up`, then
+     `docs/DEPLOY.md` → LAN testing). Only fake-media browsers have been tested so far.
+
 ## Phase 9 — Production deployment (Oracle Cloud + DuckDNS) 🟡 artifacts done, VM deploy pending (2026-09-30)
 
 ### Built

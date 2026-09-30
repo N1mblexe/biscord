@@ -1,6 +1,6 @@
 # Phase 3 plan — Text channels, DMs, messaging
 
-Status: **approved 2026-09-28**. Source: PLAN.md §5 Phase 3 and CONTRACTS.md B.4/B.5/B.7.
+Status: **done 2026-09-29** (see PROGRESS.md; plan approved 2026-09-28). Source: PLAN.md §5 Phase 3 and CONTRACTS.md B.4/B.5/B.7.
 Starts only after Phase 2 is committed.
 
 ## Goal

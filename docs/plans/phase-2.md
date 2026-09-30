@@ -1,6 +1,6 @@
 # Phase 2 plan — Accounts & auth
 
-Status: **approved 2026-09-28**. Source: PLAN.md §5 Phase 2 and CONTRACTS.md B.4/B.5/B.7.
+Status: **done 2026-09-28** (see PROGRESS.md; plan approved 2026-09-28). Source: PLAN.md §5 Phase 2 and CONTRACTS.md B.4/B.5/B.7.
 
 ## Goal
 

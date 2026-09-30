@@ -1,6 +1,6 @@
 # Phase 7 plan — Camera & screen share
 
-Status: **approved 2026-09-29**. Spike result: headless Chromium with the CLAUDE.md flags resolves `getDisplayMedia` and a second page receives screen share (960×540 fake capture) and camera (320×180) through the real LiveKit container → **plain headless, no xvfb, no canvas fallback**.. Source: PLAN.md §3.9 and §5 Phase 7, CONTRACTS.md B.5 `voice:state` (`camera`, `screen`), B.6 (grants and publish presets).
+Status: **done 2026-09-29** (see PROGRESS.md; plan approved 2026-09-29). Spike result: headless Chromium with the CLAUDE.md flags resolves `getDisplayMedia` and a second page receives screen share (960×540 fake capture) and camera (320×180) through the real LiveKit container → **plain headless, no xvfb, no canvas fallback**. Source: PLAN.md §3.9 and §5 Phase 7, CONTRACTS.md B.5 `voice:state` (`camera`, `screen`), B.6 (grants and publish presets).
 Starts only after Phase 6 is committed.
 
 ## Goal

@@ -1,6 +1,6 @@
 # Phase 4 plan — Presence, typing, unread, reactions, mentions, notifications
 
-Status: **approved 2026-09-29**. Source: PLAN.md §3.3–3.6 and §5 Phase 4, CONTRACTS.md B.1, B.4 rows 12 and 24–26, B.5.
+Status: **done 2026-09-29** (see PROGRESS.md; plan approved 2026-09-29). Source: PLAN.md §3.3–3.6 and §5 Phase 4, CONTRACTS.md B.1, B.4 rows 12 and 24–26, B.5.
 Starts only after Phase 3 is committed.
 
 ## Goal
