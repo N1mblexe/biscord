@@ -6,10 +6,7 @@ import { errorMessage, fieldErrors, formAlertMessage } from '../api/errors';
 import { FormAlert, FormSuccess, formString, PageAlert, TextField } from '../components/forms';
 import { card, dangerButton, primaryButton } from '../components/styles';
 import { usePageAlert } from '../components/usePageAlert';
-
-function formatDate(iso: string): string {
-  return new Date(iso).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
-}
+import { formatDateTime } from '../i18n';
 
 function inviteLink(code: string): string {
   return `${window.location.origin}/register?invite=${encodeURIComponent(code)}`;
@@ -192,7 +189,7 @@ function InviteRow({ invite, asOf, revoking, onRevoke }: InviteRowProps) {
       </td>
       <td className="py-2 pr-4 max-md:p-0 max-md:text-xs">
         <span className="text-muted md:hidden">Expires </span>
-        <time dateTime={invite.expiresAt}>{formatDate(invite.expiresAt)}</time>
+        <time dateTime={invite.expiresAt}>{formatDateTime(invite.expiresAt)}</time>
         {expired && <span className="ml-2 text-xs text-muted">(expired)</span>}
       </td>
       <td className="py-2 max-md:w-full max-md:p-0">

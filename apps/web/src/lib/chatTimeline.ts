@@ -6,6 +6,8 @@
  *   list is by the same author, on the same day, and at most `GROUP_WINDOW_MS` older.
  */
 
+import { dayLabel } from '../i18n/format';
+
 /** Consecutive messages by one author this close together share one header. */
 export const GROUP_WINDOW_MS = 5 * 60_000;
 
@@ -26,19 +28,8 @@ function localDayKey(date: Date): string {
   return `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`;
 }
 
-/** "Today", "Yesterday" or the full local date, relative to `now`. */
-export function dayLabel(date: Date, now: Date = new Date()): string {
-  const key = localDayKey(date);
-  if (key === localDayKey(now)) return 'Today';
-  const yesterday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
-  if (key === localDayKey(yesterday)) return 'Yesterday';
-  return date.toLocaleDateString(undefined, {
-    weekday: 'long',
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric',
-  });
-}
+/** "Today", "Yesterday" or the full local date, relative to `now`, in the UI language. */
+export { dayLabel };
 
 /** Separator and grouping for each item of a history in display (ascending) order. */
 export function timelineMeta(items: readonly TimelineInput[], now: Date = new Date()): TimelineMeta[] {

@@ -28,6 +28,7 @@ import {
   type AdminUserAction,
   type UsersChange,
 } from '../lib/adminUsers';
+import { formatDateTime } from '../i18n';
 import { upsertUser } from '../lib/bootstrapPatch';
 import { useIsOnline } from '../stores/presence';
 
@@ -40,10 +41,6 @@ const dangerSolidButton =
 
 interface IssuedCode extends ResetCodeResponse {
   username: string;
-}
-
-function formatDateTime(iso: string): string {
-  return new Date(iso).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
 }
 
 /**

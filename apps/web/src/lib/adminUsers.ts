@@ -1,5 +1,6 @@
 import type { ErrorCode, PublicUser } from '@hearth/shared';
 import { errorMessage } from '../api/errors';
+import { compare } from '../i18n/format';
 
 /**
  * `/admin/users` (docs/plans/phase-8.md, "Web UI contract"): which actions a row offers, their
@@ -57,9 +58,9 @@ export function userActions(user: Pick<PublicUser, 'role' | 'deactivated'>): Adm
   return [user.role === 'admin' ? 'removeAdmin' : 'makeAdmin', 'resetCode', 'deactivate'];
 }
 
-/** Table order: by username (stable, so rows don't jump when a status changes). */
+/** Table order: by username in the UI language's collation (stable, so rows don't jump when a status changes). */
 export function sortUsers(users: readonly PublicUser[]): PublicUser[] {
-  return users.toSorted((a, b) => a.username.localeCompare(b.username));
+  return users.toSorted((a, b) => compare(a.username, b.username));
 }
 
 export type UsersChange =

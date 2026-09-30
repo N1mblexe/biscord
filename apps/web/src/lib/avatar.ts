@@ -1,5 +1,6 @@
 import { AVATAR_MIME_TYPES, LIMITS } from '@hearth/shared';
 import { errorMessage, UPLOAD_ERROR_MESSAGES } from '../api/errors';
+import { upper } from '../i18n/format';
 
 /**
  * Up to two initials for an avatar without an image: the first letters of the first two words of
@@ -14,7 +15,7 @@ export function initials(name: string): string {
     .slice(0, 2)
     .map((w) => Array.from(w)[0] ?? '')
     .join('');
-  return letters.length > 0 ? letters.toLocaleUpperCase() : '?';
+  return letters.length > 0 ? upper(letters) : '?';
 }
 
 /** Background colors for initials avatars (dark text on each stays readable). */

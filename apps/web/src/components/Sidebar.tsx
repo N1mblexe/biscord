@@ -5,6 +5,7 @@ import { NavLink } from 'react-router';
 import { meQuery } from '../api/auth';
 import { bootstrapQuery } from '../api/chat';
 import { errorMessage } from '../api/errors';
+import { compare, useLocale } from '../i18n';
 import { displayUser } from '../lib/bootstrapPatch';
 import { NO_DMS_COPY } from '../lib/emptyStates';
 import { useDrawerStore } from '../stores/drawers';
@@ -110,11 +111,12 @@ function Empty({ children }: { children: ReactNode }) {
 }
 
 function SidebarLists({ boot }: { boot: BootstrapResponse }) {
+  const [locale] = useLocale();
   const text = boot.channels.filter((c) => c.type === 'text');
   const voice = boot.channels.filter((c) => c.type === 'voice');
   const dms = boot.dms
     .map((dm) => ({ dm, ...displayUser(boot.users.find((u) => u.id === dm.otherUserId)) }))
-    .toSorted((a, b) => a.name.localeCompare(b.name));
+    .toSorted((a, b) => compare(a.name, b.name, locale));
 
   return (
     <>
