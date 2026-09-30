@@ -29,3 +29,9 @@ export function isUniqueViolation(err: unknown, constraint?: string): boolean {
   const { code, constraint: actual } = pgError(err);
   return code === '23505' && (constraint === undefined || actual === constraint);
 }
+
+/** True for a Postgres foreign-key violation (23503) on one of `constraints`. */
+export function isForeignKeyViolation(err: unknown, constraints: readonly string[]): boolean {
+  const { code, constraint } = pgError(err);
+  return code === '23503' && typeof constraint === 'string' && constraints.includes(constraint);
+}

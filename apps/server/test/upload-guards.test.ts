@@ -206,6 +206,20 @@ describe('unattached upload quota (409 UPLOAD_QUOTA, B.7a rule 8)', () => {
     expect((await uploadAs('alice')).statusCode).toBe(201);
   });
 
+  it('is atomic under concurrency (B.9 rule 7): 10 parallel uploads at one free slot → exactly one 201', async () => {
+    await seedUnattached(Array.from({ length: LIMITS.unattachedUploadsMaxFiles - 1 }, () => 10));
+    const responses = await Promise.all(
+      Array.from({ length: 10 }, (_, i) => uploadAs('alice', filePart(`race-${i}.txt`, `race ${i}`))),
+    );
+    const statuses = responses.map((res) => res.statusCode);
+    expect(statuses.filter((s) => s === 201)).toHaveLength(1);
+    for (const res of responses.filter((r) => r.statusCode !== 201)) expectError(res, 409, 'UPLOAD_QUOTA');
+    expect(await rowCount()).toBe(LIMITS.unattachedUploadsMaxFiles);
+    // The losers' stored files were removed: only the winner's file is on disk, nothing left in tmp/.
+    expect(await storedFiles()).toHaveLength(1);
+    expect(await tmpFiles()).toEqual([]);
+  });
+
   it('the refusal is sent while the request body is still incomplete (checked before streaming)', async () => {
     await seedUnattached(Array.from({ length: LIMITS.unattachedUploadsMaxFiles }, () => 10));
     const res = await respondsBeforeBody(await listen(app), 'POST', '/api/attachments');

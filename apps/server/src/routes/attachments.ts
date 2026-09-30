@@ -1,12 +1,17 @@
 import type { FileHandle } from 'node:fs/promises';
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
-import { AttachmentParams, AttachmentResponse, LIMITS } from '@hearth/shared';
+import { AttachmentParams, AttachmentResponse, IdParams, LIMITS } from '@hearth/shared';
 import { AppError } from '../lib/errors.js';
 import { send } from '../lib/respond.js';
 import { isInlineImage, toAttachment } from '../lib/serialize.js';
 import { parse } from '../lib/validate.js';
 import { authOf } from '../plugins/auth.js';
-import { ensureUploadQuota, insertAttachment, loadAttachmentForUser } from '../services/attachments.js';
+import {
+  deleteUnattached,
+  ensureUploadQuota,
+  insertAttachmentWithinQuota,
+  loadAttachmentForUser,
+} from '../services/attachments.js';
 import { contentDisposition } from '../storage/filenames.js';
 import {
   ensureFreeSpace,
@@ -68,7 +73,7 @@ export function sendFileBody(
 }
 
 /**
- * CONTRACTS B.4 rows 27–28 and B.7a rules 2–4. Registered in the multipart-enabled context (see `app.ts`).
+ * CONTRACTS B.4 rows 27–28b and B.7a rules 2–4. Registered in the multipart-enabled context (see `app.ts`).
  */
 export function registerAttachmentRoutes(
   app: FastifyInstance,
@@ -79,25 +84,39 @@ export function registerAttachmentRoutes(
     { preHandler: guards.requireUser, config: rateLimiter.upload },
     async (request, reply) => {
       const { user } = authOf(request);
-      // B.7a rule 8: refuse before a single byte of the body is read or stored.
+      // B.7a rule 8: refuse before a single byte of the body is read or stored. Only a fast path: the
+      // insert re-checks under the user's quota lock (B.9 rule 7).
       await ensureUploadQuota(db, user.id);
       await ensureFreeSpace(storage, env.UPLOAD_MIN_FREE_MB);
       const file = await receiveUpload(request, storage, {
         maxBytes: LIMITS.uploadMaxBytes,
         finalKey: () => newAttachmentKey(),
       });
-      const row = await insertAttachment(db, {
+      const row = await insertAttachmentWithinQuota(db, {
         uploaderId: user.id,
         storageKey: file.key,
         filename: file.filename,
         mimeType: file.mimeType,
         sizeBytes: file.sizeBytes,
       }).catch(async (err: unknown) => {
-        // No row, no file.
+        // No row (a concurrent upload took the last quota slot, or the insert failed), no file.
         await storage.removeKeys([file.key]);
         throw err;
       });
       return send(reply, AttachmentResponse, { attachment: toAttachment(row) }, 201);
+    },
+  );
+
+  // Row 28b: the composer drops an upload the user removed or never sent (B.9 rule 7). Same per-user rate
+  // limit as uploads (its own counter). The file is unlinked after the commit.
+  app.delete(
+    '/api/attachments/:id',
+    { preHandler: guards.requireUser, config: rateLimiter.upload },
+    async (request, reply) => {
+      const { id } = parse(IdParams, request.params);
+      const key = await deleteUnattached(db, authOf(request).user.id, id);
+      await storage.removeKeys([key]);
+      return reply.status(204).send();
     },
   );
 

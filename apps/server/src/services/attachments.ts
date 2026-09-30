@@ -1,5 +1,6 @@
 import { and, asc, count, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { LIMITS, type Attachment } from '@hearth/shared';
+import type { Db } from '../db/client.js';
 import { attachments, messages } from '../db/schema.js';
 import type { AttachmentRow, Queryable, UserRow } from '../db/types.js';
 import { AppError } from '../lib/errors.js';
@@ -49,6 +50,42 @@ export async function ensureUploadQuota(db: Queryable, uploaderId: string): Prom
   if (usage.files >= LIMITS.unattachedUploadsMaxFiles || usage.bytes >= LIMITS.unattachedUploadsMaxBytes) {
     throw new AppError('UPLOAD_QUOTA', 'Too many files waiting to be sent. Send or remove some first.');
   }
+}
+
+/**
+ * First key of the two-key `pg_advisory_xact_lock(UPLOAD_QUOTA_LOCK_KEY, hashtext(userId))` that serializes
+ * one user's quota check + insert (B.9 rule 7). ASCII "HUPQ". Two-key locks live apart from the one-key
+ * locks (users, channels, upload GC), so they can't collide with them.
+ */
+export const UPLOAD_QUOTA_LOCK_KEY = 0x48555051;
+
+/**
+ * Row 27 after the file is stored: under the uploader's quota lock, re-checks the quota (the check before
+ * streaming is only a fast path: concurrent uploads all pass it) and inserts the row. 409 UPLOAD_QUOTA if a
+ * concurrent upload took the last slot; the caller then removes the stored file.
+ */
+export function insertAttachmentWithinQuota(db: Db, input: NewAttachment): Promise<AttachmentRow> {
+  return db.transaction(async (tx) => {
+    await tx.execute(
+      sql`select pg_advisory_xact_lock(${UPLOAD_QUOTA_LOCK_KEY}, hashtext(${input.uploaderId}))`,
+    );
+    await ensureUploadQuota(tx, input.uploaderId);
+    return insertAttachment(tx, input);
+  });
+}
+
+/**
+ * CONTRACTS B.4 row 28b: deletes `id` if it is an unattached upload of `uploaderId` (one conditional
+ * DELETE, so it can't race a send claiming it) and returns its storage key, for the caller to unlink after
+ * the commit. Unknown, someone else's, or already attached → 404 NOT_FOUND.
+ */
+export async function deleteUnattached(db: Queryable, uploaderId: string, id: string): Promise<string> {
+  const [row] = await db
+    .delete(attachments)
+    .where(and(eq(attachments.id, id), eq(attachments.uploaderId, uploaderId), isNull(attachments.messageId)))
+    .returning({ key: attachments.storageKey });
+  if (row === undefined) throw notFound();
+  return row.key;
 }
 
 /** Stable display order within a message: upload time, then id. */
