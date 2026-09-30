@@ -2,6 +2,67 @@
 
 Updated at the end of every phase (see CLAUDE.md → Workflow).
 
+## Bug hunt + fix round ✅ (2026-09-30)
+
+### How it ran
+
+- **Four adversarial hunters,** each with its own Postgres container, writing repro tests: auth/admin, chat/uploads, realtime/voice, web UI.
+- **A runtime tester:** full regression plus stress and chaos tests against the Docker stack.
+- **Four fix-up agents** in isolated git worktrees, each fixing its area with a regression test that fails before the fix. The branches were merged into `main`.
+- **Binding rules** recorded in CONTRACTS.md B.9, plus row 28b.
+
+### Fixed (every item has a failing-before regression test)
+
+- **Auth and security:**
+  - Login, change-password and reset races: the user row is locked and the password hash and active state re-checked, so a deactivation or reset mid-login leaves no usable session.
+  - CSRF could be bypassed with a percent-encoded path (`/%61pi/...`); the check now uses the matched route.
+  - A NUL byte gave 500s; it's now rejected in every shared schema.
+  - Reset codes: a deadlock, several valid at once, and codes surviving a password change.
+  - `APP_ORIGIN` normalization, Crockford code normalization, and redaction of encoded invite paths.
+  - Newer emoji could break channel loading in older browsers; response parsing now tolerates them.
+- **Chat and uploads:**
+  - A deleted or edited unread mention left a stuck badge; affected users now get a fresh `readstate:updated`.
+  - New `DELETE /api/attachments/:id`; the client removes abandoned uploads.
+  - Sending while a channel is deleted gave a 500; it's now 404.
+  - The upload quota could be overshot by concurrent uploads; it's now enforced under a per-user lock.
+- **Realtime and voice:**
+  - Switching channels kept the old room's camera and mic live; the old room is now stopped immediately, and the token fetch has a 10 s timeout.
+  - A stale bootstrap response could bring back deleted channels or participants.
+  - The reconcile could kick a live rejoin.
+  - A same-channel LiveKit reconnect wiped mute/deafen and made the participant flicker. A 5 s rejoin grace now applies; a normal leave is still immediate.
+  - A `voice:state` rate limit is now retried, deleting the channel you're in makes you leave voice, deactivation racing a join webhook is handled, webhook dedupe only records successes, and the admin voice disconnect re-checks the admin.
+- **Web UI:**
+  - The specific revoked-session reason is no longer overwritten by "unauthenticated", and logout shows its notice.
+  - The hidden message toolbar was clickable; touch screens now get a "⋯" menu.
+  - The composer grows with the text and counts length in code points.
+  - Friendly validation messages.
+  - Focus returns after editing a message.
+  - Markdown image alt text and task checkboxes are kept.
+  - A file dropped outside the channel view is ignored.
+
+### Tested (run for real on 2026-09-30)
+
+- `pnpm typecheck` / `lint` / `format:check` ✅ · `pnpm test` ✅: 855 (shared 73, web 333, server 449).
+- `pnpm test:e2e --repeat-each=3` on the merged `main`: 138 passed and 0 flaky. The 3 failures were one stale spec (`video.spec` 4b expected a page alert that is now an inline field error). The spec is updated and passes 3/3.
+- Full stack: `@smoke` 9/9. Checked by hand:
+  - an encoded-path CSRF request gets 403;
+  - a NUL in the login gets 401;
+  - `DELETE /api/attachments/:id` returns 204, then 404 on a repeat;
+  - 0 server errors.
+- **Stress** (8 users, full stack):
+  - 3344 message deliveries with 0 lost, duplicated or out of order; latency p50 13 ms and p95 66 ms (cold), 10/12 ms warm.
+  - A reconnect storm of 168 reconnects lost nothing.
+  - 25 concurrent uploads succeeded or failed cleanly.
+  - 6 people in voice for 2 min: everyone heard everyone, LiveKit used 4–10 % CPU, and an abrupt disconnect converged at 22 s.
+  - Server memory stayed flat.
+- **LiveKit v1.13.7 disconnect reasons**, observed:
+  - a normal leave is `CLIENT_REQUEST_LEAVE`, so it applies immediately;
+  - a reload or crash is `PEER_CONNECTION_DISCONNECTED`, so it takes the 5 s grace.
+
+### Known issues / notes
+
+- The earlier accepted Phase 3 notes still stand: a retried send can duplicate, and catch-up doesn't sync edits and deletes.
+
 ## Phase 9 — Production deployment (Oracle Cloud + DuckDNS) 🟡 artifacts done, VM deploy pending (2026-09-30)
 
 ### Built

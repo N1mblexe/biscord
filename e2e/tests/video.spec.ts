@@ -238,10 +238,18 @@ test.describe('video', { tag: '@video' }, () => {
     await alice.page.getByRole('link', { name: 'Settings', exact: true }).click();
     await expect(alice.page.getByRole('heading', { name: 'Settings', level: 1 })).toBeVisible();
 
-    // A form error first (a blank display name is refused by the server)…
+    const alerts = alice.page.getByRole('alert');
+
+    // Field-level problems are shown next to the field, not in the page alert (friendly validation).
     await alice.page.getByLabel('Display name').fill(' ');
     await alice.page.getByRole('button', { name: 'Save profile' }).click();
-    const alerts = alice.page.getByRole('alert');
+    await expect(alice.page.getByLabel('Display name')).toHaveAttribute('aria-invalid', 'true');
+    await expect(alerts).toHaveCount(0);
+
+    // A form-level error first (a wrong current password is refused by the server)…
+    await alice.page.getByLabel('Current password').fill('definitely-not-it-123');
+    await alice.page.getByLabel('New password').fill('another-password-456');
+    await alice.page.getByRole('button', { name: 'Change password' }).click();
     await expect(alerts).toHaveCount(1);
     await expect(alerts).not.toContainText(SCREEN_SHARE_FAILED);
 
