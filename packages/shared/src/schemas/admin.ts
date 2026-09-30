@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { IsoDate, MessageId, Uuid } from '../ids.js';
 import { LIMITS } from '../limits.js';
+import { noNul } from '../text.js';
 import { Role } from './common.js';
 
 export const Invite = z.object({
@@ -55,7 +56,7 @@ export const TestSeedMessagesRequest = z.object({
   channelId: Uuid,
   authorId: Uuid,
   count: z.number().int().min(1).max(500),
-  prefix: z.string().min(1).max(32).default('msg'),
+  prefix: noNul(z.string().min(1).max(32)).default('msg'),
 });
 export type TestSeedMessagesRequest = z.infer<typeof TestSeedMessagesRequest>;
 

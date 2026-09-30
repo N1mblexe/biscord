@@ -237,7 +237,9 @@ Me          = PublicUser & { createdAt }
 Channel     = { id, type: 'text'|'voice', name, position }
 DmChannel   = { id, type: 'dm', otherUserId }
 Attachment  = { id, filename, mimeType, sizeBytes, url, inline: boolean }    // url = /api/attachments/:id/:filename
-Reaction    = { emoji, userIds: Uuid[] }                                        // count = userIds.length
+Reaction    = { emoji: ReactionEmoji, userIds: Uuid[] }                         // count = userIds.length
+// ReactionEmoji (response side: Reaction, reaction:added/removed) = any non-empty string ≤ 64 chars without NUL,
+// so a client whose Unicode tables are older than the server's doesn't reject a whole page; requests use Emoji.
 Message     = { id: MessageId, channelId, authorId, content, createdAt, editedAt: IsoDate|null,
                 attachments: Attachment[], reactions: Reaction[], mentionUserIds: Uuid[], nonce: string|null }
 ReadState   = { channelId, lastReadMessageId: MessageId|'0', unread: boolean, mentionCount: number }

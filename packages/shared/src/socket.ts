@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { Emoji } from './emoji.js';
+import { ReactionEmoji } from './emoji.js';
 import { type Ack, ErrorCode } from './errors.js';
 import { MessageId, Uuid } from './ids.js';
 import { Channel, DmChannel } from './schemas/channels.js';
@@ -49,7 +49,8 @@ export type MessageDeletedPayload = z.infer<typeof MessageDeletedPayload>;
 export const ReactionEventPayload = z.object({
   channelId: Uuid,
   messageId: MessageId,
-  emoji: Emoji,
+  // Server → client: lenient like `Reaction.emoji`, so an emoji newer than the browser's tables still applies.
+  emoji: ReactionEmoji,
   userId: Uuid,
 });
 export type ReactionEventPayload = z.infer<typeof ReactionEventPayload>;

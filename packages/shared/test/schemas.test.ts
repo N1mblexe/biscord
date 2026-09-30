@@ -1,7 +1,22 @@
 import { describe, expect, it } from 'vitest';
+import type { z } from 'zod';
 import {
+  AttachmentParams,
+  ChangePasswordRequest,
+  ChannelName,
+  CreateChannelRequest,
   CreateInviteRequest,
   CreateMessageRequest,
+  DisplayName,
+  InviteCodeParams,
+  LoginRequest,
+  Password,
+  RegisterRequest,
+  ResetPasswordRequest,
+  TestSeedMessagesRequest,
+  UpdateMeRequest,
+  UpdateMessageRequest,
+  isLenientNulFailure,
   IsoDate,
   ListMessagesQuery,
   MessageId,
@@ -124,5 +139,83 @@ describe('voice room names', () => {
     expect(parseVoiceRoomName('voice_not-a-uuid')).toBeNull();
     expect(parseVoiceRoomName(UUID_A)).toBeNull();
     expect(parseVoiceRoomName(`text_${UUID_A}`)).toBeNull();
+  });
+});
+
+describe('NUL characters (B.9 rule 1)', () => {
+  const NUL = '\u0000';
+
+  it('strict fields reject a NUL with a plain (non-lenient) issue', () => {
+    const cases: [string, { safeParse: (v: unknown) => { success: boolean } }, unknown][] = [
+      ['DisplayName', DisplayName, `bob${NUL}`],
+      ['Password', Password, `longenough${NUL}`],
+      ['ChannelName', ChannelName, `gen${NUL}eral`],
+      ['Username', Username, `bob${NUL}`],
+      ['UpdateMeRequest', UpdateMeRequest, { displayName: `a${NUL}` }],
+      ['CreateChannelRequest', CreateChannelRequest, { type: 'text', name: `a${NUL}` }],
+      ['CreateMessageRequest.content', CreateMessageRequest, { content: `hi${NUL}` }],
+      ['CreateMessageRequest.nonce', CreateMessageRequest, { content: 'hi', nonce: `n${NUL}` }],
+      ['UpdateMessageRequest', UpdateMessageRequest, { content: `hi${NUL}` }],
+      ['AttachmentParams', AttachmentParams, { id: UUID_A, filename: `a${NUL}.png` }],
+      [
+        'TestSeedMessagesRequest',
+        TestSeedMessagesRequest,
+        { channelId: UUID_A, authorId: UUID_B, count: 1, prefix: NUL },
+      ],
+      [
+        'RegisterRequest.password',
+        RegisterRequest,
+        { inviteCode: 'ABC', username: 'bob', displayName: 'Bob', password: `longenough${NUL}` },
+      ],
+    ];
+    for (const [name, schema, value] of cases) {
+      expect(schema.safeParse(value).success, name).toBe(false);
+    }
+    const r = UpdateMeRequest.safeParse({ displayName: `a${NUL}` });
+    expect(!r.success && isLenientNulFailure(r.error)).toBe(false);
+  });
+
+  it('lenient fields reject a NUL with an issue the server answers like a wrong value', () => {
+    const cases: [string, { safeParse: (v: unknown) => z.ZodSafeParseResult<unknown> }, unknown][] = [
+      ['LoginRequest.username', LoginRequest, { username: `bob${NUL}`, password: 'x' }],
+      ['LoginRequest.password', LoginRequest, { username: 'bob', password: `x${NUL}` }],
+      [
+        'ResetPasswordRequest.username',
+        ResetPasswordRequest,
+        { username: NUL, code: 'ABC', newPassword: 'longenough1' },
+      ],
+      [
+        'ResetPasswordRequest.code',
+        ResetPasswordRequest,
+        { username: 'bob', code: `A${NUL}`, newPassword: 'longenough1' },
+      ],
+      [
+        'ChangePasswordRequest.currentPassword',
+        ChangePasswordRequest,
+        { currentPassword: NUL, newPassword: 'longenough1' },
+      ],
+      [
+        'RegisterRequest.inviteCode',
+        RegisterRequest,
+        { inviteCode: `A${NUL}`, username: 'bob', displayName: 'Bob', password: 'longenough1' },
+      ],
+      ['InviteCodeParams', InviteCodeParams, { code: `A${NUL}` }],
+    ];
+    for (const [name, schema, value] of cases) {
+      const r = schema.safeParse(value);
+      expect(r.success, name).toBe(false);
+      expect(!r.success && isLenientNulFailure(r.error), name).toBe(true);
+    }
+  });
+
+  it('a lenient NUL mixed with another invalid field is not a lenient-only failure', () => {
+    const r = ResetPasswordRequest.safeParse({ username: 'bob', code: `A${NUL}`, newPassword: 'short' });
+    expect(!r.success && isLenientNulFailure(r.error)).toBe(false);
+  });
+
+  it('values without a NUL still pass', () => {
+    expect(LoginRequest.safeParse({ username: 'Bob ', password: 'x' }).success).toBe(true);
+    expect(DisplayName.parse('  Bob  ')).toBe('Bob');
+    expect(InviteCodeParams.safeParse({ code: 'abc' }).success).toBe(true);
   });
 });

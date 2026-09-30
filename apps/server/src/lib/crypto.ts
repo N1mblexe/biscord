@@ -20,9 +20,13 @@ export function randomCode(length: number): string {
   return code;
 }
 
-/** Normalizes a user-typed code (invite or reset) before lookup: trimmed, upper case. */
+/**
+ * Normalizes a user-typed code (invite or reset) before lookup (CONTRACTS B.9 rule 5): trimmed, upper case,
+ * and the Crockford look-alikes mapped to the digits they stand for (`O` → `0`, `I`/`L` → `1`). Generated
+ * codes never contain those letters, so this only ever turns a typo into the real code.
+ */
 export function normalizeCode(code: string): string {
-  return code.trim().toUpperCase();
+  return code.trim().toUpperCase().replace(/O/g, '0').replace(/[IL]/g, '1');
 }
 
 /** Constant-time string comparison that does not leak the length of either input. */

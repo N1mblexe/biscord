@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { CROCKFORD_ALPHABET, randomCode, randomToken, safeEqual, sha256Hex } from '../src/lib/crypto.js';
+import {
+  CROCKFORD_ALPHABET,
+  normalizeCode,
+  randomCode,
+  randomToken,
+  safeEqual,
+  sha256Hex,
+} from '../src/lib/crypto.js';
 
 describe('crypto helpers', () => {
   it('randomToken is 32 bytes of base64url', () => {
@@ -20,6 +27,17 @@ describe('crypto helpers', () => {
     const seen = new Set(codes.join(''));
     expect(seen.size).toBe(32);
     expect(randomCode(12)).toHaveLength(12);
+  });
+
+  it('normalizeCode: trimmed, upper case, Crockford look-alikes mapped (B.9 rule 5)', () => {
+    expect(normalizeCode('  abc0123  ')).toBe('ABC0123');
+    expect(normalizeCode('oOiIlL')).toBe('001111');
+    expect(normalizeCode('ab-c')).toBe('AB-C');
+    // Every generated code is a fixed point.
+    for (let i = 0; i < 50; i += 1) {
+      const code = randomCode(16);
+      expect(normalizeCode(code)).toBe(code);
+    }
   });
 
   it('safeEqual', () => {

@@ -1,12 +1,13 @@
 import { z } from 'zod';
-import { Emoji } from '../emoji.js';
+import { Emoji, ReactionEmoji } from '../emoji.js';
 import { IsoDate, MessageId, MessageIdOrZero, Uuid } from '../ids.js';
 import { LIMITS } from '../limits.js';
+import { noNul } from '../text.js';
 import { Attachment } from './attachments.js';
 
-/** `count` = `userIds.length`. */
+/** `count` = `userIds.length`. `emoji` is lenient (see `ReactionEmoji`): the client must tolerate newer emoji. */
 export const Reaction = z.object({
-  emoji: Emoji,
+  emoji: ReactionEmoji,
   userIds: z.array(Uuid),
 });
 export type Reaction = z.infer<typeof Reaction>;
@@ -34,7 +35,7 @@ export const ReadState = z.object({
 export type ReadState = z.infer<typeof ReadState>;
 
 /** Trimmed message body, ≤ 4000 characters (may be empty). */
-export const MessageContent = z.string().trim().max(LIMITS.messageMaxChars);
+export const MessageContent = noNul(z.string().trim().max(LIMITS.messageMaxChars));
 export type MessageContent = z.infer<typeof MessageContent>;
 
 /**
@@ -71,7 +72,7 @@ export const CreateMessageRequest = z
       .max(LIMITS.attachmentsPerMessage)
       .refine((ids) => new Set(ids).size === ids.length, { error: 'attachmentIds must be unique' })
       .default([]),
-    nonce: z.string().max(64).optional(),
+    nonce: noNul(z.string().max(64)).optional(),
   })
   .refine((m) => m.content.length > 0 || m.attachmentIds.length > 0, {
     error: 'Message must have content or at least one attachment',

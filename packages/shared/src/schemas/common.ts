@@ -1,16 +1,17 @@
 import { z } from 'zod';
 import { MessageId, Uuid } from '../ids.js';
+import { lenientText, noNul } from '../text.js';
 
 export const Username = z.string().regex(/^[a-z0-9_]{3,32}$/);
 export type Username = z.infer<typeof Username>;
 
-export const DisplayName = z.string().trim().min(1).max(32);
+export const DisplayName = noNul(z.string().trim().min(1).max(32));
 export type DisplayName = z.infer<typeof DisplayName>;
 
-export const Password = z.string().min(10).max(128);
+export const Password = noNul(z.string().min(10).max(128));
 export type Password = z.infer<typeof Password>;
 
-export const ChannelName = z.string().trim().min(1).max(32);
+export const ChannelName = noNul(z.string().trim().min(1).max(32));
 export type ChannelName = z.infer<typeof ChannelName>;
 
 export const Role = z.enum(['admin', 'member']);
@@ -43,14 +44,14 @@ export const VoiceParticipantParams = z.object({ channelId: Uuid, userId: Uuid }
 export type VoiceParticipantParams = z.infer<typeof VoiceParticipantParams>;
 
 /** `/invites/:code/check` */
-// Lenient on purpose: an unknown or overlong code is answered with `{ valid: false }`, not VALIDATION.
-export const InviteCodeParams = z.object({ code: z.string().min(1).max(128) });
+// Lenient on purpose: an unknown code (or one with a NUL, B.9 rule 1) is answered with `{ valid: false }`.
+export const InviteCodeParams = z.object({ code: lenientText(128) });
 export type InviteCodeParams = z.infer<typeof InviteCodeParams>;
 
 /** `/attachments/:id/:filename` */
-export const AttachmentParams = z.object({ id: Uuid, filename: z.string().min(1).max(255) });
+export const AttachmentParams = z.object({ id: Uuid, filename: noNul(z.string().min(1).max(255)) });
 export type AttachmentParams = z.infer<typeof AttachmentParams>;
 
 /** `/avatars/:userId?v=` (cache-buster, ignored by the server). */
-export const AvatarQuery = z.object({ v: z.string().optional() });
+export const AvatarQuery = z.object({ v: noNul(z.string()).optional() });
 export type AvatarQuery = z.infer<typeof AvatarQuery>;

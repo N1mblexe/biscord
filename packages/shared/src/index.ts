@@ -1,6 +1,7 @@
 export * from './ids.js';
 export * from './limits.js';
 export * from './emoji.js';
+export * from './text.js';
 export * from './errors.js';
 export * from './socket.js';
 export * from './schemas/common.js';
