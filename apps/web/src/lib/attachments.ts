@@ -1,31 +1,11 @@
 import { INLINE_IMAGE_MIME_TYPES, LIMITS, type Attachment } from '@hearth/shared';
 import { errorMessage, UPLOAD_ERROR_MESSAGES } from '../api/errors';
+import { formatBytes } from '../i18n/format';
 
 // ---- Display ----
 
-const UNITS = ['B', 'KB', 'MB', 'GB'] as const;
-
-/**
- * Human-readable size with 1024-based units (the same units as the limits: 25 MB = 25 × 1024²).
- * Below 10 of a unit one decimal is kept (trailing `.0` dropped); from 10 up it is rounded.
- */
-export function formatBytes(bytes: number): string {
-  if (!Number.isFinite(bytes) || bytes < 0) return '0 B';
-  let value = bytes;
-  let unit = 0;
-  while (value >= 1024 && unit < UNITS.length - 1) {
-    value /= 1024;
-    unit += 1;
-  }
-  if (unit === 0) return `${Math.round(value)} B`;
-  let rounded = value < 10 ? Math.round(value * 10) / 10 : Math.round(value);
-  // 1023.7 KB rounds to 1024 KB: show it as 1 MB instead.
-  if (rounded >= 1024 && unit < UNITS.length - 1) {
-    rounded = 1;
-    unit += 1;
-  }
-  return `${String(rounded)} ${UNITS[unit] ?? 'B'}`;
-}
+/** Human-readable size (`1.5 KB`) in the UI language; see `i18n/format.ts`. */
+export { formatBytes };
 
 const INLINE_TYPES: ReadonlySet<string> = new Set(INLINE_IMAGE_MIME_TYPES);
 

@@ -4,6 +4,7 @@ import { useEffect, type ReactNode } from 'react';
 import { useNavigate } from 'react-router';
 import { bootstrapQuery, bootstrapQueryKey, openDm } from '../api/chat';
 import { errorMessage } from '../api/errors';
+import { compare, useLocale } from '../i18n';
 import { upsertDm } from '../lib/bootstrapPatch';
 import { useDrawerStore } from '../stores/drawers';
 import { useIsOnline } from '../stores/presence';
@@ -31,6 +32,7 @@ export function MembersPanel({ onError }: { onError: (message: string | null) =>
   const navigate = useNavigate();
   const { ref, open, dialogProps } = useDrawerPanel<HTMLElement>('members');
   const closeDrawer = useDrawerStore((s) => s.close);
+  const [locale] = useLocale();
 
   // The header shows its **Members** button only while a page has this panel.
   useEffect(() => useDrawerStore.getState().hostMembers(), []);
@@ -56,7 +58,7 @@ export function MembersPanel({ onError }: { onError: (message: string | null) =>
   if (!boot) return null;
   const members = boot.users
     .filter((u) => !u.deactivated)
-    .toSorted((a, b) => a.displayName.localeCompare(b.displayName));
+    .toSorted((a, b) => compare(a.displayName, b.displayName, locale));
 
   return (
     <aside

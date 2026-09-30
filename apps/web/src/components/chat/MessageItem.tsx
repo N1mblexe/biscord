@@ -2,6 +2,7 @@ import type { Message, PublicUser } from '@hearth/shared';
 import { useEffect, useRef, useState, type FocusEvent, type KeyboardEvent } from 'react';
 import { deleteMessage, editMessage } from '../../api/chat';
 import { errorMessage } from '../../api/errors';
+import { formatDateTime, formatTime, useLocale } from '../../i18n';
 import { useMessageStore, type PendingMessage } from '../../stores/messages';
 import { MESSAGE_INPUT_MAX_LENGTH, messageTooLong } from '../../lib/messageLength';
 import { deliverPending } from '../../lib/messageSync';
@@ -16,14 +17,6 @@ import { useAutoGrow } from './useAutoGrow';
 const actionButton =
   'rounded px-2 py-0.5 text-xs font-medium text-muted ring-1 ring-white/10 transition hover:bg-white/10 ' +
   'hover:text-text focus-visible:outline-2 focus-visible:outline-accent disabled:opacity-60';
-
-function formatTime(iso: string): string {
-  return new Date(iso).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
-}
-
-function formatFull(iso: string): string {
-  return new Date(iso).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
-}
 
 type ErrorSink = (message: string | null) => void;
 
@@ -106,6 +99,7 @@ export function MessageItem({
   canReact,
   onError,
 }: MessageItemProps) {
+  const [locale] = useLocale();
   const [editing, setEditing] = useState(false);
   const [busy, setBusy] = useState(false);
   // Opened with Enter/Space on the message, or the "⋯" button (touch devices).
@@ -231,8 +225,12 @@ export function MessageItem({
     >
       {grouped ? (
         <div className="relative w-9 shrink-0">
-          <time dateTime={message.createdAt} title={formatFull(message.createdAt)} className={gutterTime}>
-            {formatTime(message.createdAt)}
+          <time
+            dateTime={message.createdAt}
+            title={formatDateTime(message.createdAt, locale)}
+            className={gutterTime}
+          >
+            {formatTime(message.createdAt, locale)}
           </time>
         </div>
       ) : (
@@ -262,10 +260,10 @@ export function MessageItem({
             </span>
             <time
               dateTime={message.createdAt}
-              title={formatFull(message.createdAt)}
+              title={formatDateTime(message.createdAt, locale)}
               className="shrink-0 text-xs whitespace-nowrap text-muted"
             >
-              {formatTime(message.createdAt)}
+              {formatTime(message.createdAt, locale)}
             </time>
           </div>
         )}
@@ -288,7 +286,7 @@ export function MessageItem({
             {message.editedAt && (
               <span
                 data-testid="message-edited"
-                title={formatFull(message.editedAt)}
+                title={formatDateTime(message.editedAt, locale)}
                 className="text-[11px] text-muted"
               >
                 (edited)
