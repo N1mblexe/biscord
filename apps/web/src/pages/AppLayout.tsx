@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useEffect, useRef } from 'react';
+import { useEffect } from 'react';
 import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router';
 import { logout, meQuery } from '../api/auth';
 import { isUnauthenticated } from '../api/errors';
@@ -36,35 +36,29 @@ const navLinkClass = ({ isActive }: { isActive: boolean }) =>
 
 function AppShell() {
   const { data: me, error } = useQuery(meQuery);
-  const { socket, status } = useSocket();
+  const { status, endSession, beginLogout } = useSocket();
   const queryClient = useQueryClient();
   const navigate = useNavigate();
-  // Set while we are leaving on purpose, so the /me 401 that follows logout isn't reported as "session ended".
-  const leavingRef = useRef(false);
 
   const logoutMutation = useMutation({
     mutationFn: logout,
     onSettled: () => {
       clearSessionState(queryClient);
-      void navigate('/login', { replace: true });
+      void navigate(loginPathForReason('logout'), { replace: true });
     },
   });
 
   const onLogout = () => {
-    leavingRef.current = true;
-    // Disconnect first: the server's `session:revoked` for our own logout would otherwise race us.
-    socket.disconnect();
-    logoutMutation.mutate();
+    // Shares the socket's exit, so the /me 401 that follows logout (or a racing `session:revoked`)
+    // can't send us to "session ended" instead.
+    if (beginLogout()) logoutMutation.mutate();
   };
 
-  // A background /me refetch can discover a dead session the socket didn't report.
+  // A background /me refetch can discover a dead session the socket didn't report. Ignored once the
+  // app is already leaving (endSession keeps the first reason).
   useEffect(() => {
-    if (leavingRef.current || !isUnauthenticated(error)) return;
-    leavingRef.current = true;
-    socket.disconnect();
-    clearSessionState(queryClient);
-    void navigate(loginPathForReason('unauthenticated'), { replace: true });
-  }, [error, socket, queryClient, navigate]);
+    if (isUnauthenticated(error)) endSession('unauthenticated');
+  }, [error, endSession]);
 
   // A camera or screen share error belongs to the page it happened on: gone once we navigate.
   const { pathname } = useLocation();

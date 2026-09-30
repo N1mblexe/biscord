@@ -2,7 +2,7 @@ import { useMutation } from '@tanstack/react-query';
 import type { SubmitEvent } from 'react';
 import { Link, useNavigate } from 'react-router';
 import { resetPassword } from '../api/auth';
-import { errorMessage, fieldErrors } from '../api/errors';
+import { fieldErrors, formAlertMessage } from '../api/errors';
 import { AuthCard } from '../components/AuthCard';
 import { FormAlert, formString, TextField } from '../components/forms';
 import { linkClass, primaryButton } from '../components/styles';
@@ -29,11 +29,9 @@ export function ResetPasswordPage() {
   };
 
   const errors = fieldErrors(mutation.error);
-  const message = mutation.isError
-    ? errorMessage(mutation.error, {
-        INVALID_CREDENTIALS: 'Wrong username or reset code, or the code has expired.',
-      })
-    : null;
+  const message = formAlertMessage(mutation.error, ['username', 'code', 'newPassword'], {
+    INVALID_CREDENTIALS: 'Wrong username or reset code, or the code has expired.',
+  });
 
   return (
     <AuthCard title="Reset your password">

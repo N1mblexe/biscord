@@ -2,7 +2,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import type { SubmitEvent } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router';
 import { login, meQuery } from '../api/auth';
-import { errorMessage, fieldErrors } from '../api/errors';
+import { fieldErrors, formAlertMessage } from '../api/errors';
 import { AuthCard } from '../components/AuthCard';
 import { FormAlert, formString, TextField } from '../components/forms';
 import { ServerStatus } from '../components/ServerStatus';
@@ -61,7 +61,7 @@ export function LoginPage() {
           autoComplete="current-password"
           errors={errors}
         />
-        <FormAlert message={mutation.isError ? errorMessage(mutation.error) : null} />
+        <FormAlert message={formAlertMessage(mutation.error, ['username', 'password'])} />
         <button type="submit" className={primaryButton} disabled={mutation.isPending}>
           Log in
         </button>

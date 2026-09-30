@@ -9,7 +9,7 @@ import { useMutation, useQuery, useQueryClient, type UseMutationResult } from '@
 import { useState, type ChangeEvent, type SubmitEvent } from 'react';
 import { changePassword, meQuery, updateMe } from '../api/auth';
 import { bootstrapQueryKey } from '../api/chat';
-import { errorMessage, fieldErrors } from '../api/errors';
+import { fieldErrors, formAlertMessage } from '../api/errors';
 import { removeAvatar, setAvatar } from '../api/uploads';
 import { Avatar } from '../components/Avatar';
 import { FormAlert, FormSuccess, formString, PageAlert, TextField } from '../components/forms';
@@ -64,12 +64,14 @@ export function SettingsPage() {
   // and screen share errors share the slot with it (the newer one is shown).
   const avatarFailed = avatarSet.isError ? avatarSet.error : avatarRemove.isError ? avatarRemove.error : null;
   const avatarMessage = avatarCheck ?? (avatarFailed ? avatarUploadError(avatarFailed) : null);
-  const own: { form: 'profile' | 'password' | 'avatar'; message: string } | null = profile.isError
-    ? { form: 'profile', message: errorMessage(profile.error) }
+  const own: { form: 'profile' | 'password' | 'avatar'; message: string | null } | null = profile.isError
+    ? { form: 'profile', message: formAlertMessage(profile.error, ['displayName']) }
     : password.isError
       ? {
           form: 'password',
-          message: errorMessage(password.error, { INVALID_CREDENTIALS: 'Your current password is wrong.' }),
+          message: formAlertMessage(password.error, ['currentPassword', 'newPassword'], {
+            INVALID_CREDENTIALS: 'Your current password is wrong.',
+          }),
         }
       : avatarMessage !== null
         ? { form: 'avatar', message: avatarMessage }

@@ -1,5 +1,8 @@
 @import 'tailwindcss';
 
+/* Devices without hover (touch screens): e.g. the message "⋯" actions button. */
+@custom-variant hover-none (@media (hover: none));
+
 @theme {
   --color-bg: #111214;
   --color-surface: #1e1f22;

@@ -1,10 +1,10 @@
 import { UserUpdatedPayload } from '@hearth/shared';
 import { useQueryClient } from '@tanstack/react-query';
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useNavigate } from 'react-router';
 import { usersQuery } from '../api/admin';
 import { meQuery } from '../api/auth';
-import { loginPathForReason, type LoginReason } from '../lib/authNotice';
+import { loginPathForReason, SessionExit, type LoginReason } from '../lib/authNotice';
 import { installEventLog } from '../lib/eventLog';
 import { clearSessionState } from '../lib/session';
 import { registerChatEvents } from './chatEvents';
@@ -22,15 +22,29 @@ export function SocketProvider({ children }: { children: ReactNode }) {
   const [status, setStatus] = useState<SocketStatus>('disconnected');
   const queryClient = useQueryClient();
   const navigate = useNavigate();
+  // One per signed-in stay: the protected layout unmounts on the way to /login.
+  const [exit] = useState(() => new SessionExit());
 
-  useEffect(() => {
-    const endSession = (reason: LoginReason) => {
+  const endSession = useCallback(
+    (reason: LoginReason) => {
+      if (!exit.begin()) return;
       socket.disconnect();
       // Clear before navigating so the /login loader doesn't find a cached user and bounce back.
       clearSessionState(queryClient);
-      void navigate(loginPathForReason(reason), { replace: true });
-    };
+      const from = window.location.pathname + window.location.search;
+      void navigate(loginPathForReason(reason, from), { replace: true });
+    },
+    [exit, socket, queryClient, navigate],
+  );
 
+  const beginLogout = useCallback(() => {
+    if (!exit.begin()) return false;
+    // Disconnect first: the server's `session:revoked` for our own logout would otherwise race us.
+    socket.disconnect();
+    return true;
+  }, [exit, socket]);
+
+  useEffect(() => {
     const onConnect = () => {
       setStatus('connected');
     };
@@ -79,8 +93,11 @@ export function SocketProvider({ children }: { children: ReactNode }) {
       socket.off('user:updated', onUserUpdated);
       socket.disconnect();
     };
-  }, [socket, queryClient, navigate]);
+  }, [socket, queryClient, navigate, endSession]);
 
-  const value = useMemo(() => ({ socket, status }), [socket, status]);
+  const value = useMemo(
+    () => ({ socket, status, endSession, beginLogout }),
+    [socket, status, endSession, beginLogout],
+  );
   return <SocketContext value={value}>{children}</SocketContext>;
 }

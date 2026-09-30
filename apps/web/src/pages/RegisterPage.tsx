@@ -2,11 +2,11 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import type { SubmitEvent } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router';
 import { meQuery, register } from '../api/auth';
-import { errorMessage, fieldErrors } from '../api/errors';
+import { fieldErrors, formAlertMessage } from '../api/errors';
 import { AuthCard } from '../components/AuthCard';
 import { FormAlert, formString, TextField } from '../components/forms';
 import { linkClass, primaryButton } from '../components/styles';
-import { normalizeUsername } from '../lib/username';
+import { normalizeUsername, USERNAME_RULE } from '../lib/username';
 
 export function RegisterPage() {
   const [searchParams] = useSearchParams();
@@ -32,7 +32,7 @@ export function RegisterPage() {
     });
   };
 
-  const errors = fieldErrors(mutation.error);
+  const errors = fieldErrors(mutation.error, { username: USERNAME_RULE });
 
   return (
     <AuthCard title="Create your account">
@@ -73,7 +73,9 @@ export function RegisterPage() {
           placeholder="at least 10 characters"
           errors={errors}
         />
-        <FormAlert message={mutation.isError ? errorMessage(mutation.error) : null} />
+        <FormAlert
+          message={formAlertMessage(mutation.error, ['inviteCode', 'username', 'displayName', 'password'])}
+        />
         <button type="submit" className={primaryButton} disabled={mutation.isPending}>
           Create account
         </button>
