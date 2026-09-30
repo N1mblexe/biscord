@@ -17,6 +17,12 @@ export type ChannelName = z.infer<typeof ChannelName>;
 export const Role = z.enum(['admin', 'member']);
 export type Role = z.infer<typeof Role>;
 
+/** UI language (CONTRACTS B.11). English is the default and the fallback. */
+export const LOCALES = ['en', 'tr'] as const;
+export const Locale = z.enum(LOCALES);
+export type Locale = z.infer<typeof Locale>;
+export const DEFAULT_LOCALE: Locale = 'en';
+
 /** Non-DM channel type. DMs are modelled separately as `DmChannel` (`type: 'dm'`). */
 export const ChannelType = z.enum(['text', 'voice']);
 export type ChannelType = z.infer<typeof ChannelType>;
