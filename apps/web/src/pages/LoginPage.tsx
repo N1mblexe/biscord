@@ -4,9 +4,9 @@ import { Link, useNavigate, useSearchParams } from 'react-router';
 import { login, meQuery } from '../api/auth';
 import { fieldErrors, formAlertMessage } from '../api/errors';
 import { AuthCard } from '../components/AuthCard';
-import { FormAlert, formString, TextField } from '../components/forms';
+import { FormAlert, formString, inlineLinkClass, TextField } from '../components/forms';
 import { ServerStatus } from '../components/ServerStatus';
-import { linkClass, primaryButton } from '../components/styles';
+import { primaryButton } from '../components/styles';
 import { authNoticeText } from '../lib/authNotice';
 import { safeNext } from '../lib/redirects';
 
@@ -34,11 +34,33 @@ export function LoginPage() {
   const errors = fieldErrors(mutation.error);
 
   return (
-    <AuthCard title="Log in to your account">
+    <AuthCard
+      title="Welcome back"
+      description="Log in to catch up with your friends."
+      footer={
+        <div className="flex flex-col items-center gap-4">
+          <div className="flex flex-col items-center gap-1.5 text-center text-sm text-muted">
+            <p>
+              Have an invite?{' '}
+              <Link to="/register" className={inlineLinkClass}>
+                Create an account
+              </Link>
+            </p>
+            <p>
+              Got a reset code?{' '}
+              <Link to="/reset-password" className={inlineLinkClass}>
+                Reset your password
+              </Link>
+            </p>
+          </div>
+          <ServerStatus />
+        </div>
+      }
+    >
       {notice && (
         <p
           data-testid="auth-notice"
-          className="mb-4 rounded-lg bg-accent/10 px-3 py-2 text-sm text-accent ring-1 ring-accent/30"
+          className="mb-5 rounded-control bg-accent/10 px-3 py-2 text-sm text-accent ring-1 ring-accent/30"
         >
           {notice}
         </p>
@@ -62,27 +84,15 @@ export function LoginPage() {
           errors={errors}
         />
         <FormAlert message={formAlertMessage(mutation.error, ['username', 'password'])} />
-        <button type="submit" className={primaryButton} disabled={mutation.isPending}>
+        <button
+          type="submit"
+          className={`${primaryButton} mt-1 w-full`}
+          disabled={mutation.isPending}
+          aria-busy={mutation.isPending}
+        >
           Log in
         </button>
       </form>
-      <div className="mt-6 flex flex-col items-center gap-2 text-sm text-muted">
-        <p>
-          Have an invite?{' '}
-          <Link to="/register" className={linkClass}>
-            Create an account
-          </Link>
-        </p>
-        <p>
-          Got a reset code?{' '}
-          <Link to="/reset-password" className={linkClass}>
-            Reset your password
-          </Link>
-        </p>
-      </div>
-      <div className="mt-6 border-t border-white/5 pt-4">
-        <ServerStatus />
-      </div>
     </AuthCard>
   );
 }

@@ -88,7 +88,7 @@ function LiveBadge() {
   return (
     <span
       title="Sharing their screen"
-      className="shrink-0 rounded bg-danger px-1 py-px text-[10px] leading-none font-bold tracking-wide text-white"
+      className="shrink-0 rounded bg-danger-strong px-1 py-px text-[10px] leading-none font-bold tracking-wide text-white"
     >
       LIVE
     </span>
@@ -153,7 +153,7 @@ function VolumeControl({
         title={`Volume for ${displayName}`}
         aria-expanded={open}
         aria-controls={open ? sliderId : undefined}
-        className="ml-auto shrink-0 rounded p-0.5 text-muted opacity-70 transition hover:bg-white/10 hover:text-text hover:opacity-100 focus-visible:opacity-100"
+        className="ml-auto inline-flex size-6 shrink-0 items-center justify-center rounded-md text-muted transition hover:bg-white/10 hover:text-text aria-expanded:bg-white/10 aria-expanded:text-text"
         onClick={() => {
           onOpenChange(!open);
         }}
@@ -179,14 +179,14 @@ function VolumeControl({
               if (e.key === 'Escape') onOpenChange(false);
             }}
           />
-          <span className="w-9 shrink-0 text-right text-[11px] text-muted tabular-nums">{percent}%</span>
+          <span className="w-9 shrink-0 text-right text-2xs text-muted tabular-nums">{percent}%</span>
         </div>
       )}
       {open && canDisconnect && (
         <div className="flex w-full basis-full justify-end pb-1 pl-6">
           <button
             type="button"
-            className="rounded px-2 py-0.5 text-xs font-semibold text-danger ring-1 ring-danger/40 transition hover:bg-danger/10 focus-visible:outline-2 focus-visible:outline-danger disabled:opacity-60"
+            className="rounded-md px-2 py-0.5 text-xs font-semibold text-danger ring-1 ring-danger/40 transition hover:bg-danger/10 focus-visible:outline-danger disabled:opacity-60"
             disabled={disconnecting}
             onClick={onDisconnect}
           >
@@ -257,7 +257,7 @@ function VoiceParticipantRow({
       data-camera={participant.camera ? 'true' : 'false'}
       data-live={participant.screen ? 'screen' : undefined}
       data-speaking={inMyRoom ? (speaking ? 'true' : 'false') : undefined}
-      className="flex flex-wrap items-center gap-1.5 rounded-md px-2 py-0.5 text-sm text-muted hover:bg-white/5"
+      className="flex min-h-7 flex-wrap items-center gap-2 rounded-md px-2 py-0.5 text-sm text-muted hover:bg-white/5"
       onContextMenu={
         isMe
           ? undefined
@@ -268,7 +268,7 @@ function VoiceParticipantRow({
       }
     >
       <span
-        className={`inline-flex shrink-0 rounded-full ring-2 transition ${speaking ? 'ring-success' : 'ring-transparent'}`}
+        className={`inline-flex shrink-0 rounded-full ring-2 ring-offset-1 ring-offset-surface transition ${speaking ? 'ring-success' : 'ring-transparent'}`}
       >
         <Avatar userId={participant.userId} name={name} avatarUrl={avatarUrl} deleted={deleted} size="xs" />
       </span>
@@ -321,7 +321,7 @@ export function VoiceChannelItem({
         data-channel-id={channel.id}
         aria-current={mine ? 'true' : undefined}
         title={mine ? undefined : `Join ${channel.name}`}
-        className={`flex w-full items-center gap-1.5 rounded-md px-2 py-1 text-left text-sm transition hover:bg-white/5 hover:text-text ${
+        className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm transition hover:bg-white/5 hover:text-text ${
           mine ? 'bg-white/10 font-medium text-text' : 'text-muted'
         }`}
         onClick={() => {
@@ -332,7 +332,10 @@ export function VoiceChannelItem({
         <span className="min-w-0 flex-1 truncate">{channel.name}</span>
       </button>
       {participants.length > 0 && (
-        <ul aria-label={`In ${channel.name}`} className="mt-0.5 ml-4 flex flex-col gap-0.5">
+        <ul
+          aria-label={`In ${channel.name}`}
+          className="mt-0.5 mb-1 ml-3 flex flex-col gap-0.5 border-l border-line pl-1"
+        >
           {participants.map((p) => (
             <VoiceParticipantRow
               key={p.userId}

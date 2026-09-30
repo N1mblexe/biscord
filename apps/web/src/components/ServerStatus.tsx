@@ -11,7 +11,7 @@ const LABELS: Record<Status, string> = {
 };
 
 const DOT: Record<Status, string> = {
-  checking: 'bg-muted',
+  checking: 'bg-muted motion-safe:animate-skeleton',
   ok: 'bg-success',
   degraded: 'bg-accent',
   unreachable: 'bg-danger',
@@ -32,8 +32,11 @@ export function ServerStatus() {
   }, []);
 
   return (
-    <p className="flex items-center justify-center gap-2 text-sm text-muted">
-      <span aria-hidden="true" className={`size-2 rounded-full ${DOT[status]}`} />
+    <p
+      data-state={status}
+      className="inline-flex items-center justify-center gap-2 rounded-full bg-bg/60 px-3 py-1 text-xs text-muted ring-1 ring-line"
+    >
+      <span aria-hidden="true" className={`size-2 shrink-0 rounded-full ${DOT[status]}`} />
       <span data-testid="server-status" role="status">
         {LABELS[status]}
       </span>

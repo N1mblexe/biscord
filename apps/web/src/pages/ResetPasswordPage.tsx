@@ -4,8 +4,8 @@ import { Link, useNavigate } from 'react-router';
 import { resetPassword } from '../api/auth';
 import { fieldErrors, formAlertMessage } from '../api/errors';
 import { AuthCard } from '../components/AuthCard';
-import { FormAlert, formString, TextField } from '../components/forms';
-import { linkClass, primaryButton } from '../components/styles';
+import { FormAlert, formString, inlineLinkClass, TextField } from '../components/forms';
+import { primaryButton } from '../components/styles';
 import { loginPathForReason } from '../lib/authNotice';
 
 export function ResetPasswordPage() {
@@ -34,8 +34,18 @@ export function ResetPasswordPage() {
   });
 
   return (
-    <AuthCard title="Reset your password">
-      <p className="mb-4 text-sm text-muted">Ask an admin for a reset code. Codes are valid for 24 hours.</p>
+    <AuthCard
+      title="Reset your password"
+      description="Ask an admin for a reset code. Codes are valid for 24 hours."
+      footer={
+        <p className="text-center text-sm text-muted">
+          Remembered it?{' '}
+          <Link to="/login" className={inlineLinkClass}>
+            Back to log in
+          </Link>
+        </p>
+      }
+    >
       <form className="flex flex-col gap-4" onSubmit={onSubmit} noValidate>
         <TextField
           id="reset-username"
@@ -61,19 +71,19 @@ export function ResetPasswordPage() {
           label="New password"
           type="password"
           autoComplete="new-password"
-          placeholder="at least 10 characters"
+          hint="At least 10 characters."
           errors={errors}
         />
         <FormAlert message={message} />
-        <button type="submit" className={primaryButton} disabled={mutation.isPending}>
+        <button
+          type="submit"
+          className={`${primaryButton} mt-1 w-full`}
+          disabled={mutation.isPending}
+          aria-busy={mutation.isPending}
+        >
           Set new password
         </button>
       </form>
-      <p className="mt-6 text-center text-sm text-muted">
-        <Link to="/login" className={linkClass}>
-          Back to log in
-        </Link>
-      </p>
     </AuthCard>
   );
 }

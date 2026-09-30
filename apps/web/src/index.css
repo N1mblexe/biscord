@@ -3,25 +3,110 @@
 /* Devices without hover (touch screens): e.g. the message "⋯" actions button. */
 @custom-variant hover-none (@media (hover: none));
 
+/*
+ * Design tokens (dark theme only). Text contrast, WCAG 2.x, measured against the three surfaces
+ * bg / surface / surface-raised:
+ *   text   #e6e7ea  15.2 / 13.3 / 11.2
+ *   muted  #a4a7ae   7.8 /  6.8 /  5.7   (5.1 on a white/10 hover over surface)
+ *   accent #f59e0b   8.7 /  7.7 /  6.4   (text-bg on a solid accent button: 8.7)
+ *   danger #f87171   6.8 /  6.0 /  5.0   (on its own /10 tint over surface: 5.2)
+ *   success #22c55e  8.2 /  7.2 /  6.1
+ *   white on danger-strong #dc2626: 4.8 (solid badges and destructive buttons)
+ * Spacing uses Tailwind's 4px scale; stick to 1, 1.5, 2, 3, 4, 6, 8 for gaps and padding.
+ * Type scale: 2xs (11px) badges and meta, xs (12px) secondary, sm (14px) body UI, base (16px)
+ * message text on phones, lg/xl/2xl/3xl headings.
+ */
 @theme {
+  /* Surfaces, darkest to lightest. */
   --color-bg: #111214;
   --color-surface: #1e1f22;
   --color-surface-raised: #2b2d31;
+  /* Hairlines between regions (`border-line`), as a translucent white so they work on every surface. */
+  --color-line: rgb(255 255 255 / 0.08);
+
+  /* Text. */
   --color-text: #e6e7ea;
-  --color-muted: #9a9ca3;
+  --color-muted: #a4a7ae;
+
+  /* Brand and status. `danger` is tuned for text on dark surfaces; solid fills behind white text
+     use `danger-strong`. */
   --color-accent: #f59e0b;
   --color-success: #22c55e;
-  --color-danger: #ef4444;
+  --color-danger: #f87171;
+  --color-danger-strong: #dc2626;
+
+  /* Keyboard focus ring (non-text contrast 8.7:1 on bg). */
+  --color-focus: #f59e0b;
+
   --font-sans: 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+
+  --text-2xs: 0.6875rem;
+  --text-2xs--line-height: 1rem;
+
+  --radius-control: 0.5rem;
+  --radius-card: 1rem;
+
+  --shadow-card: 0 10px 30px -12px rgb(0 0 0 / 0.6);
+
+  --animate-skeleton: skeleton 1.4s ease-in-out infinite;
+
+  @keyframes skeleton {
+    0%,
+    100% {
+      opacity: 1;
+    }
+    50% {
+      opacity: 0.45;
+    }
+  }
 }
 
 @layer base {
   html {
     color-scheme: dark;
+    scrollbar-color: rgb(255 255 255 / 0.18) transparent;
   }
 
   body {
     @apply bg-bg font-sans text-text antialiased;
+  }
+
+  ::selection {
+    background-color: rgb(245 158 11 / 0.35);
+    color: var(--color-text);
+  }
+
+  /*
+   * One visible keyboard focus ring for every interactive element (buttons, links, inputs, tiles,
+   * summary, [tabindex]). Components may override the colour (e.g. `focus-visible:outline-danger`)
+   * or draw their own ring (inputs use `focus:ring-2`); none may remove it without a replacement.
+   */
+  :focus-visible {
+    outline: 2px solid var(--color-focus);
+    outline-offset: 2px;
+  }
+}
+
+/*
+ * Legacy solid danger fills with white text (the mention badge, destructive confirm buttons):
+ * `danger` is the lighter text shade, so draw these with `danger-strong` to keep white text at
+ * 4.8:1. New code should use `bg-danger-strong` directly.
+ */
+@layer utilities {
+  .bg-danger.text-white {
+    background-color: var(--color-danger-strong);
+  }
+}
+
+/* Respect the OS "reduce motion" setting: no pulsing, sliding or animated scrolling. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  ::before,
+  ::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
   }
 }
 
@@ -43,20 +128,21 @@
     @apply list-decimal pl-5;
   }
 
+  /* Underlined, not just coloured: accent and body text are too close in lightness (WCAG 1.4.1). */
   .markdown a {
-    @apply text-accent underline-offset-2 hover:underline;
+    @apply rounded-sm text-accent underline decoration-accent/50 underline-offset-2 hover:decoration-accent;
   }
 
   .markdown code {
-    @apply rounded bg-bg px-1 py-0.5 font-mono text-[0.85em];
+    @apply rounded bg-bg px-1 py-0.5 font-mono text-[0.85em] ring-1 ring-line;
   }
 
   .markdown pre {
-    @apply overflow-x-auto rounded-lg bg-bg p-3 whitespace-pre;
+    @apply overflow-x-auto rounded-lg bg-bg p-3 whitespace-pre ring-1 ring-line;
   }
 
   .markdown pre code {
-    @apply bg-transparent p-0;
+    @apply bg-transparent p-0 ring-0;
   }
 
   .markdown blockquote {
