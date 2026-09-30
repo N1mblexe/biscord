@@ -1,8 +1,10 @@
-import { and, asc, eq, or, sql, type SQL } from 'drizzle-orm';
+import { and, asc, eq, inArray, isNull, ne, or, sql, type SQL } from 'drizzle-orm';
 import type { ReadState } from '@hearth/shared';
-import { channels, dmChannels, messageMentions, messages, readStates } from '../db/schema.js';
-import type { Queryable } from '../db/types.js';
+import { channels, dmChannels, messageMentions, messages, readStates, users } from '../db/schema.js';
+import type { MessageRow, Queryable } from '../db/types.js';
 import { AppError } from '../lib/errors.js';
+import type { ChannelAccess } from './access.js';
+import { rethrowIfGone } from './gone.js';
 
 /**
  * Moves `(userId, channelId)` forward to `messageId`, never back (`GREATEST`). `messageId` is a MessageId
@@ -85,6 +87,99 @@ export async function markRead(
     .from(messages)
     .where(and(sql`${messages.id} = ${messageId}::bigint`, eq(messages.channelId, channelId)));
   if (message === undefined) throw new AppError('VALIDATION', 'Message is not in this channel');
-  await advanceReadState(db, userId, channelId, messageId);
+  await advanceReadState(db, userId, channelId, messageId).catch(rethrowIfGone);
   return getReadState(db, userId, channelId);
+}
+
+/**
+ * The `ReadState` in `channelId` of each of `userIds`, keyed by user id, in one query (same rules as
+ * `listReadStates`; the caller knows they can all access the channel). Used to send the users whose state a
+ * message delete or edit changed a fresh `readstate:updated` (B.9 rule 6).
+ */
+export async function readStatesOfUsers(
+  db: Queryable,
+  channelId: string,
+  userIds: readonly string[],
+): Promise<Map<string, ReadState>> {
+  const result = new Map<string, ReadState>();
+  if (userIds.length === 0) return result;
+  const channel = sql`${channelId}::uuid`;
+  const lastRead = sql`coalesce(${readStates.lastReadMessageId}, 0)`;
+  const rows = await db
+    .select({
+      userId: users.id,
+      lastReadMessageId: sql<string>`${lastRead}::text`,
+      unread: sql<boolean>`exists (
+        select 1 from ${messages}
+        where ${messages.channelId} = ${channel} and ${messages.id} > ${lastRead}
+          and ${messages.authorId} <> ${users.id})`,
+      mentionCount: sql<number>`(
+        select count(*)::int from ${messageMentions}
+        where ${messageMentions.userId} = ${users.id} and ${messageMentions.channelId} = ${channel}
+          and ${messageMentions.messageId} > ${lastRead})`,
+    })
+    .from(users)
+    .leftJoin(readStates, and(eq(readStates.userId, users.id), eq(readStates.channelId, channelId)))
+    .where(inArray(users.id, [...userIds]));
+  for (const { userId, ...state } of rows) result.set(userId, { channelId, ...state });
+  return result;
+}
+
+/**
+ * Who, among `candidateIds` (default: everyone who can read the channel), currently counts message
+ * `message` as unread: active readers of the channel other than its author whose read position is before
+ * it. Only their unread flag or mention count can change when it is deleted or its mentions change.
+ */
+export async function usersCountingMessage(
+  db: Queryable,
+  access: ChannelAccess,
+  message: Pick<MessageRow, 'id' | 'channelId' | 'authorId'>,
+  candidateIds?: readonly string[],
+): Promise<string[]> {
+  if (candidateIds?.length === 0) return [];
+  const readers: SQL | undefined =
+    access.dm === null ? undefined : inArray(users.id, [access.dm.lowId, access.dm.highId]);
+  const rows = await db
+    .select({ id: users.id })
+    .from(users)
+    .leftJoin(readStates, and(eq(readStates.userId, users.id), eq(readStates.channelId, message.channelId)))
+    .where(
+      and(
+        isNull(users.deactivatedAt),
+        ne(users.id, message.authorId),
+        sql`coalesce(${readStates.lastReadMessageId}, 0) < ${message.id}`,
+        readers,
+        candidateIds === undefined ? undefined : inArray(users.id, [...candidateIds]),
+      ),
+    );
+  return rows.map((row) => row.id);
+}
+
+/** A user's new read state, to be sent as `readstate:updated` to `user:<userId>` after the commit. */
+export interface ReadStateChange {
+  userId: string;
+  readState: ReadState;
+}
+
+/**
+ * The states in `after` that differ from `before` (B.9 rule 6: only a user whose unread flag or mention
+ * count actually changed gets an event).
+ */
+export function changedReadStates(
+  before: ReadonlyMap<string, ReadState>,
+  after: ReadonlyMap<string, ReadState>,
+): ReadStateChange[] {
+  const changes: ReadStateChange[] = [];
+  for (const [userId, readState] of after) {
+    const old = before.get(userId);
+    if (
+      old === undefined ||
+      old.lastReadMessageId !== readState.lastReadMessageId ||
+      old.unread !== readState.unread ||
+      old.mentionCount !== readState.mentionCount
+    ) {
+      changes.push({ userId, readState });
+    }
+  }
+  return changes;
 }

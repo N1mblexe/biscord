@@ -114,6 +114,14 @@ export async function uploadAttachment(file: File, options?: UploadOptions): Pro
   return res.attachment;
 }
 
+/**
+ * DELETE /attachments/:id (row 28b) — drops one of our unattached uploads, so it stops counting toward
+ * the upload quota. 404 once it has been sent with a message (or is already gone).
+ */
+export async function deleteAttachment(id: string): Promise<void> {
+  await apiFetch(`/attachments/${encodeURIComponent(id)}`, { method: 'DELETE' });
+}
+
 /** PUT /me/avatar — png/jpeg/webp up to 2 MB. */
 export async function setAvatar(file: File): Promise<Me> {
   const res = await uploadFile('/me/avatar', 'PUT', file, file.name, UserResponse);

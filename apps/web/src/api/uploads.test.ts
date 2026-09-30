@@ -4,7 +4,7 @@ import { ApiError, apiFetch } from './client';
 import { attachmentUploadError, FILE_TOO_LARGE_MESSAGE } from '../lib/attachments';
 import { AVATAR_SIZE_MESSAGE, AVATAR_TYPE_MESSAGE, avatarUploadError } from '../lib/avatar';
 import { errorMessage } from './errors';
-import { parseUploadResponse, uploadAttachment } from './uploads';
+import { deleteAttachment, parseUploadResponse, uploadAttachment } from './uploads';
 
 const attachment = {
   id: '6f1c1a52-8b0a-4c5e-9d43-1f2e3d4c5b6a',
@@ -240,5 +240,31 @@ describe('uploadAttachment', () => {
     const upload = uploadAttachment(new File(['x'], 'a.txt'), { signal: controller.signal });
     controller.abort();
     await expect(upload).rejects.toMatchObject({ name: 'AbortError' });
+  });
+});
+
+describe('deleteAttachment (row 28b)', () => {
+  it('sends DELETE /api/attachments/:id with the CSRF header and no body', async () => {
+    const fetchMock = vi.fn((_url: string, _init: RequestInit) =>
+      Promise.resolve(new Response(null, { status: 204 })),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    await expect(deleteAttachment(attachment.id)).resolves.toBeUndefined();
+    expect(fetchMock).toHaveBeenCalledOnce();
+    const [url, init] = fetchMock.mock.calls[0] ?? [];
+    expect(url).toBe(`/api/attachments/${attachment.id}`);
+    expect(init?.method).toBe('DELETE');
+    expect(init?.body).toBeUndefined();
+    expect(new Headers(init?.headers).get(CSRF_HEADER)).toBe(CSRF_HEADER_VALUE);
+  });
+
+  it('rejects with NOT_FOUND once the upload was sent or is gone', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() =>
+        Promise.resolve(new Response(errorBody('NOT_FOUND', 'Attachment not found'), { status: 404 })),
+      ),
+    );
+    expect((await rejectsApiError(deleteAttachment(attachment.id))).code).toBe('NOT_FOUND');
   });
 });

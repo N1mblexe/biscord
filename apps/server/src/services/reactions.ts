@@ -5,6 +5,7 @@ import { messageReactions, messages } from '../db/schema.js';
 import type { MessageRow, Queryable, UserRow } from '../db/types.js';
 import { AppError } from '../lib/errors.js';
 import { assertCanPost, loadChannelForUser, type ChannelAccess } from './access.js';
+import { rethrowIfGone } from './gone.js';
 
 export interface ReactionChange {
   message: MessageRow;
@@ -37,14 +38,16 @@ async function loadReactableMessage(
 /**
  * CONTRACTS B.4 row 24. Idempotent. A new distinct emoji beyond `LIMITS.distinctReactionsPerMessage` →
  * 409 CONFLICT; the cap is checked under a row lock on the message, so concurrent PUTs can't overshoot it.
+ * The lock also makes a concurrent message/channel delete a 404 (it waits for the delete, then finds no
+ * row); the FK mapping is a backstop (B.9 rule 6).
  */
-export function addReaction(
+export async function addReaction(
   db: Db,
   user: Pick<UserRow, 'id'>,
   messageId: string,
   emoji: string,
 ): Promise<ReactionChange> {
-  return db.transaction(async (tx) => {
+  const change = db.transaction(async (tx) => {
     const { message, access } = await loadReactableMessage(tx, user, messageId, { lock: true });
 
     const present = await tx
@@ -66,6 +69,7 @@ export function addReaction(
       .returning({ messageId: messageReactions.messageId });
     return { message, access, changed: inserted.length > 0 };
   });
+  return change.catch(rethrowIfGone);
 }
 
 /** CONTRACTS B.4 row 25. Idempotent: removing a missing reaction is a no-op. */
