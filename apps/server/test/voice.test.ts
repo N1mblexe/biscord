@@ -12,7 +12,7 @@ import {
 import { eq } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { TokenVerifier, TrackSource } from 'livekit-server-sdk';
-import { afterAll, afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { channels, users as usersTable } from '../src/db/schema.js';
 import type { ChannelRow, UserRow } from '../src/db/types.js';
 import { VOICE_TOKEN_RATE_LIMIT } from '../src/plugins/rate-limit.js';
@@ -47,11 +47,12 @@ let lounge: ChannelRow;
 let games: ChannelRow;
 let general: ChannelRow;
 
-async function setup(env: NodeJS.ProcessEnv = {}): Promise<void> {
+async function setup(env: NodeJS.ProcessEnv = {}, timings?: { voiceRejoinGraceMs: number }): Promise<void> {
   backend = new FakeVoiceBackend();
   app = makeApp({
     env: testEnv({ HEARTH_TEST_MODE: 'true', HEARTH_TEST_TOKEN: TOKEN, ...env }),
     voiceBackend: backend,
+    ...(timings === undefined ? {} : { timings }),
   });
   baseUrl = await listen(app);
   // Let the boot reconcile finish, then forget its calls.
@@ -413,6 +414,114 @@ describe('POST /api/livekit/webhook', () => {
     expect(backend.rooms.get(voiceRoomName(lounge.id))).toMatchObject([{ sid: 'PA_a2' }]);
     expect(await members()).toEqual({ [lounge.id]: [alice] });
   });
+
+  it('a copy of an event whose first delivery fails is handled, not dropped (ids are remembered on success)', async () => {
+    const voice = app.voice.state;
+    const body = webhookBody({
+      event: 'participant_joined',
+      channelId: lounge.id,
+      userId: users.alice.id,
+      sid: 'PA_a1',
+      id: 'EV_retried',
+    });
+    // Hold the queue so both deliveries are in flight together; the first one's handling then fails.
+    let release = (): void => undefined;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const held = voice.exclusive(() => gate);
+    const spy = vi.spyOn(voice, 'participantJoined').mockImplementationOnce(() => {
+      throw new Error('transient failure');
+    });
+    try {
+      const first = postWebhook(app, body);
+      await new Promise((resolve) => setTimeout(resolve, 30));
+      const copy = postWebhook(app, body); // LiveKit's retry, while the first is still being handled
+      await new Promise((resolve) => setTimeout(resolve, 30));
+      release();
+      await held;
+      const [a, b] = await Promise.all([first, copy]);
+      expect([a.statusCode, b.statusCode]).toEqual([500, 200]);
+      expect(await members()).toEqual({ [lounge.id]: [users.alice.id] });
+      // Now it is remembered: a further copy is a no-op.
+      await leave(lounge, 'alice', 'PA_a1');
+      expect((await postWebhook(app, body)).statusCode).toBe(200);
+      expect(await members()).toEqual({});
+    } finally {
+      spy.mockRestore();
+    }
+  });
+});
+
+describe('same-channel LiveKit reconnect (B.9 rule 8)', () => {
+  const GRACE_MS = 300;
+  /** A lost connection (not a deliberate leave): the leave waits out the rejoin grace. */
+  const lost = { disconnectReason: 'SIGNAL_CLOSE' };
+  const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+  beforeEach(async () => {
+    await app.close();
+    await truncateAll();
+    await setup({}, { voiceRejoinGraceMs: GRACE_MS });
+  });
+
+  it('left then joined again within the grace: flags and join time kept, no leave/join broadcast', async () => {
+    const alice = await connect('alice');
+    const carol = await connect('carol');
+    await join(lounge, 'alice', 'PA_a1');
+    const state = { channelId: lounge.id, ...flags, selfMute: true, selfDeaf: true };
+    expect(await sendVoiceState(alice, state)).toEqual({ ok: true, data: null });
+    await carol.waitFor('voice:updated');
+    const before = (await voiceOf())[lounge.id];
+    expect(before).toMatchObject([{ userId: users.alice.id, selfMute: true, selfDeaf: true }]);
+
+    await leave(lounge, 'alice', 'PA_a1', lost);
+    await join(lounge, 'alice', 'PA_a2');
+    await sleep(GRACE_MS * 2);
+    expect((await voiceOf())[lounge.id]).toEqual(before);
+    expect(carol.of('voice:left')).toEqual([]);
+    expect(carol.of('voice:joined')).toHaveLength(1);
+    expect(carol.of('voice:updated')).toHaveLength(1);
+
+    // PA_a2 is the live connection: the old sid's leave is stale, and a deliberate leave ends it at once.
+    await leave(lounge, 'alice', 'PA_a1');
+    expect(await members()).toEqual({ [lounge.id]: [users.alice.id] });
+    await leave(lounge, 'alice', 'PA_a2');
+    expect(await members()).toEqual({});
+    await carol.waitFor('voice:left');
+  });
+
+  it('no rejoin within the grace: still listed meanwhile, then voice:left once it ends', async () => {
+    const carol = await connect('carol');
+    await join(lounge, 'alice', 'PA_a1');
+    await carol.waitFor('voice:joined');
+    await leave(lounge, 'alice', 'PA_a1', lost);
+    expect(await members()).toEqual({ [lounge.id]: [users.alice.id] });
+    expect(carol.of('voice:left')).toEqual([]);
+
+    await carol.waitFor('voice:left');
+    expect(carol.of('voice:left')).toEqual([{ channelId: lounge.id, userId: users.alice.id }]);
+    expect(await members()).toEqual({});
+    // A late join webhook for the dropped sid is stale.
+    await join(lounge, 'alice', 'PA_a1');
+    expect(await members()).toEqual({});
+  });
+
+  it('a lost connection that joins another room leaves the first at once, without a kick', async () => {
+    const carol = await connect('carol');
+    await join(lounge, 'alice', 'PA_a1', { joinedAtMs: Date.now() - 1000 });
+    await leave(lounge, 'alice', 'PA_a1', lost);
+    await join(games, 'alice', 'PA_b1');
+    expect(await members()).toEqual({ [games.id]: [users.alice.id] });
+    await sleep(GRACE_MS * 2);
+    await app.voice.state.exclusive(() => undefined);
+    expect(backend.callsOf('removeParticipant')).toEqual([]);
+    expect(carol.events.map((e) => [e.event, (e.payload as { channelId: string }).channelId])).toEqual([
+      ['voice:joined', lounge.id],
+      ['voice:left', lounge.id],
+      ['voice:joined', games.id],
+    ]);
+  });
 });
 
 describe('voice:state', () => {
@@ -534,6 +643,27 @@ describe('reconcile', () => {
     expect(backend.callsOf('removeParticipant')).toEqual([
       { op: 'removeParticipant', room: voiceRoomName(lounge.id), identity: users.alice.id },
     ]);
+  });
+
+  it('removing a user from an extra room is skipped if they re-joined that room since the listing', async () => {
+    const alice = users.alice.id;
+    const now = Date.now();
+    // LiveKit lists alice in lounge (older connection) and games (newer): lounge is the extra room.
+    backend.put(lounge.id, alice, 'PA_a1', now - 10_000);
+    backend.put(games.id, alice, 'PA_b1', now - 5_000);
+    let injected = false;
+    backend.onCall = async (call) => {
+      if (call.op !== 'listParticipants' || injected) return;
+      injected = true;
+      // Mid-pass (the listing below still shows PA_a1): alice re-joins lounge on a new connection.
+      await join(lounge, 'alice', 'PA_a2', { joinedAtMs: now });
+    };
+    await app.voice.reconciler.runNow();
+    await app.voice.state.exclusive(() => undefined);
+    expect(injected).toBe(true);
+    // removeParticipant(lounge, alice) targets the identity: it would drop the live PA_a2.
+    expect(backend.callsOf('removeParticipant')).toEqual([]);
+    expect(await members()).toEqual({ [lounge.id]: [alice] });
   });
 
   it('memberships changed while LiveKit is being listed are left alone', async () => {

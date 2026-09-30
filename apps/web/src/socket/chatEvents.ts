@@ -18,6 +18,7 @@ import { matchPath } from 'react-router';
 import { meQuery } from '../api/auth';
 import { bootstrapQueryKey } from '../api/chat';
 import { removeChannel, replaceChannels, upsertChannel, upsertDm, upsertUser } from '../lib/bootstrapPatch';
+import { recordBootstrapPatch, type BootstrapPatch } from '../lib/liveState';
 import { catchUpAll, receiveCreated, receiveUpdated, setSocketConnected } from '../lib/messageSync';
 import { maybeNotify } from '../lib/notifications';
 import { useMessageStore } from '../stores/messages';
@@ -27,6 +28,7 @@ import { useReadsStore } from '../stores/reads';
 import { useTypingStore } from '../stores/typing';
 import { useVoiceStore } from '../stores/voice';
 import { isReadingChannel } from '../stores/viewing';
+import { leaveVoiceChannel } from '../voice/session';
 import type { HearthSocket } from './socket';
 
 export interface ChatEventDeps {
@@ -58,7 +60,9 @@ export function registerChatEvents(
   { queryClient, navigate }: ChatEventDeps,
 ): () => void {
   const messages = () => useMessageStore.getState();
-  const patchBootstrap = (fn: (boot: BootstrapResponse) => BootstrapResponse) => {
+  /** Patches the cached bootstrap, and a bootstrap response still in flight once it arrives. */
+  const patchBootstrap = (fn: BootstrapPatch) => {
+    recordBootstrapPatch(fn);
     queryClient.setQueryData<BootstrapResponse>(bootstrapQueryKey, (boot) => (boot ? fn(boot) : boot));
   };
 
@@ -128,6 +132,8 @@ export function registerChatEvents(
       useNoticeStore.getState().setNotice(NOTICES.channelDeleted);
       navigate('/');
     }
+    // Our voice channel: normally `voice:kicked` already took us out, but not while still joining.
+    if (leaveVoiceChannel(channelId)) useNoticeStore.getState().setNotice(NOTICES.voiceChannelDeleted);
     patchBootstrap((boot) => removeChannel(boot, channelId));
     messages().forgetChannel(channelId);
     useReadsStore.getState().forgetChannel(channelId);

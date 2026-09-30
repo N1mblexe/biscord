@@ -15,7 +15,13 @@ import { deleteChannel as deleteChannelRow, findChannel } from './channels.js';
 import { revokeRedeemableInvitesBy } from './invites.js';
 import { voidUnusedResetCodes } from './resetCodes.js';
 import { deleteUserSessions } from './sessions.js';
-import { assertStillAdmin, countActiveUsers, countOtherActiveAdmins, lockUsers } from './users.js';
+import {
+  assertStillAdmin,
+  countActiveUsers,
+  countOtherActiveAdmins,
+  lockStillAdmin,
+  lockUsers,
+} from './users.js';
 
 export interface LifecycleDeps {
   db: Db;
@@ -41,8 +47,16 @@ export interface Lifecycle {
   deactivateUser(actorId: string, targetId: string, log?: FastifyBaseLogger): Promise<void>;
   /** Row 37. Already active → no-op. `USER_LIMIT` at the account cap. Sessions are not restored. */
   reactivateUser(actorId: string, targetId: string): Promise<void>;
-  /** Row 31. `NOT_FOUND` unless the user is in that voice channel; `LIVEKIT_UNAVAILABLE` if LiveKit fails. */
-  disconnectFromVoice(channelId: string, userId: string, log?: FastifyBaseLogger): Promise<void>;
+  /**
+   * Row 31. `NOT_FOUND` unless the user is in that voice channel; `LIVEKIT_UNAVAILABLE` if LiveKit fails;
+   * `FORBIDDEN` if `actorId` is no longer an active admin (B.7b rule 7).
+   */
+  disconnectFromVoice(
+    actorId: string,
+    channelId: string,
+    userId: string,
+    log?: FastifyBaseLogger,
+  ): Promise<void>;
   /**
    * Row 18 (B.7 "delete voice channel" / "delete text channel"). `actorId` must still be an admin in the
    * delete transaction (B.7b rule 7).
@@ -124,7 +138,10 @@ export function createLifecycle(deps: LifecycleDeps): Lifecycle {
       // B.7b rule 2: already deactivated → 204 without events.
       if (result === null) return;
 
-      const membership = voice.membershipOf(targetId);
+      // Read behind the webhooks already received (B.9 rule 8): a join webhook that checked the user before
+      // the commit above adds them before this runs, so they are removed below; one that runs after it
+      // sees the deactivation itself and removes the participant.
+      const membership = await voice.exclusive(() => voice.membershipOf(targetId));
       // Sent while the sockets are still open (after step 2 nobody would hear it); step 2 follows at once.
       if (membership !== null) kickNotice([targetId], membership.channelId, 'deactivated');
 
@@ -173,7 +190,7 @@ export function createLifecycle(deps: LifecycleDeps): Lifecycle {
       if (reactivated !== null) realtime.emitToAll('user:updated', { user: toPublicUser(reactivated) });
     },
 
-    async disconnectFromVoice(rawChannelId, rawUserId, log = deps.log) {
+    async disconnectFromVoice(actorId, rawChannelId, rawUserId, log = deps.log) {
       const channelId = rawChannelId.toLowerCase();
       const userId = rawUserId.toLowerCase();
       const channel = await findChannel(db, channelId);
@@ -184,6 +201,9 @@ export function createLifecycle(deps: LifecycleDeps): Lifecycle {
       if (livekitHealth.cached() === 'down') {
         throw new AppError('LIVEKIT_UNAVAILABLE', 'Voice server unavailable');
       }
+      // B.7b rule 7: `requireAdmin` checked the actor when the request arrived; a demotion or deactivation
+      // may have committed since (the shared users lock waits for one in progress).
+      await db.transaction((tx) => lockStillAdmin(tx, actorId));
       // The reason first, so the client shows a notice instead of treating the drop as a network error.
       kickNotice([userId], channel.id, 'admin');
       try {

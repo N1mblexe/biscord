@@ -56,8 +56,10 @@ export type LocalVideoKind = 'camera' | 'screen';
 
 export interface VoiceControllerDeps<P = unknown> {
   room: VoiceRoomPort<P>;
-  /** Row 29. */
-  fetchToken: (channelId: string) => Promise<VoiceTokenResponse>;
+  /** Row 29; `signal` aborts it (timed out, or overtaken by another join or a leave). */
+  fetchToken: (channelId: string, signal: AbortSignal) => Promise<VoiceTokenResponse>;
+  /** How long a join waits for its token before giving up (default `VOICE_TOKEN_TIMEOUT_MS`). */
+  tokenTimeoutMs?: number;
   /** Emits `voice:state` (best-effort). */
   sendState: (payload: VoiceStatePayload) => void;
   /** Shows a message to the user (join failed, mic unavailable, dropped from voice). */
@@ -95,8 +97,12 @@ export interface VoiceController {
   onDisconnected: () => void;
 }
 
+/** A join gives up on a token request that hasn't answered by then. */
+export const VOICE_TOKEN_TIMEOUT_MS = 10_000;
+
 export const VOICE_MESSAGES = {
   joinFailed: "Couldn't join the voice channel. Try again.",
+  joinTimedOut: 'The voice server took too long to answer. Try joining again.',
   micUnavailable: 'Microphone unavailable: check the browser permission. You joined muted.',
   dropped: 'You were disconnected from voice.',
   cameraBlocked: 'Camera is unavailable or blocked',
@@ -112,20 +118,46 @@ function isLive(): boolean {
   return state === 'connected' || state === 'reconnecting';
 }
 
+class TokenTimeout extends Error {}
+
 /**
- * One voice session at a time (CONTRACTS B.6a rule 5): join = fetch token → leave the old room →
- * connect → enable the mic (unless muted) → send `voice:state`. Every join or leave bumps a
- * generation, so a join overtaken by another join or a leave stops at its next step (the newer
- * operation owns the room from then on).
+ * One voice session at a time (CONTRACTS B.6a rule 5): join = leave the old room (at once, while
+ * the token is fetched: its mic, camera and screen stop the moment the UI shows the switch) →
+ * fetch token (with a timeout) → connect → enable the mic (unless muted) → send `voice:state`.
+ * Every join or leave bumps a generation, so a join overtaken by another join or a leave stops at
+ * its next step (the newer operation owns the room from then on).
  */
 export function createVoiceController<P>({
   room,
   fetchToken,
+  tokenTimeoutMs = VOICE_TOKEN_TIMEOUT_MS,
   sendState,
   notify,
   alert,
 }: VoiceControllerDeps<P>): VoiceController {
   let generation = 0;
+  /** Aborts the token request of the join in progress (a newer join or a leave supersedes it). */
+  let abortToken: (() => void) | null = null;
+
+  /** The token, or a rejection (`TokenTimeout` after `tokenTimeoutMs`, even if the request ignores its signal). */
+  const requestToken = (channelId: string): Promise<VoiceTokenResponse> => {
+    const controller = new AbortController();
+    abortToken?.();
+    abortToken = () => {
+      controller.abort();
+    };
+    return new Promise<VoiceTokenResponse>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        reject(new TokenTimeout());
+        controller.abort();
+      }, tokenTimeoutMs);
+      fetchToken(channelId, controller.signal)
+        .then(resolve, reject)
+        .finally(() => {
+          clearTimeout(timer);
+        });
+    });
+  };
   /** Mic changes run one at a time, each applying the latest desired state. */
   let micQueue: Promise<void> = Promise.resolve();
 
@@ -256,7 +288,7 @@ export function createVoiceController<P>({
     send();
   };
 
-  const fail = async (gen: number) => {
+  const fail = async (gen: number, message: string = VOICE_MESSAGES.joinFailed) => {
     if (gen !== generation) return;
     generation += 1;
     session().set({
@@ -267,7 +299,7 @@ export function createVoiceController<P>({
       levelSpeaking: {},
       ...MEDIA_OFF,
     });
-    notify(VOICE_MESSAGES.joinFailed);
+    notify(message);
     await room.disconnect().catch(() => undefined);
   };
 
@@ -286,18 +318,22 @@ export function createVoiceController<P>({
         ...MEDIA_OFF,
       });
 
+      // Leave the old room now (one voice channel at a time), while the token is fetched: from the
+      // moment the UI shows the switch, nothing of ours (mic, camera, screen) stays live in it. A
+      // mute or deafen meanwhile only changes local state, applied when the new room connects.
+      const leaving = room.disconnect().catch(() => undefined);
+
       let token: VoiceTokenResponse;
       try {
-        token = await fetchToken(channelId);
-      } catch {
-        await fail(gen);
+        token = await requestToken(channelId);
+      } catch (err) {
+        await leaving;
+        await fail(gen, err instanceof TokenTimeout ? VOICE_MESSAGES.joinTimedOut : undefined);
         return;
       }
+      await leaving;
       if (gen !== generation) return;
-
-      // Leave the old room before joining the new one (one voice channel at a time).
-      await room.disconnect().catch(() => undefined);
-      if (gen !== generation) return;
+      abortToken = null;
       session().set({ roomName: token.roomName });
 
       try {
@@ -314,6 +350,8 @@ export function createVoiceController<P>({
 
     leave: async () => {
       generation += 1;
+      abortToken?.();
+      abortToken = null;
       session().set({
         channelId: null,
         roomName: null,

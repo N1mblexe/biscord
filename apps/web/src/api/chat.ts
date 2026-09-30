@@ -14,17 +14,23 @@ import {
   type ReadState,
 } from '@hearth/shared';
 import { queryOptions } from '@tanstack/react-query';
-import { applyLiveSnapshot, beginLiveSnapshot } from '../lib/liveState';
+import { applyLiveSnapshot, beginLiveSnapshot, endLiveSnapshot } from '../lib/liveState';
 import { apiFetch } from './client';
 
 export const bootstrapQueryKey = ['bootstrap'] as const;
 
-/** GET /bootstrap; its presence and read states also seed the live stores (lib/liveState.ts). */
+/**
+ * GET /bootstrap; its presence, read states and voice also seed the live stores, and the socket
+ * events that arrived while it was in flight are replayed on top of it (lib/liveState.ts).
+ */
 async function fetchBootstrap(signal: AbortSignal): Promise<BootstrapResponse> {
   const mark = beginLiveSnapshot();
-  const boot = await apiFetch('/bootstrap', { schema: BootstrapResponse, signal });
-  applyLiveSnapshot(boot, mark);
-  return boot;
+  try {
+    const boot = await apiFetch('/bootstrap', { schema: BootstrapResponse, signal });
+    return applyLiveSnapshot(boot, mark);
+  } finally {
+    endLiveSnapshot(mark);
+  }
 }
 
 /**

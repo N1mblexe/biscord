@@ -555,6 +555,13 @@ Reconnect protocol: on every `connect`, the client refetches `GET /bootstrap`, p
 6. **Messages:** sending to (or reacting in) a channel that was deleted concurrently returns `404 NOT_FOUND`, never 500. Deleting or editing a message that changes someone's unread/mention state sends that user a fresh `readstate:updated`.
 7. **Uploads:** the `UPLOAD_QUOTA` check is enforced atomically (per-user lock) so concurrent uploads can't overshoot it; the client deletes an unattached upload (row 28b) when its chip is removed or the composer unmounts.
 8. **Voice:** the voice reconcile never kicks a connection whose sid differs from the one it listed; a same-channel LiveKit reconnect (left then joined within a short grace) keeps the participant's mute/deafen flags and doesn't broadcast a leave/join flicker; a deactivation racing a join webhook still removes the user.
+   - Settled in implementation:
+     - The rejoin grace is 5 s. It applies to a `participant_left` / `participant_connection_aborted` whose `disconnectReason` is not `CLIENT_INITIATED`, `PARTICIPANT_REMOVED`, `ROOM_DELETED` or `ROOM_CLOSED` (those end the membership at once). During the grace the user stays listed; a join in the same room keeps flags and join time with no event; a join in another room ends the old membership at once (`voice:left`), without a kick; otherwise `voice:left` follows when the grace ends.
+     - The reconcile's `removeParticipant` for an extra room is queued behind the webhooks received so far and skipped if the user is by then in that room on another sid (deactivated users are always removed).
+     - Deactivation reads the user's voice membership behind the webhooks already received, after its commit.
+     - Webhook ids (B.6a rule 3) are remembered only once handled successfully; a copy that arrives while the first is in flight waits for it and handles the event itself if the first failed.
+     - Row 31 (admin voice disconnect) re-checks, under the shared users lock, that the actor is still an active admin (B.7b rule 7).
+     - Web: switching voice channels leaves the old room at once, in parallel with the token request (10 s timeout, then a failure notice); a `RATE_LIMITED` ack for `voice:state` re-sends the current state after `retryAfterMs`; `channel:deleted` for the channel the tab is in or joining leaves voice with a notice; socket events that patch the cached bootstrap are replayed on top of a bootstrap response requested before them, and a deleted voice channel's participants are tombstoned against an older snapshot.
 
 ### B.8 Runtime topology (ports, URLs, env)
 

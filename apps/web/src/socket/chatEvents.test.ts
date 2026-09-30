@@ -1,13 +1,16 @@
 import type { BootstrapResponse, Message } from '@hearth/shared';
 import { QueryClient } from '@tanstack/react-query';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { bootstrapQueryKey } from '../api/chat';
+import { bootstrapQuery, bootstrapQueryKey } from '../api/chat';
 import { setSocketConnected } from '../lib/messageSync';
 import { useMessageStore } from '../stores/messages';
+import { NOTICES, useNoticeStore } from '../stores/notice';
 import { usePresenceStore } from '../stores/presence';
 import { unreadSummary, useReadsStore } from '../stores/reads';
 import { useTypingStore } from '../stores/typing';
 import { useViewingStore } from '../stores/viewing';
+import { useVoiceStore } from '../stores/voice';
+import { registerVoiceLeave, useVoiceSession } from '../voice/session';
 import { registerChatEvents } from './chatEvents';
 import type { HearthSocket } from './socket';
 
@@ -226,5 +229,116 @@ describe('registerChatEvents (phase 4 events)', () => {
     fake.fire('message:created', { message: msg(3, { authorId: ME, mentionUserIds: [ME] }) });
     expect(shown).toEqual([{ title: 'Alice in #general', body: '@bob look' }]);
     unregister();
+  });
+});
+
+describe('a bootstrap requested before a socket event but answered after it (stale snapshot)', () => {
+  const ME = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+  const OTHER = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+  const VOICE = '44444444-4444-4444-8444-444444444444';
+  const DM = '55555555-5555-4555-8555-555555555555';
+  const person = (id: string, displayName: string) => ({
+    id,
+    username: displayName.toLowerCase(),
+    displayName,
+    avatarUrl: null,
+    role: 'member' as const,
+    deactivated: false,
+  });
+  const participant = {
+    userId: OTHER,
+    joinedAt: '2026-09-29T10:00:00.000Z',
+    selfMute: false,
+    selfDeaf: false,
+    camera: false,
+    screen: false,
+  };
+  /** What the server answers: its state from before the events below. */
+  const stale: BootstrapResponse = {
+    me: { ...person(ME, 'Bob'), createdAt: '2026-09-28T10:00:00.000Z' },
+    users: [person(ME, 'Bob'), person(OTHER, 'Alice')],
+    channels: [
+      { id: CH, type: 'text', name: 'general', position: 0 },
+      { id: VOICE, type: 'voice', name: 'lounge', position: 1 },
+    ],
+    dms: [],
+    readStates: [],
+    voice: { [VOICE]: [participant] },
+    onlineUserIds: [],
+    livekitUrl: 'ws://localhost:7880',
+  };
+
+  /** Registers the events and starts a bootstrap fetch whose response the test releases. */
+  async function setup() {
+    let respond = (): void => undefined;
+    const answered = new Promise<void>((resolve) => {
+      respond = resolve;
+    });
+    const fetchSpy = vi.fn(async () => {
+      await answered;
+      return new Response(JSON.stringify(stale), { status: 200 });
+    });
+    vi.stubGlobal('fetch', fetchSpy);
+    const queryClient = new QueryClient();
+    const { fake, socket } = fakeSocket();
+    const unregister = registerChatEvents(socket, { queryClient, navigate: vi.fn() });
+    const fetching = queryClient.query(bootstrapQuery);
+    await vi.waitFor(() => {
+      expect(fetchSpy).toHaveBeenCalled();
+    });
+    const cached = () => queryClient.getQueryData<BootstrapResponse>(bootstrapQueryKey);
+    return { fake, unregister, fetching, cached, respond };
+  }
+
+  beforeEach(() => {
+    useVoiceStore.getState().reset();
+  });
+
+  it('channel:deleted is not undone, nor are its voice participants brought back', async () => {
+    const t = await setup();
+    t.fake.fire('channel:deleted', { channelId: VOICE });
+    t.respond();
+    await t.fetching;
+    expect(t.cached()?.channels.map((c) => c.id)).toEqual([CH]);
+    expect(useVoiceStore.getState().byChannel[VOICE]).toBeUndefined();
+    t.unregister();
+  });
+
+  it('channel:updated, user:updated and dm:created survive the older response', async () => {
+    const t = await setup();
+    t.fake.fire('channel:updated', { channel: { id: CH, type: 'text', name: 'renamed', position: 0 } });
+    t.fake.fire('user:updated', { user: person(OTHER, 'Alicia') });
+    t.fake.fire('dm:created', { channel: { id: DM, type: 'dm', otherUserId: OTHER } });
+    t.respond();
+    await t.fetching;
+    const boot = t.cached();
+    expect(boot?.channels.find((c) => c.id === CH)?.name).toBe('renamed');
+    expect(boot?.users.find((u) => u.id === OTHER)?.displayName).toBe('Alicia');
+    expect(boot?.dms).toEqual([{ id: DM, type: 'dm', otherUserId: OTHER }]);
+    t.unregister();
+  });
+});
+
+describe('channel:deleted for our own voice channel', () => {
+  const VOICE = '44444444-4444-4444-8444-444444444444';
+
+  afterEach(() => {
+    useVoiceSession.getState().reset();
+    useNoticeStore.getState().clearNotice();
+  });
+
+  it('leaves voice (even while still joining, when no voice:kicked came) and says why', () => {
+    const leave = vi.fn();
+    const unregisterLeave = registerVoiceLeave(leave);
+    useVoiceSession.getState().set({ channelId: VOICE, state: 'connecting' });
+    const { fake, socket } = fakeSocket();
+    const unregister = registerChatEvents(socket, { queryClient: new QueryClient(), navigate: vi.fn() });
+    fake.fire('channel:deleted', { channelId: CH });
+    expect(leave).not.toHaveBeenCalled();
+    fake.fire('channel:deleted', { channelId: VOICE });
+    expect(leave).toHaveBeenCalledTimes(1);
+    expect(useNoticeStore.getState().notice).toBe(NOTICES.voiceChannelDeleted);
+    unregister();
+    unregisterLeave();
   });
 });

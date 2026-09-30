@@ -147,11 +147,11 @@ beforeEach(() => {
 });
 
 describe('voice controller', () => {
-  it('joins: token → leave any old room → connect → mic on → voice:state', async () => {
+  it('joins: leave any old room (with the token request) → connect → mic on → voice:state', async () => {
     const { controller, log, sent } = harness();
     await controller.join(LOUNGE);
     await flush();
-    expect(log).toEqual([`token ${LOUNGE}`, 'disconnect', `connect jwt-${LOUNGE}`, 'mic on']);
+    expect(log).toEqual(['disconnect', `token ${LOUNGE}`, `connect jwt-${LOUNGE}`, 'mic on']);
     expect(session()).toMatchObject({ channelId: LOUNGE, roomName: `voice_${LOUNGE}`, state: 'connected' });
     expect(sent).toEqual([
       { channelId: LOUNGE, selfMute: false, selfDeaf: false, camera: false, screen: false },
@@ -165,9 +165,80 @@ describe('voice controller', () => {
     log.length = 0;
     await controller.join(GAMES);
     await flush();
-    expect(log).toEqual([`token ${GAMES}`, 'disconnect', `connect jwt-${GAMES}`, 'mic on']);
+    expect(log).toEqual(['disconnect', `token ${GAMES}`, `connect jwt-${GAMES}`, 'mic on']);
     expect(session()).toMatchObject({ channelId: GAMES, state: 'connected' });
     expect(sent.at(-1)?.channelId).toBe(GAMES);
+  });
+
+  it('switching channels takes our mic, camera and screen out of the old room at once, not after the token', async () => {
+    const pending = deferred<VoiceTokenResponse>();
+    let hang = false;
+    const h = harness({
+      fetchToken: (channelId) => {
+        h.log.push(`token ${channelId}`);
+        return hang ? pending.promise : Promise.resolve(token(channelId));
+      },
+    });
+    await h.controller.join(LOUNGE);
+    h.controller.toggleCamera();
+    h.controller.toggleScreen();
+    await flush();
+    expect(h.published).toEqual({ camera: true, screen: true });
+    h.log.length = 0;
+
+    // The token for the new room hangs: the old room is left anyway.
+    hang = true;
+    void h.controller.join(GAMES);
+    expect(h.log).toEqual(['disconnect', `token ${GAMES}`]);
+    expect(h.published).toEqual({ camera: false, screen: false });
+    expect(session()).toMatchObject({ channelId: GAMES, state: 'connecting', camera: 'off', screen: 'off' });
+    // A mute while connecting is local only: nothing is live to apply it to.
+    h.controller.toggleMute();
+    await flush();
+    expect(h.log).toEqual(['disconnect', `token ${GAMES}`]);
+
+    pending.resolve(token(GAMES));
+    await flush();
+    expect(h.log.slice(2)).toEqual([`connect jwt-${GAMES}`, 'mic off']);
+    expect(h.sent.at(-1)).toMatchObject({ channelId: GAMES, selfMute: true, camera: false, screen: false });
+  });
+
+  it('a token request that never answers times out: aborted, out of voice with a clear message', async () => {
+    let signal: AbortSignal | undefined;
+    const { controller, log, notices } = harness({
+      tokenTimeoutMs: 20,
+      fetchToken: (_channelId, s) => {
+        signal = s;
+        return new Promise(() => undefined); // hangs, ignoring the signal
+      },
+    });
+    const joining = controller.join(LOUNGE);
+    expect(session().state).toBe('connecting');
+    await joining;
+    expect(signal?.aborted).toBe(true);
+    expect(session()).toMatchObject({ channelId: null, state: 'disconnected' });
+    expect(notices).toEqual([VOICE_MESSAGES.joinTimedOut]);
+    expect(log.filter((l) => l.startsWith('connect'))).toEqual([]);
+  });
+
+  it('a join overtaken by a leave aborts its token request, quietly', async () => {
+    let signal: AbortSignal | undefined;
+    const pending = deferred<VoiceTokenResponse>();
+    const { controller, notices } = harness({
+      fetchToken: (_channelId, s) => {
+        signal = s;
+        s.addEventListener('abort', () => {
+          pending.reject(new DOMException('aborted', 'AbortError'));
+        });
+        return pending.promise;
+      },
+    });
+    const joining = controller.join(LOUNGE);
+    await controller.leave();
+    await joining;
+    expect(signal?.aborted).toBe(true);
+    expect(session()).toMatchObject({ channelId: null, state: 'disconnected' });
+    expect(notices).toEqual([]);
   });
 
   it('joining the channel we are in is a no-op', async () => {
@@ -178,27 +249,31 @@ describe('voice controller', () => {
     expect(log).toEqual([]);
   });
 
-  it('a join overtaken by another join stops before touching the room', async () => {
+  it('a join overtaken by another join stops before connecting (its token request is aborted)', async () => {
     const tokens = new Map<string, Deferred<VoiceTokenResponse>>();
+    const signals = new Map<string, AbortSignal>();
     const { controller, log } = harness({
-      fetchToken: (channelId) => {
+      fetchToken: (channelId, signal) => {
         log.push(`token ${channelId}`);
         const d = deferred<VoiceTokenResponse>();
         tokens.set(channelId, d);
+        signals.set(channelId, signal);
         return d.promise;
       },
     });
     const first = controller.join(LOUNGE);
     const second = controller.join(GAMES);
+    expect(signals.get(LOUNGE)?.aborted).toBe(true);
     tokens.get(GAMES)?.resolve(token(GAMES));
     await second;
     tokens.get(LOUNGE)?.resolve(token(LOUNGE));
     await first;
     await flush();
     expect(log).toEqual([
-      `token ${LOUNGE}`,
-      `token ${GAMES}`,
       'disconnect',
+      `token ${LOUNGE}`,
+      'disconnect',
+      `token ${GAMES}`,
       `connect jwt-${GAMES}`,
       'mic on',
     ]);

@@ -26,6 +26,11 @@ export interface VoiceParticipantsState {
   seq: number;
   /** The last event per `channelId:userId`, with its sequence number (for snapshot replay). */
   lastEvent: Record<string, { seq: number; event: VoiceEvent }>;
+  /**
+   * Tombstones: deleted channel id → the sequence number of its `forgetChannel`, so a snapshot
+   * requested before the delete can't bring its participants back.
+   */
+  forgotten: Record<string, number>;
 
   /** A `voice:*` event. */
   apply: (event: VoiceEvent) => void;
@@ -105,10 +110,19 @@ function eventKey(event: VoiceEvent): string {
   return `${event.channelId}:${userId}`;
 }
 
+function withoutChannel(byChannel: ByChannel, channelId: string): ByChannel {
+  if (!(channelId in byChannel)) return byChannel;
+  const next = { ...byChannel };
+  // eslint-disable-next-line @typescript-eslint/no-dynamic-delete -- a record keyed by channel id
+  delete next[channelId];
+  return next;
+}
+
 const initialState = {
   byChannel: {} as ByChannel,
   seq: 0,
   lastEvent: {} as Record<string, { seq: number; event: VoiceEvent }>,
+  forgotten: {} as Record<string, number>,
 };
 
 export const useVoiceStore = create<VoiceParticipantsState>()((set) => ({
@@ -128,21 +142,32 @@ export const useVoiceStore = create<VoiceParticipantsState>()((set) => ({
   applySnapshot: (voice, sinceSeq) => {
     set((state) => {
       let byChannel = snapshotToByChannel(voice);
-      const newer = Object.values(state.lastEvent)
+      // Events and channel deletions since the request started, replayed in order.
+      const newer: { seq: number; apply: (b: ByChannel) => ByChannel }[] = [
+        ...Object.values(state.lastEvent).map(({ seq, event }) => ({
+          seq,
+          apply: (b: ByChannel) => reduceVoice(b, event),
+        })),
+        ...Object.entries(state.forgotten).map(([channelId, seq]) => ({
+          seq,
+          apply: (b: ByChannel) => withoutChannel(b, channelId),
+        })),
+      ]
         .filter((e) => e.seq > sinceSeq)
         .sort((a, b) => a.seq - b.seq);
-      for (const { event } of newer) byChannel = reduceVoice(byChannel, event);
+      for (const { apply } of newer) byChannel = apply(byChannel);
       return { byChannel };
     });
   },
 
   forgetChannel: (channelId) => {
     set((state) => {
-      if (!(channelId in state.byChannel)) return state;
-      const byChannel = { ...state.byChannel };
-      // eslint-disable-next-line @typescript-eslint/no-dynamic-delete -- a record keyed by channel id
-      delete byChannel[channelId];
-      return { byChannel };
+      const seq = state.seq + 1;
+      return {
+        seq,
+        forgotten: { ...state.forgotten, [channelId]: seq },
+        byChannel: withoutChannel(state.byChannel, channelId),
+      };
     });
   },
 

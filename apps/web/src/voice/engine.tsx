@@ -1,4 +1,4 @@
-import type { VoiceStatePayload } from '@hearth/shared';
+import type { Ack, VoiceStatePayload } from '@hearth/shared';
 import { RoomAudioRenderer } from '@livekit/components-react';
 import { useQuery } from '@tanstack/react-query';
 import {
@@ -27,6 +27,7 @@ import { voiceDebug } from './debug';
 import { publishedVideo, screenPublications, unpublishAndStop, watchLocalVideo } from './localVideo';
 import { useVoiceSession } from './session';
 import { energySample, SpeakingMeter } from './speakingMeter';
+import { createVoiceStateSender } from './stateSender';
 import { useVolumeStore, volumeFor } from './volume';
 
 /**
@@ -76,27 +77,32 @@ function sameKeys(a: Record<string, true>, ids: readonly string[]): boolean {
   return keys.length === ids.length && ids.every((id) => a[id] === true);
 }
 
-/**
- * `voice:state` sender: only while the socket is connected (a buffered event would arrive stale;
- * the bootstrap after a reconnect triggers a re-sync instead), and never the same payload twice
- * while one is awaiting its ack.
- */
-function voiceStateSender(socket: HearthSocket): (payload: VoiceStatePayload) => void {
-  let inflight: string | null = null;
-  return (payload) => {
-    if (!socket.connected) return;
-    const key = JSON.stringify(payload);
-    if (key === inflight) return;
-    inflight = key;
-    socket.timeout(VOICE_STATE_ACK_TIMEOUT_MS).emit('voice:state', payload, () => {
-      if (inflight === key) inflight = null;
-    });
-  };
+/** `voice:state` over the socket (voice/stateSender.ts); `resend` re-sends after a rate limit. */
+function voiceStateSender(socket: HearthSocket, resend: () => void): (payload: VoiceStatePayload) => void {
+  return createVoiceStateSender(
+    {
+      connected: () => socket.connected,
+      emit: (payload, ack) => {
+        // Socket.IO passes `null` as `err` on an ack (its type says `Error`), an Error on a timeout.
+        socket
+          .timeout(VOICE_STATE_ACK_TIMEOUT_MS)
+          .emit('voice:state', payload, (err: Error | null, res: Ack<null> | undefined) => {
+            ack(err === null ? res : undefined);
+          });
+      },
+    },
+    resend,
+  );
 }
 
 function createController(room: Room, socket: HearthSocket): VoiceController {
   const lp = () => room.localParticipant;
-  return createVoiceController<LocalTrackPublication>({
+  // The sender's rate-limit retry re-sends the controller's current state (created just below).
+  let controller: VoiceController | null = null;
+  const sendState = voiceStateSender(socket, () => {
+    controller?.syncState();
+  });
+  controller = createVoiceController<LocalTrackPublication>({
     room: {
       connect: (url, token) => room.connect(url, token),
       disconnect: () => room.disconnect(),
@@ -136,8 +142,8 @@ function createController(room: Room, socket: HearthSocket): VoiceController {
       unpublish: (published) => unpublishAndStop(room, published),
       publishedVideo: () => publishedVideo(room),
     },
-    fetchToken: (channelId) => fetchVoiceToken(channelId),
-    sendState: voiceStateSender(socket),
+    fetchToken: (channelId, signal) => fetchVoiceToken(channelId, signal),
+    sendState,
     notify: (message) => {
       useNoticeStore.getState().setNotice(message);
     },
@@ -145,6 +151,7 @@ function createController(room: Room, socket: HearthSocket): VoiceController {
       usePageAlertStore.getState().show(message);
     },
   });
+  return controller;
 }
 
 export interface VoiceEngine {

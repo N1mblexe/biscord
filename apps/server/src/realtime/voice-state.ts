@@ -16,6 +16,12 @@ export const WEBHOOK_ID_CACHE_SIZE = 1000;
 export const VOICE_STATE_BUCKET_MAX = 20;
 export const VOICE_STATE_BUCKET_WINDOW_MS = 5_000;
 
+/**
+ * B.9 rule 8: a `participant_left` caused by a lost connection is applied only after this grace; a join of
+ * the same user in the same room within it is a reconnect (same membership and flags, no leave/join).
+ */
+export const VOICE_REJOIN_GRACE_MS = 5_000;
+
 /** Which of camera / screen share a participant publishes, according to LiveKit (B.6b rule 1). */
 export interface PublishedMedia {
   camera: boolean;
@@ -89,17 +95,25 @@ class BoundedMap<V> {
 export interface VoiceState {
   /** Runs `fn` after every earlier `exclusive` task has settled; tasks never overlap. */
   exclusive<T>(fn: () => T | Promise<T>): Promise<T>;
-  /** Marks a webhook event id as seen; false if it was already (a duplicate). Empty ids always pass. */
-  claimEvent(id: string): boolean;
-  /** Forgets a claimed id whose handling failed, so LiveKit's retry is processed. */
-  releaseEvent(id: string): void;
+  /**
+   * Runs `apply` for webhook event `id` unless that id was already applied successfully ('duplicate').
+   * An id is remembered only once its handling succeeded: a copy arriving while the first is still being
+   * handled waits for it, and handles the event itself if the first failed (so a retry that LiveKit got
+   * a 200 for is never lost). A failure rejects. Empty ids always run.
+   */
+  processEvent(id: string, apply: () => Promise<void>): Promise<'applied' | 'duplicate'>;
   /**
    * `participant_joined`. A stale join (its sid already left) is ignored. If the user is in another channel,
    * the most recent join wins: the other room gets a `removeParticipant` (B.6a rule 5).
    */
   participantJoined(channelId: string, participant: ObservedParticipant): void;
-  /** `participant_left` / `participant_connection_aborted`; ignored unless `sid` is the current connection. */
-  participantLeft(channelId: string, userId: string, sid: string): void;
+  /**
+   * `participant_left` / `participant_connection_aborted`; ignored unless `sid` is the current connection.
+   * With `graceful` (a lost connection, not a deliberate leave or a removal) the leave is applied only
+   * after the rejoin grace (B.9 rule 8): until then the user stays listed with their flags, and a join of
+   * the same user in the same room within it continues the membership without any broadcast.
+   */
+  participantLeft(channelId: string, userId: string, sid: string, graceful?: boolean): void;
   /** `room_finished`: everyone in the channel leaves. */
   roomFinished(channelId: string): void;
   /**
@@ -128,15 +142,30 @@ export interface VoiceState {
   forgetChannel(channelId: string): void;
   /** Forgets everything, including the webhook id cache, without emitting (test reset). */
   clear(): void;
+  /** Cancels pending grace timers (app shutdown). */
+  close(): void;
 }
 
 export interface VoiceStateDeps {
   realtime: Realtime;
   backend: VoiceBackend;
   log: FastifyBaseLogger;
+  /** Default `VOICE_REJOIN_GRACE_MS`; tests shorten it. */
+  rejoinGraceMs?: number;
 }
 
-export function createVoiceState({ realtime, backend, log }: VoiceStateDeps): VoiceState {
+/** A graceful leave waiting out the rejoin grace. */
+interface PendingLeave {
+  sid: string;
+  timer: NodeJS.Timeout;
+}
+
+export function createVoiceState({
+  realtime,
+  backend,
+  log,
+  rejoinGraceMs = VOICE_REJOIN_GRACE_MS,
+}: VoiceStateDeps): VoiceState {
   /** channel id → user id → entry. */
   const rooms = new Map<string, Map<string, Entry>>();
   /** user id → the channel id they are in (the one-channel rule keeps this a function). */
@@ -144,6 +173,10 @@ export function createVoiceState({ realtime, backend, log }: VoiceStateDeps): Vo
   /** user id → the last `voice:state` they sent. */
   const clientStates = new Map<string, StoredClientState>();
   const seenEvents = new BoundedMap<true>(WEBHOOK_ID_CACHE_SIZE);
+  /** Webhook event id → its handling in progress (copies wait for it). */
+  const eventsInFlight = new Map<string, Promise<void>>();
+  /** user id → a graceful leave waiting out the rejoin grace (the user is still listed meanwhile). */
+  const pendingLeaves = new Map<string, PendingLeave>();
   /**
    * Tombstones: sid → the mutation counter when it was marked as left (or superseded). A sid never
    * reconnects, so a later join webhook for one is stale. Reconcile only honours tombstones newer than its
@@ -165,6 +198,15 @@ export function createVoiceState({ realtime, backend, log }: VoiceStateDeps): Vo
   };
 
   const entryOf = (channelId: string, userId: string): Entry | undefined => rooms.get(channelId)?.get(userId);
+
+  /** Drops the user's pending graceful leave, if any; true if there was one. */
+  const cancelPendingLeave = (userId: string): boolean => {
+    const pending = pendingLeaves.get(userId);
+    if (pending === undefined) return false;
+    clearTimeout(pending.timer);
+    pendingLeaves.delete(userId);
+    return true;
+  };
 
   /** The user's stored `voice:state`, if it is about `channelId`. */
   const storedFor = (userId: string, channelId: string): StoredClientState | undefined => {
@@ -237,6 +279,7 @@ export function createVoiceState({ realtime, backend, log }: VoiceStateDeps): Vo
     const room = rooms.get(channelId);
     const entry = room?.get(userId);
     if (room === undefined || entry === undefined) return;
+    cancelPendingLeave(userId);
     room.delete(userId);
     if (room.size === 0) rooms.delete(channelId);
     if (userChannel.get(userId) === channelId) userChannel.delete(userId);
@@ -272,15 +315,27 @@ export function createVoiceState({ realtime, backend, log }: VoiceStateDeps): Vo
   return {
     exclusive,
 
-    claimEvent(id) {
-      if (id === '') return true;
-      if (seenEvents.has(id)) return false;
-      seenEvents.set(id, true);
-      return true;
-    },
-
-    releaseEvent(id) {
-      seenEvents.delete(id);
+    async processEvent(id, apply) {
+      if (id === '') {
+        await apply();
+        return 'applied';
+      }
+      for (;;) {
+        if (seenEvents.has(id)) return 'duplicate';
+        const running = eventsInFlight.get(id);
+        if (running === undefined) break;
+        // A copy is being handled: wait; then either it succeeded (duplicate) or we handle the event.
+        await running.catch(() => undefined);
+      }
+      const run = apply();
+      eventsInFlight.set(id, run);
+      try {
+        await run;
+        seenEvents.set(id, true);
+        return 'applied';
+      } finally {
+        if (eventsInFlight.get(id) === run) eventsInFlight.delete(id);
+      }
     },
 
     participantJoined(channelId, observed) {
@@ -289,6 +344,15 @@ export function createVoiceState({ realtime, backend, log }: VoiceStateDeps): Vo
       if (currentChannel === channelId) {
         const entry = entryOf(channelId, observed.userId);
         if (entry === undefined || entry.sid === observed.sid) return;
+        if (cancelPendingLeave(observed.userId)) {
+          // B.9 rule 8: the same user back in the same room within the rejoin grace (a LiveKit
+          // reconnect). The membership continues with its flags and join time; nobody saw it end, so
+          // nothing is broadcast. (The old sid was tombstoned when it left.)
+          seq += 1;
+          entry.sid = observed.sid;
+          entry.seq = seq;
+          return;
+        }
         if (observed.joinedAt.getTime() < Date.parse(entry.participant.joinedAt)) {
           // An out-of-order (older) join of a connection LiveKit has since replaced: stale. Tombstone it so
           // its `participant_left` can't remove the live one. No kick: that would target the identity.
@@ -312,17 +376,39 @@ export function createVoiceState({ realtime, backend, log }: VoiceStateDeps): Vo
           kick(channelId, observed.userId, observed.sid);
           return;
         }
-        // B.6a rule 5: one voice channel at a time; the newest join wins.
+        // B.6a rule 5: one voice channel at a time; the newest join wins. A connection that already
+        // left (its leave waiting out the rejoin grace) needs no kick.
+        const alreadyLeft = pendingLeaves.has(observed.userId);
         remove(currentChannel, observed.userId);
-        kick(currentChannel, observed.userId, other?.sid);
+        if (!alreadyLeft) kick(currentChannel, observed.userId, other?.sid);
       }
       add(channelId, observed);
     },
 
-    participantLeft(channelId, userId, sid) {
+    participantLeft(channelId, userId, sid, graceful = false) {
       const entry = entryOf(channelId, userId);
-      if (entry !== undefined && entry.sid === sid) remove(channelId, userId);
-      else tombstone(sid);
+      if (entry?.sid !== sid) {
+        tombstone(sid);
+        return;
+      }
+      const pending = pendingLeaves.get(userId);
+      if (!graceful || rejoinGraceMs <= 0) {
+        remove(channelId, userId);
+        return;
+      }
+      if (pending?.sid === sid) return;
+      // The sid is gone for good (a later join webhook for it is stale), but the membership stays listed,
+      // flags and all, until the grace ends without a rejoin.
+      tombstone(sid);
+      const timer = setTimeout(() => {
+        void exclusive(() => {
+          if (pendingLeaves.get(userId)?.timer !== timer) return;
+          pendingLeaves.delete(userId);
+          if (entryOf(channelId, userId)?.sid === sid) remove(channelId, userId);
+        });
+      }, rejoinGraceMs);
+      timer.unref();
+      pendingLeaves.set(userId, { sid, timer });
     },
 
     roomFinished(channelId) {
@@ -364,10 +450,13 @@ export function createVoiceState({ realtime, backend, log }: VoiceStateDeps): Vo
           if (entry.seq > since) continue;
           const wanted = desired.get(channelId)?.get(userId);
           if (wanted === undefined) {
-            remove(channelId, userId);
+            // A leave waiting out the rejoin grace is settled by its timer (or by the rejoin).
+            if (!pendingLeaves.has(userId)) remove(channelId, userId);
             continue;
           }
           if (wanted.sid !== entry.sid && !leftSince(wanted.sid, since)) {
+            // LiveKit lists a newer connection: the user is back (its join webhook may still come).
+            cancelPendingLeave(userId);
             leftSids.delete(wanted.sid);
             entry.sid = wanted.sid;
           }
@@ -406,12 +495,18 @@ export function createVoiceState({ realtime, backend, log }: VoiceStateDeps): Vo
     },
 
     clear() {
+      for (const userId of [...pendingLeaves.keys()]) cancelPendingLeave(userId);
+      eventsInFlight.clear();
       rooms.clear();
       userChannel.clear();
       clientStates.clear();
       seenEvents.clear();
       leftSids.clear();
       seq += 1;
+    },
+
+    close() {
+      for (const userId of [...pendingLeaves.keys()]) cancelPendingLeave(userId);
     },
   };
 }

@@ -50,6 +50,8 @@ export interface BuildAppOptions {
     presenceOfflineGraceMs?: number;
     /** Default `TYPING_BROADCAST_THROTTLE_MS` (2 s). */
     typingThrottleMs?: number;
+    /** Default `VOICE_REJOIN_GRACE_MS` (5 s). */
+    voiceRejoinGraceMs?: number;
   };
   /** Test-only: replaces `fs.statfs` for the free-space check (B.7a rule 8), to fake a full disk. */
   statfs?: StatfsFn;
@@ -174,7 +176,12 @@ export function buildApp({
     ...(timings.typingThrottleMs === undefined ? {} : { throttleMs: timings.typingThrottleMs }),
   });
   const livekitHealth = createLiveKitHealth(voiceBackend, app.log);
-  const voice = createVoiceState({ realtime, backend: voiceBackend, log: app.log });
+  const voice = createVoiceState({
+    realtime,
+    backend: voiceBackend,
+    log: app.log,
+    ...(timings.voiceRejoinGraceMs === undefined ? {} : { rejoinGraceMs: timings.voiceRejoinGraceMs }),
+  });
   const voiceEvents = registerVoiceEvents({ realtime, voice, log: app.log });
   // B.6a rule 4: reconcile at boot and every VOICE_RECONCILE_MS; stopped (and awaited) on close.
   const reconciler = createReconciler({
@@ -189,7 +196,10 @@ export function buildApp({
     reconciler.start(env.VOICE_RECONCILE_MS);
     done();
   });
-  app.addHook('onClose', () => reconciler.stop());
+  app.addHook('onClose', async () => {
+    await reconciler.stop();
+    voice.close();
+  });
   registerHealthRoutes(app, { db, livekitHealth });
   const lifecycle = createLifecycle({
     db,
