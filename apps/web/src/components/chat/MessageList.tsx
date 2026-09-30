@@ -12,10 +12,13 @@ import {
 import { errorMessage } from '../../api/errors';
 import { authorName } from '../../lib/bootstrapPatch';
 import { timelineMeta, type TimelineInput } from '../../lib/chatTimeline';
+import { emptyChannelCopy } from '../../lib/emptyStates';
 import { loadLatest, loadOlder } from '../../lib/messageSync';
 import { useMarkRead } from '../../lib/readMarking';
 import { compareMessageIds, useMessageStore, type PendingMessage } from '../../stores/messages';
 import { useViewingStore } from '../../stores/viewing';
+import { EmptyState } from '../EmptyState';
+import { MessageListSkeleton } from '../Skeleton';
 import { secondaryButton } from '../styles';
 import { MessageItem, PendingItem } from './MessageItem';
 
@@ -44,12 +47,14 @@ interface MessageListProps {
   boot: BootstrapResponse;
   me: Me;
   isDm: boolean;
+  /** For the empty state: the channel name (without `#`) or, in a DM, the other person's name. */
+  name: string;
   /** False in a read-only DM (the other member is deactivated). */
   canReact: boolean;
   onError: (message: string | null) => void;
 }
 
-export function MessageList({ channelId, boot, me, isDm, canReact, onError }: MessageListProps) {
+export function MessageList({ channelId, boot, me, isDm, name, canReact, onError }: MessageListProps) {
   const entry = useMessageStore((s) => s.channels[channelId]);
   const allPending = useMessageStore((s) => s.pending);
   const pending = useMemo(
@@ -281,9 +286,9 @@ export function MessageList({ channelId, boot, me, isDm, canReact, onError }: Me
             </button>
           </div>
         ) : !loaded ? (
-          <p className="px-4 py-6 text-sm text-muted">Loading messages…</p>
+          <MessageListSkeleton />
         ) : ids.length === 0 && pending.length === 0 ? (
-          <p className="px-4 py-6 text-sm text-muted">No messages yet. Say hello!</p>
+          <EmptyChannel name={name} isDm={isDm} />
         ) : (
           !hasOlder && (
             <p className="px-4 pt-6 pb-2 text-xs text-muted">This is the beginning of the conversation.</p>
@@ -359,6 +364,16 @@ export function MessageList({ channelId, boot, me, isDm, canReact, onError }: Me
         </button>
       )}
     </div>
+  );
+}
+
+/** A channel or DM without messages: a friendly welcome instead of an empty list. */
+function EmptyChannel({ name, isDm }: { name: string; isDm: boolean }) {
+  const copy = emptyChannelCopy(name, isDm);
+  return (
+    <EmptyState icon={isDm ? 'dm' : 'channels'} title={copy.title}>
+      {copy.body}
+    </EmptyState>
   );
 }
 

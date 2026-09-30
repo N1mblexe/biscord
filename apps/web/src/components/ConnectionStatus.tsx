@@ -30,7 +30,7 @@ const DOT: Record<ConnectionState, string> = {
 /**
  * The header's realtime connection indicator (`data-testid="connection-status"`, `data-state`
  * connected / connecting / reconnecting / offline) with a friendly label ("Connected",
- * "Reconnecting…", "Offline"), announced politely. The label is visually hidden below `sm` (the dot
+ * "Reconnecting…", "Offline"), announced politely. The label is visually hidden below `md` (the dot
  * stays). The raw socket value stays in `data-testid="socket-status"` (`connected` /
  * `disconnected`, docs/plans/phase-2.md), visually hidden and hidden from assistive technology so
  * it isn't read twice.
@@ -51,7 +51,7 @@ export function ConnectionStatus({ status }: { status: SocketStatus }) {
       className="flex items-center gap-2 text-xs text-muted"
     >
       <span aria-hidden="true" className={`size-2 shrink-0 rounded-full ${DOT[state]}`} />
-      <span className="sr-only sm:not-sr-only">{label}</span>
+      <span className="sr-only md:not-sr-only">{label}</span>
       <span data-testid="socket-status" data-state={state} aria-hidden="true" className="sr-only">
         {status}
       </span>

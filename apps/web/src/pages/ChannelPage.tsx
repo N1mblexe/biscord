@@ -89,6 +89,7 @@ function ChannelView({ channelId }: { channelId: string }) {
           boot={boot}
           me={me}
           isDm={isDm}
+          name={isDm ? dmTitle : resolved.channel.name}
           canReact={canPost}
           onError={setAlert}
         />

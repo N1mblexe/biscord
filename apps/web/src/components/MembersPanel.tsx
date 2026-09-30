@@ -12,6 +12,15 @@ import { CloseIcon, drawerClasses, drawerIconButton, useDrawerPanel } from './Dr
 import { secondaryButton } from './styles';
 
 /**
+ * **Message**: compact on desktop so names have room, a comfortable tap target in the phone drawer.
+ * (Swapped rather than appended: two padding utilities on one element don't reliably override.)
+ */
+const messageButton = secondaryButton.replace(
+  'px-3 py-1.5 text-sm',
+  'px-2.5 py-1 text-xs max-md:px-3 max-md:py-1.5 max-md:text-sm',
+);
+
+/**
  * Right column: every active user; **Message** opens (or creates) the DM and navigates to it. Below
  * `md` it is an off-canvas drawer (`#members-panel`), opened by the header's **Members** button; it
  * closes once the DM opens (or fails, so the page's alert is visible).
@@ -55,7 +64,7 @@ export function MembersPanel({ onError }: { onError: (message: string | null) =>
       id="members-panel"
       aria-labelledby="members-heading"
       {...dialogProps}
-      className={`flex w-56 shrink-0 flex-col gap-2 overflow-y-auto border-l border-white/5 bg-surface px-3 py-4 outline-none max-md:pt-2 ${drawerClasses('right', open)}`}
+      className={`flex w-60 shrink-0 flex-col gap-2 overflow-y-auto border-l border-white/5 bg-surface px-3 py-4 outline-none max-md:pt-2 ${drawerClasses('right', open)}`}
     >
       <div className="flex items-center justify-between">
         <h2 id="members-heading" className="px-1 text-xs font-semibold tracking-wide text-muted">
@@ -81,7 +90,7 @@ export function MembersPanel({ onError }: { onError: (message: string | null) =>
             {user.id !== boot.me.id && (
               <button
                 type="button"
-                className={`${secondaryButton} px-2 py-0.5 text-xs max-md:px-3 max-md:py-1.5`}
+                className={messageButton}
                 disabled={dmMutation.isPending}
                 onClick={() => {
                   dmMutation.mutate(user.id);

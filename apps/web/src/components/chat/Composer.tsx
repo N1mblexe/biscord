@@ -142,29 +142,41 @@ export function Composer({
           <PaperclipIcon />
           <span className="sr-only">Attach files</span>
         </label>
-        <textarea
-          ref={inputRef}
-          id="composer-input"
-          name="content"
-          // The placeholder stays on one line (ellipsis): "Message <long display name>" must not wrap
-          // and make the empty composer two lines tall on a phone.
-          className={`${inputClass} max-h-48 min-w-0 flex-1 resize-none placeholder:truncate`}
-          rows={1}
-          maxLength={MESSAGE_INPUT_MAX_LENGTH}
-          placeholder={disabledReason ?? placeholder}
-          disabled={disabled}
-          aria-describedby={disabled ? 'composer-disabled-reason' : undefined}
-          value={draft}
-          // Focus follows the channel the user just opened.
-          autoFocus
-          onChange={(event) => {
-            const value = event.target.value;
-            setDraft(value);
-            if (value.trim().length > 0) emitTyping(socket, channelId);
-          }}
-          onKeyDown={onKeyDown}
-          onPaste={onPaste}
-        />
+        <div className="relative min-w-0 flex-1">
+          <textarea
+            ref={inputRef}
+            id="composer-input"
+            name="content"
+            className={`${composerInputClass} block max-h-48 resize-none placeholder:truncate`}
+            rows={1}
+            maxLength={MESSAGE_INPUT_MAX_LENGTH}
+            placeholder={disabledReason ?? placeholder}
+            disabled={disabled}
+            aria-describedby={disabled ? 'composer-disabled-reason' : undefined}
+            value={draft}
+            // Focus follows the channel the user just opened.
+            autoFocus
+            onChange={(event) => {
+              const value = event.target.value;
+              setDraft(value);
+              if (value.trim().length > 0) emitTyping(socket, channelId);
+            }}
+            onKeyDown={onKeyDown}
+            onPaste={onPaste}
+          />
+          {/* The visible placeholder: one line with an ellipsis, so "Message <long display name>"
+              never wraps and makes the empty composer two lines tall on a phone (a textarea's own
+              ::placeholder can't ellipsize). The native one stays for assistive technology. */}
+          {draft === '' && (
+            <span
+              aria-hidden="true"
+              data-testid="composer-placeholder"
+              className="pointer-events-none absolute inset-x-0 top-0 truncate px-3 py-2 text-sm text-muted"
+            >
+              {disabledReason ?? placeholder}
+            </span>
+          )}
+        </div>
         <button type="submit" className={`${primaryButton} shrink-0`} disabled={disabled || uploading}>
           Send
         </button>
@@ -172,6 +184,12 @@ export function Composer({
     </form>
   );
 }
+
+/**
+ * The shared input look, with the native placeholder transparent (the overlay draws it). It stays
+ * on one line (`placeholder:truncate` on the textarea) so auto-grow doesn't measure a wrapped one.
+ */
+const composerInputClass = inputClass.replace('placeholder:text-muted', 'placeholder:text-transparent');
 
 function PaperclipIcon() {
   return (

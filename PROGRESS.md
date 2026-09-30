@@ -9,14 +9,52 @@ Updated at the end of every phase (see CLAUDE.md → Workflow).
   acceptance tests run for real. Then a whole-app bug hunt, with its fixes merged (CONTRACTS.md B.9).
 - **Phase 9 (production):** all the artifacts are done and were dry-run locally (prod compose, Caddy, LiveKit
   config, backup/restore/deploy/status scripts, `docs/DEPLOY.md`). The real VM deploy hasn't happened yet.
-- **In progress:** the polish pass (`docs/plans/polish.md`): mobile layout, chat UX, visual system and
-  accessibility, docs (README).
+- **Done:** the polish pass (`docs/plans/polish.md`): mobile layout, chat UX, visual system and accessibility, and docs (README).
 - **Pending, needs you:**
   1. **Oracle VM deploy:** create the VM and the DuckDNS name, then follow `docs/DEPLOY.md` → Production on Oracle
      Cloud. Acceptance is listed under Phase 9 → Pending below (valid HTTPS, voice/camera/screen share between two
      networks with one on mobile data, LiveKit's connection test, the restore drill, surviving a reboot).
   2. **LAN phone test:** join voice from a real phone or laptop on the same Wi-Fi (`pnpm lan:up`, then
      `docs/DEPLOY.md` → LAN testing). Only fake-media browsers have been tested so far.
+
+## Polish pass ✅ (2026-09-30)
+
+### Built
+
+- **Mobile (below `md`):**
+  - The sidebar and the members list open as drawers (**Open navigation** and **Members**), with a focus trap, focus returned to the opener, and closing on Escape, the backdrop or navigation. DMs can now be started on a phone.
+  - The header is one row (53 px, down from 97 px). Admin tables turn into cards. No page scrolls sideways at 390 px; the composer is 234 px wide, up from 24 px.
+- **Chat:**
+  - A **Jump to latest** pill with a new-message count.
+  - Consecutive messages from one author are grouped, with day separators.
+  - One tab stop per message; its actions open from it or its "⋯" button.
+  - No double page load.
+  - **Channel names are unique** regardless of case (migration plus 409 `CONFLICT`, CONTRACTS B.10).
+- **Visual design and accessibility:**
+  - Documented dark-theme tokens. Contrast: muted text 5.7:1, danger text 5.0:1, white on danger 4.8:1.
+  - A global `:focus-visible` ring, and reduced motion is respected.
+  - Logo mark and wordmark, polished auth pages, and branded error and loading screens.
+  - `ConnectionStatus` shows Connected / Connecting… / Reconnecting… / Offline; the `socket-status` text is unchanged for e2e.
+  - Skeletons for message and channel lists, and empty states for the home page, an empty channel or DM, and no DMs.
+  - Tidier voice panel and video stage.
+- **Screenshot review** at 390 and 1280 px of every main page. Fixed:
+  - author names wrapping and pushing the time onto a second line;
+  - the DM placeholder being cut mid-letter (it's now an ellipsis overlay);
+  - members panel names cut to about 8 characters;
+  - the admin table clipping a button's border and focus ring.
+- **Docs:** `README.md` (features, quick start, architecture, testing, deployment), "Status at a glance", and accurate plan statuses.
+
+### Tested (run for real on 2026-09-30)
+
+- `pnpm typecheck` / `lint` / `format:check` ✅ · `pnpm test` ✅: 896 (shared 73, web 369, server 454).
+- `pnpm test:e2e --repeat-each=3` ✅: 141 passed, 0 failed, 0 flaky, 18 skipped (the full-stack-only header specs).
+- Full stack `@smoke` ✅: 9/9.
+- At 390 px and 1280 px, `document.documentElement.scrollWidth <= innerWidth` holds on every page.
+
+### Known issues / notes
+
+- The admin "small" buttons have the same padding-class conflict the members panel had, so they render full size. Cosmetic.
+- On a phone with two cameras on, the video stage takes about 40 % of the height.
 
 ## Bug hunt + fix round ✅ (2026-09-30)
 

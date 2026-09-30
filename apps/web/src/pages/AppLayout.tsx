@@ -4,6 +4,7 @@ import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router';
 import { logout, meQuery } from '../api/auth';
 import { isUnauthenticated } from '../api/errors';
 import { Avatar } from '../components/Avatar';
+import { ConnectionStatus } from '../components/ConnectionStatus';
 import { DrawerBackdrop, drawerIconButton } from '../components/Drawer';
 import { PageAlert } from '../components/forms';
 import { Sidebar } from '../components/Sidebar';
@@ -70,8 +71,6 @@ function AppShell() {
     useDrawerStore.getState().close();
   }, [pathname]);
 
-  const connected = status === 'connected';
-
   // Below `md` the header is one row: the drawer buttons, and the status and user name as
   // visually hidden text next to the dot and avatar. From `md` up it is unchanged.
   return (
@@ -93,15 +92,7 @@ function AppShell() {
             )}
           </nav>
           <div className="ml-auto flex min-w-0 items-center gap-3 md:gap-4">
-            <span className="flex items-center gap-2 text-xs text-muted" title="Realtime connection">
-              <span
-                aria-hidden="true"
-                className={`size-2 shrink-0 rounded-full ${connected ? 'bg-success' : 'bg-danger'}`}
-              />
-              <span data-testid="socket-status" className="max-md:sr-only">
-                {status}
-              </span>
-            </span>
+            <ConnectionStatus status={status} />
             <span className="flex min-w-0 items-center gap-2">
               {me && <Avatar userId={me.id} name={me.displayName} avatarUrl={me.avatarUrl} size="sm" />}
               <span data-testid="current-user" className="truncate text-sm font-medium max-md:sr-only">

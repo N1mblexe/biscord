@@ -251,14 +251,19 @@ export function MessageItem({
             {authorName}
           </span>
         ) : (
-          <div className="flex items-baseline gap-2">
-            <span data-testid="message-author" className="text-sm font-semibold">
+          <div className="flex min-w-0 items-baseline gap-2">
+            {/* A long display name truncates instead of wrapping and pushing the time onto two lines. */}
+            <span
+              data-testid="message-author"
+              className="min-w-0 truncate text-sm font-semibold"
+              title={authorName}
+            >
               {authorName}
             </span>
             <time
               dateTime={message.createdAt}
               title={formatFull(message.createdAt)}
-              className="text-xs text-muted"
+              className="shrink-0 text-xs whitespace-nowrap text-muted"
             >
               {formatTime(message.createdAt)}
             </time>
@@ -494,11 +499,13 @@ export function PendingItem({
       )}
       <div className="min-w-0 flex-1">
         {/* Grouped: the author line is visually hidden, and "Not sent" moves next to Retry. */}
-        <div className={grouped ? 'sr-only' : 'flex items-baseline gap-2'}>
-          <span data-testid="message-author" className="text-sm font-semibold">
+        <div className={grouped ? 'sr-only' : 'flex min-w-0 items-baseline gap-2'}>
+          <span data-testid="message-author" className="min-w-0 truncate text-sm font-semibold">
             {authorName}
           </span>
-          <span className="text-xs text-muted">{failed ? 'Not sent' : 'Sending…'}</span>
+          <span className="shrink-0 text-xs whitespace-nowrap text-muted">
+            {failed ? 'Not sent' : 'Sending…'}
+          </span>
         </div>
         <div
           data-testid="message-content"

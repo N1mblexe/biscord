@@ -1,6 +1,6 @@
 # Polish pass plan (after the bug hunt)
 
-Status: **in progress** (plan approved 2026-09-30; requested by the user: "after tests done polish everything with subagents").
+Status: **done 2026-09-30** (approved 2026-09-30, requested by the user: "after tests done polish everything with subagents").
 Input: the web UI bug hunter's findings and UX observations, and the runtime/stress report. Correctness fixes were
 done in the bug-fix round (CONTRACTS B.9); this pass is about usability, look and feel, accessibility and docs.
 

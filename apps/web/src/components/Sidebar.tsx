@@ -6,11 +6,14 @@ import { meQuery } from '../api/auth';
 import { bootstrapQuery } from '../api/chat';
 import { errorMessage } from '../api/errors';
 import { displayUser } from '../lib/bootstrapPatch';
+import { NO_DMS_COPY } from '../lib/emptyStates';
 import { useDrawerStore } from '../stores/drawers';
 import { useIsOnline } from '../stores/presence';
 import { useUnreadSummary } from '../stores/reads';
 import { AvatarWithPresence } from './Avatar';
 import { CloseIcon, drawerClasses, drawerIconButton, useDrawerPanel } from './Drawer';
+import { EmptyState } from './EmptyState';
+import { ChannelListSkeleton } from './Skeleton';
 import { VoiceChannelItem } from './VoiceChannels';
 import { VoicePanel } from './VoicePanel';
 
@@ -147,7 +150,9 @@ function SidebarLists({ boot }: { boot: BootstrapResponse }) {
       </Section>
       <Section id="sidebar-dms" title="Direct messages">
         {dms.length === 0 ? (
-          <Empty>No conversations yet.</Empty>
+          <EmptyState compact icon="dm" title={NO_DMS_COPY.title}>
+            {NO_DMS_COPY.body}
+          </EmptyState>
         ) : (
           <ul className="flex flex-col gap-0.5">
             {dms.map(({ dm, name, avatarUrl, deleted }) => (
@@ -223,7 +228,7 @@ export function Sidebar() {
         ) : boot.isError ? (
           <p className="px-2 text-sm text-danger">{errorMessage(boot.error)}</p>
         ) : (
-          <p className="px-2 text-sm text-muted">Loading channels…</p>
+          <ChannelListSkeleton />
         )}
       </nav>
       <VoicePanel />

@@ -160,7 +160,7 @@ export function AdminUsersPage() {
         <p className="mt-6 text-sm text-danger">{errorMessage(users.error)}</p>
       ) : (
         // Below `md` each row is a card (user; role, status, presence; actions), with no header row.
-        <div className="mt-6 md:overflow-x-auto">
+        <div className="mt-6 md:-mx-2 md:overflow-x-auto md:px-2 md:pb-1">
           <table className="w-full text-left text-sm max-md:block md:min-w-[40rem]">
             <thead className="text-xs text-muted max-md:hidden">
               <tr className="border-b border-white/5">
