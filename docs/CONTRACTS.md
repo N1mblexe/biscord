@@ -565,6 +565,10 @@ Reconnect protocol: on every `connect`, the client refetches `GET /bootstrap`, p
      - Row 31 (admin voice disconnect) re-checks, under the shared users lock, that the actor is still an active admin (B.7b rule 7).
      - Web: switching voice channels leaves the old room at once, in parallel with the token request (10 s timeout, then a failure notice); a `RATE_LIMITED` ack for `voice:state` re-sends the current state after `retryAfterMs`; `channel:deleted` for the channel the tab is in or joining leaves voice with a notice; socket events that patch the cached bootstrap are replayed on top of a bootstrap response requested before them, and a deleted voice channel's participants are tombstoned against an older snapshot.
 
+### B.10 Polish-pass rules (2026-09-30)
+
+1. **Channel names are unique** among text and voice channels, compared case-insensitively after trimming. Creating or renaming to a taken name returns `409 CONFLICT` with the message "A channel with that name already exists." (enforced by a unique index on `lower(name)` for non-DM channels, added by a Drizzle migration).
+
 ### B.8 Runtime topology (ports, URLs, env)
 
 |                                              | web (browser URL)                             | server                                         | Postgres DB               | LiveKit (browser)                  | LiveKit (server→LK)              | LK webhook → server                                  |
