@@ -2,7 +2,7 @@ import { LIMITS, type Invite } from '@hearth/shared';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { SubmitEvent } from 'react';
 import { createInvite, invitesQuery, revokeInvite } from '../api/admin';
-import { errorMessage, fieldErrors } from '../api/errors';
+import { errorMessage, fieldErrors, formAlertMessage } from '../api/errors';
 import { FormAlert, FormSuccess, formString, PageAlert, TextField } from '../components/forms';
 import { card, dangerButton, primaryButton } from '../components/styles';
 import { usePageAlert } from '../components/usePageAlert';
@@ -14,6 +14,12 @@ function formatDate(iso: string): string {
 function inviteLink(code: string): string {
   return `${window.location.origin}/register?invite=${encodeURIComponent(code)}`;
 }
+
+/** Each field's whole rule, shown instead of zod's per-check messages. */
+const INVITE_FIELD_RULES = {
+  maxUses: `Must be a whole number between 1 and ${LIMITS.inviteMaxUses}`,
+  expiresInHours: `Must be a whole number between 1 and ${LIMITS.inviteMaxExpiresHours}`,
+};
 
 export function AdminInvitesPage() {
   const queryClient = useQueryClient();
@@ -49,10 +55,17 @@ export function AdminInvitesPage() {
     : revokeMutation.isError
       ? revokeMutation.error
       : null;
-  const errors = fieldErrors(createMutation.error);
+  const errors = fieldErrors(createMutation.error, INVITE_FIELD_RULES);
   const created = createMutation.data;
-  // The page's single alert slot, shared with the app-wide camera and screen share errors.
-  const slot = usePageAlert(failed ? errorMessage(failed) : null);
+  // The page's single alert slot, shared with the app-wide camera and screen share errors. Field
+  // problems are shown under their fields instead.
+  const slot = usePageAlert(
+    failed === createMutation.error
+      ? formAlertMessage(failed, Object.keys(INVITE_FIELD_RULES))
+      : failed
+        ? errorMessage(failed)
+        : null,
+  );
 
   return (
     <div className="flex flex-col gap-6">

@@ -9,7 +9,7 @@ import {
   renameChannel,
   reorderChannels,
 } from '../api/chat';
-import { errorMessage, fieldErrors } from '../api/errors';
+import { errorMessage, fieldErrors, formAlertMessage, type FieldErrors } from '../api/errors';
 import { FormAlert, FormSuccess, formString, PageAlert, TextField } from '../components/forms';
 import { card, dangerButton, inputClass, primaryButton, secondaryButton } from '../components/styles';
 import { usePageAlert } from '../components/usePageAlert';
@@ -42,6 +42,8 @@ export function AdminChannelsPage() {
   const [alert, setAlert] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [renamingId, setRenamingId] = useState<string | null>(null);
+  // The rename form's VALIDATION messages (e.g. an empty name), shown under its input.
+  const [renameErrors, setRenameErrors] = useState<FieldErrors>({});
   const [deleting, setDeleting] = useState<Channel | null>(null);
 
   const createMutation = useMutation({
@@ -51,8 +53,14 @@ export function AdminChannelsPage() {
     },
   });
 
-  /** Runs an action with the page's single alert: cleared before, set on failure. */
-  const run = async (action: () => Promise<void>): Promise<boolean> => {
+  /**
+   * Runs an action with the page's single alert: cleared before, set on failure (to `alertFor(err)`,
+   * which may leave it empty when the problem is shown next to a field instead).
+   */
+  const run = async (
+    action: () => Promise<void>,
+    alertFor: (err: unknown) => string | null = errorMessage,
+  ): Promise<boolean> => {
     setAlert(null);
     createMutation.reset();
     setBusy(true);
@@ -60,7 +68,7 @@ export function AdminChannelsPage() {
       await action();
       return true;
     } catch (err) {
-      setAlert(errorMessage(err));
+      setAlert(alertFor(err));
       return false;
     } finally {
       setBusy(false);
@@ -85,15 +93,27 @@ export function AdminChannelsPage() {
 
   const onRename = async (channel: Channel, name: string) => {
     const trimmed = name.trim();
+    setRenameErrors({});
     if (trimmed === channel.name) {
       setRenamingId(null);
       return;
     }
-    const ok = await run(async () => {
-      const updated = await renameChannel(channel.id, trimmed);
-      patch((b) => upsertChannel(b, updated));
-    });
+    const ok = await run(
+      async () => {
+        const updated = await renameChannel(channel.id, trimmed);
+        patch((b) => upsertChannel(b, updated));
+      },
+      (err) => {
+        setRenameErrors(fieldErrors(err));
+        return formAlertMessage(err, ['name']);
+      },
+    );
     if (ok) setRenamingId(null);
+  };
+
+  const closeRename = () => {
+    setRenameErrors({});
+    setRenamingId(null);
   };
 
   const onMove = (index: number, delta: -1 | 1) => {
@@ -121,7 +141,9 @@ export function AdminChannelsPage() {
 
   // The page's single alert slot, shared with the app-wide camera and screen share errors. While the
   // delete dialog is open (modal, the rest of the page is inert) it shows the slot instead.
-  const slot = usePageAlert(createMutation.isError ? errorMessage(createMutation.error) : alert);
+  const slot = usePageAlert(
+    createMutation.isError ? formAlertMessage(createMutation.error, ['name']) : alert,
+  );
   const errors = fieldErrors(createMutation.error);
 
   return (
@@ -191,12 +213,11 @@ export function AdminChannelsPage() {
                   <RenameForm
                     channel={channel}
                     busy={busy}
+                    errors={renameErrors.name}
                     onSave={(name) => {
                       void onRename(channel, name);
                     }}
-                    onCancel={() => {
-                      setRenamingId(null);
-                    }}
+                    onCancel={closeRename}
                   />
                 ) : (
                   <span className="min-w-0 flex-1 truncate text-sm">
@@ -213,6 +234,7 @@ export function AdminChannelsPage() {
                       className={smallButton}
                       onClick={() => {
                         setAlert(null);
+                        setRenameErrors({});
                         setRenamingId(channel.id);
                       }}
                     >
@@ -278,15 +300,18 @@ export function AdminChannelsPage() {
 interface RenameFormProps {
   channel: Channel;
   busy: boolean;
+  /** VALIDATION messages for the name. */
+  errors: string[] | undefined;
   onSave: (name: string) => void;
   onCancel: () => void;
 }
 
-function RenameForm({ channel, busy, onSave, onCancel }: RenameFormProps) {
+function RenameForm({ channel, busy, errors, onSave, onCancel }: RenameFormProps) {
   const inputId = `rename-${channel.id}`;
+  const errorId = `${inputId}-error`;
   return (
     <form
-      className="flex min-w-0 flex-1 items-center gap-2"
+      className="flex min-w-0 flex-1 flex-wrap items-center gap-2"
       onSubmit={(event) => {
         event.preventDefault();
         onSave(formString(new FormData(event.currentTarget), 'name'));
@@ -303,6 +328,8 @@ function RenameForm({ channel, busy, onSave, onCancel }: RenameFormProps) {
         maxLength={32}
         autoComplete="off"
         autoFocus
+        aria-invalid={errors ? true : undefined}
+        aria-describedby={errors ? errorId : undefined}
         onKeyDown={(event) => {
           if (event.key === 'Escape') onCancel();
         }}
@@ -313,6 +340,11 @@ function RenameForm({ channel, busy, onSave, onCancel }: RenameFormProps) {
       <button type="button" className={smallButton} onClick={onCancel}>
         Cancel
       </button>
+      {errors && (
+        <p id={errorId} className="basis-full text-xs text-danger">
+          {errors.join(' ')}
+        </p>
+      )}
     </form>
   );
 }

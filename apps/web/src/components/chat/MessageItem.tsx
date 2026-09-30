@@ -1,8 +1,9 @@
-import { LIMITS, type Message, type PublicUser } from '@hearth/shared';
-import { useState, type KeyboardEvent } from 'react';
+import type { Message, PublicUser } from '@hearth/shared';
+import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { deleteMessage, editMessage } from '../../api/chat';
 import { errorMessage } from '../../api/errors';
 import { useMessageStore, type PendingMessage } from '../../stores/messages';
+import { MESSAGE_INPUT_MAX_LENGTH, messageTooLong } from '../../lib/messageLength';
 import { deliverPending } from '../../lib/messageSync';
 import { setReaction } from '../../lib/reactions';
 import { Avatar } from '../Avatar';
@@ -10,6 +11,7 @@ import { Markdown } from '../Markdown';
 import { inputClass } from '../styles';
 import { AttachmentList } from './Attachments';
 import { AddReaction, ReactionBar } from './Reactions';
+import { useAutoGrow } from './useAutoGrow';
 
 const actionButton =
   'rounded px-2 py-0.5 text-xs font-medium text-muted ring-1 ring-white/10 transition hover:bg-white/10 ' +
@@ -25,9 +27,26 @@ function formatFull(iso: string): string {
 
 type ErrorSink = (message: string | null) => void;
 
+/**
+ * The hover toolbar: invisible and click-through (pointer-events-none) until the message is hovered
+ * or holds focus, so a click on the author/time line never lands on an invisible Delete. Devices
+ * without hover open it with the "⋯" button instead (`open`).
+ */
+function toolbarClass(open: boolean): string {
+  const base = 'flex gap-1 rounded-md bg-surface-raised p-0.5 shadow ring-1 ring-white/10 transition';
+  return open
+    ? `${base} pointer-events-auto opacity-100`
+    : `${base} pointer-events-none opacity-0 group-focus-within:pointer-events-auto group-focus-within:opacity-100 group-hover:pointer-events-auto group-hover:opacity-100`;
+}
+
 const iconButton =
   'flex items-center rounded px-1.5 py-0.5 text-muted ring-1 ring-white/10 transition hover:bg-white/10 ' +
   'hover:text-text focus-visible:outline-2 focus-visible:outline-accent';
+
+/** The touch-only "⋯" button: hidden where hover works (and hover shows the toolbar). */
+const moreButton =
+  'pointer-events-auto hidden items-center rounded bg-surface-raised px-1.5 py-0.5 text-muted ring-1 ' +
+  'ring-white/10 hover-none:flex focus-visible:outline-2 focus-visible:outline-accent';
 
 export interface Viewer {
   id: string;
@@ -64,6 +83,32 @@ export function MessageItem({
 }: MessageItemProps) {
   const [editing, setEditing] = useState(false);
   const [busy, setBusy] = useState(false);
+  // Touch (no hover): the toolbar is opened with the "⋯" button.
+  const [actionsOpen, setActionsOpen] = useState(false);
+  const itemRef = useRef<HTMLLIElement>(null);
+  const editButtonRef = useRef<HTMLButtonElement>(null);
+  // Set when an edit ends, so focus goes back to this message's Edit button once it is rendered.
+  const restoreFocus = useRef(false);
+
+  useEffect(() => {
+    if (editing || !restoreFocus.current) return;
+    restoreFocus.current = false;
+    const target = editButtonRef.current ?? document.getElementById('composer-input');
+    target?.focus();
+  }, [editing]);
+
+  // A tap anywhere outside this message closes its touch toolbar.
+  useEffect(() => {
+    if (!actionsOpen) return;
+    const onPointerDown = (event: PointerEvent) => {
+      if (event.target instanceof Node && itemRef.current?.contains(event.target)) return;
+      setActionsOpen(false);
+    };
+    document.addEventListener('pointerdown', onPointerDown);
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown);
+    };
+  }, [actionsOpen]);
   const author = usersById.get(message.authorId);
   const mentionsMe = message.mentionUserIds.includes(me.id);
   const highlight = mentionsMe && !isDm;
@@ -90,6 +135,7 @@ export function MessageItem({
 
   return (
     <li
+      ref={itemRef}
       data-testid="message-item"
       data-message-id={message.id}
       data-mentions-me={mentionsMe ? 'true' : undefined}
@@ -122,6 +168,7 @@ export function MessageItem({
           <EditForm
             message={message}
             onDone={() => {
+              restoreFocus.current = true;
               setEditing(false);
             }}
             onError={onError}
@@ -154,39 +201,60 @@ export function MessageItem({
         />
       </div>
       {!editing && (canReact || canEdit || canDelete) && (
-        <div className="absolute top-1 right-4 flex gap-1 rounded-md bg-surface-raised p-0.5 opacity-0 shadow ring-1 ring-white/10 transition group-focus-within:opacity-100 group-hover:opacity-100">
-          {canReact && (
-            <AddReaction
-              className={iconButton}
-              onPick={(emoji) => {
-                react(emoji, true);
-              }}
-            />
-          )}
-          {canEdit && (
-            <button
-              type="button"
-              className={actionButton}
-              onClick={() => {
-                onError(null);
-                setEditing(true);
-              }}
-            >
-              Edit
-            </button>
-          )}
-          {canDelete && (
-            <button
-              type="button"
-              className={`${actionButton} hover:text-danger`}
-              disabled={busy}
-              onClick={() => {
-                void onDelete();
-              }}
-            >
-              Delete
-            </button>
-          )}
+        // The wrapper never takes clicks itself (only the visible toolbar and the "⋯" button do).
+        <div className="pointer-events-none absolute top-1 right-4 flex items-start gap-1">
+          <div className={toolbarClass(actionsOpen)}>
+            {canReact && (
+              <AddReaction
+                className={iconButton}
+                onPick={(emoji) => {
+                  setActionsOpen(false);
+                  react(emoji, true);
+                }}
+              />
+            )}
+            {canEdit && (
+              <button
+                ref={editButtonRef}
+                type="button"
+                className={actionButton}
+                onClick={() => {
+                  onError(null);
+                  setActionsOpen(false);
+                  setEditing(true);
+                }}
+              >
+                Edit
+              </button>
+            )}
+            {canDelete && (
+              <button
+                type="button"
+                className={`${actionButton} hover:text-danger`}
+                disabled={busy}
+                onClick={() => {
+                  setActionsOpen(false);
+                  void onDelete();
+                }}
+              >
+                Delete
+              </button>
+            )}
+          </div>
+          {/* Only on devices without hover (display:none elsewhere, so not in the a11y tree). */}
+          <button
+            type="button"
+            aria-label="Message actions"
+            title="Message actions"
+            aria-expanded={actionsOpen}
+            className={moreButton}
+            onClick={(event) => {
+              if (actionsOpen) event.currentTarget.blur();
+              setActionsOpen(!actionsOpen);
+            }}
+          >
+            <span aria-hidden="true">⋯</span>
+          </button>
         </div>
       )}
     </li>
@@ -204,12 +272,19 @@ function EditForm({
 }) {
   const [draft, setDraft] = useState(message.content);
   const [saving, setSaving] = useState(false);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+  useAutoGrow(inputRef, draft);
 
   const save = async () => {
     if (saving) return;
     const content = draft.trim();
     if (content === message.content) {
       onDone();
+      return;
+    }
+    const tooLong = messageTooLong(content);
+    if (tooLong !== null) {
+      onError(tooLong);
       return;
     }
     onError(null);
@@ -243,10 +318,11 @@ function EditForm({
       }}
     >
       <textarea
+        ref={inputRef}
         aria-label="Edit message"
-        className={`${inputClass} resize-none`}
-        rows={Math.min(8, Math.max(2, draft.split('\n').length))}
-        maxLength={LIMITS.messageMaxChars}
+        className={`${inputClass} max-h-64 resize-none`}
+        rows={2}
+        maxLength={MESSAGE_INPUT_MAX_LENGTH}
         value={draft}
         autoFocus
         onChange={(event) => {

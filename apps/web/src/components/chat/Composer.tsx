@@ -1,13 +1,14 @@
-import { LIMITS } from '@hearth/shared';
-import { useState, type ClipboardEvent, type KeyboardEvent } from 'react';
+import { useRef, useState, type ClipboardEvent, type KeyboardEvent } from 'react';
 import { errorMessage } from '../../api/errors';
 import { formatBytes, isUploading, readyAttachments, type Chip } from '../../lib/attachments';
+import { MESSAGE_INPUT_MAX_LENGTH, messageTooLong } from '../../lib/messageLength';
 import { deliverPending } from '../../lib/messageSync';
 import { emitTyping, resetTypingThrottle } from '../../lib/typingEmit';
 import { useSocket } from '../../socket/context';
 import { useMessageStore } from '../../stores/messages';
 import { inputClass, primaryButton } from '../styles';
 import type { AttachmentUploads } from './useAttachmentUploads';
+import { useAutoGrow } from './useAutoGrow';
 
 interface ComposerProps {
   channelId: string;
@@ -38,6 +39,8 @@ export function Composer({
   onError,
 }: ComposerProps) {
   const [draft, setDraft] = useState('');
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+  useAutoGrow(inputRef, draft);
   const { socket } = useSocket();
   const disabled = disabledReason !== null;
   const { chips, addFiles, remove, markSent } = uploads;
@@ -47,8 +50,9 @@ export function Composer({
     const content = draft.trim();
     const attachments = readyAttachments(chips);
     if (disabled || uploading || (content.length === 0 && attachments.length === 0)) return;
-    if (content.length > LIMITS.messageMaxChars) {
-      onError(`Messages can be at most ${LIMITS.messageMaxChars} characters.`);
+    const tooLong = messageTooLong(content);
+    if (tooLong !== null) {
+      onError(tooLong);
       return;
     }
     onError(null);
@@ -139,11 +143,12 @@ export function Composer({
           <span className="sr-only">Attach files</span>
         </label>
         <textarea
+          ref={inputRef}
           id="composer-input"
           name="content"
           className={`${inputClass} max-h-48 resize-none`}
-          rows={Math.min(8, draft.split('\n').length)}
-          maxLength={LIMITS.messageMaxChars}
+          rows={1}
+          maxLength={MESSAGE_INPUT_MAX_LENGTH}
           placeholder={disabledReason ?? placeholder}
           disabled={disabled}
           aria-describedby={disabled ? 'composer-disabled-reason' : undefined}

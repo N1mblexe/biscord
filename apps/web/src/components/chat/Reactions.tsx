@@ -151,7 +151,9 @@ function ReactionPalette({
       ref={dialogRef}
       role="dialog"
       aria-label="Add reaction"
-      className="fixed inset-auto m-0 rounded-lg bg-surface-raised p-0 text-text shadow-xl ring-1 ring-white/10 backdrop:bg-transparent"
+      // pointer-events-auto: the message toolbar that holds the trigger turns pointer events off
+      // while hidden, and pointer-events is inherited.
+      className="pointer-events-auto fixed inset-auto m-0 rounded-lg bg-surface-raised p-0 text-text shadow-xl ring-1 ring-white/10 backdrop:bg-transparent"
       onClose={() => {
         // StrictMode re-runs the effect (close, then showModal again); the first `close` event then
         // arrives while the dialog is open again and must be ignored.
