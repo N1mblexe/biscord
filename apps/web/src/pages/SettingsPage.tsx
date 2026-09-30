@@ -151,13 +151,13 @@ function AvatarSection({
   };
 
   return (
-    <section className={card}>
+    <section className={`${card} max-md:p-4`}>
       <h2 className="text-lg font-semibold">Avatar</h2>
       <p className="mt-1 text-sm text-muted">A PNG, JPEG or WebP image up to 2 MB.</p>
       <div className="mt-4 flex max-w-sm flex-col gap-4">
         <div className="flex items-center gap-4">
           <Avatar userId={me.id} name={me.displayName} avatarUrl={me.avatarUrl} size="lg" />
-          <div className="flex flex-col gap-2">
+          <div className="flex flex-col gap-2 max-md:min-w-0 max-md:flex-1">
             <label htmlFor="settings-avatar" className="text-sm font-medium">
               Avatar
             </label>
@@ -167,7 +167,7 @@ function AvatarSection({
               type="file"
               accept={AVATAR_MIME_TYPES.join(',')}
               disabled={busy}
-              className="text-sm text-muted file:mr-3 file:rounded-lg file:border-0 file:bg-surface-raised file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-text file:ring-1 file:ring-white/10 hover:file:bg-white/10"
+              className="text-sm text-muted max-md:w-full max-md:min-w-0 file:mr-3 file:rounded-lg file:border-0 file:bg-surface-raised file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-text file:ring-1 file:ring-white/10 hover:file:bg-white/10"
               onChange={onChange}
             />
           </div>
@@ -231,7 +231,7 @@ function NotificationsSection() {
   };
 
   return (
-    <section className={card} aria-labelledby="settings-notifications-heading">
+    <section className={`${card} max-md:p-4`} aria-labelledby="settings-notifications-heading">
       <h2 id="settings-notifications-heading" className="text-lg font-semibold">
         Notifications
       </h2>
@@ -278,7 +278,7 @@ function ProfileForm({ me, mutation, alert, onSubmitStart }: FormProps<ProfileMu
   const errors = fieldErrors(mutation.error);
 
   return (
-    <section className={card} aria-labelledby="settings-profile-heading">
+    <section className={`${card} max-md:p-4`} aria-labelledby="settings-profile-heading">
       <h2 id="settings-profile-heading" className="text-lg font-semibold">
         Profile
       </h2>
@@ -325,7 +325,7 @@ function PasswordForm({ mutation, alert, onSubmitStart }: FormProps<PasswordMuta
   const errors = fieldErrors(mutation.error);
 
   return (
-    <section className={card} aria-labelledby="settings-password-heading">
+    <section className={`${card} max-md:p-4`} aria-labelledby="settings-password-heading">
       <h2 id="settings-password-heading" className="text-lg font-semibold">
         Password
       </h2>

@@ -1,19 +1,30 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { BootstrapResponse } from '@hearth/shared';
-import type { ReactNode } from 'react';
+import { useEffect, type ReactNode } from 'react';
 import { useNavigate } from 'react-router';
 import { bootstrapQuery, bootstrapQueryKey, openDm } from '../api/chat';
 import { errorMessage } from '../api/errors';
 import { upsertDm } from '../lib/bootstrapPatch';
+import { useDrawerStore } from '../stores/drawers';
 import { useIsOnline } from '../stores/presence';
 import { AvatarWithPresence } from './Avatar';
+import { CloseIcon, drawerClasses, drawerIconButton, useDrawerPanel } from './Drawer';
 import { secondaryButton } from './styles';
 
-/** Right column: every active user; **Message** opens (or creates) the DM and navigates to it. */
+/**
+ * Right column: every active user; **Message** opens (or creates) the DM and navigates to it. Below
+ * `md` it is an off-canvas drawer (`#members-panel`), opened by the header's **Members** button; it
+ * closes once the DM opens (or fails, so the page's alert is visible).
+ */
 export function MembersPanel({ onError }: { onError: (message: string | null) => void }) {
   const { data: boot } = useQuery(bootstrapQuery);
   const queryClient = useQueryClient();
   const navigate = useNavigate();
+  const { ref, open, dialogProps } = useDrawerPanel<HTMLElement>('members');
+  const closeDrawer = useDrawerStore((s) => s.close);
+
+  // The header shows its **Members** button only while a page has this panel.
+  useEffect(() => useDrawerStore.getState().hostMembers(), []);
 
   const dmMutation = useMutation({
     mutationFn: openDm,
@@ -24,9 +35,11 @@ export function MembersPanel({ onError }: { onError: (message: string | null) =>
       queryClient.setQueryData<BootstrapResponse>(bootstrapQueryKey, (old) =>
         old ? upsertDm(old, dm) : old,
       );
+      closeDrawer();
       void navigate(`/channels/${dm.id}`);
     },
     onError: (err) => {
+      closeDrawer();
       onError(errorMessage(err));
     },
   });
@@ -38,12 +51,25 @@ export function MembersPanel({ onError }: { onError: (message: string | null) =>
 
   return (
     <aside
+      ref={ref}
+      id="members-panel"
       aria-labelledby="members-heading"
-      className="hidden w-56 shrink-0 flex-col gap-2 overflow-y-auto border-l border-white/5 bg-surface px-3 py-4 md:flex"
+      {...dialogProps}
+      className={`flex w-56 shrink-0 flex-col gap-2 overflow-y-auto border-l border-white/5 bg-surface px-3 py-4 outline-none max-md:pt-2 ${drawerClasses('right', open)}`}
     >
-      <h2 id="members-heading" className="px-1 text-xs font-semibold tracking-wide text-muted">
-        Members
-      </h2>
+      <div className="flex items-center justify-between">
+        <h2 id="members-heading" className="px-1 text-xs font-semibold tracking-wide text-muted">
+          Members
+        </h2>
+        <button
+          type="button"
+          aria-label="Close members"
+          className={`${drawerIconButton} md:hidden`}
+          onClick={closeDrawer}
+        >
+          <CloseIcon />
+        </button>
+      </div>
       <ul className="flex flex-col gap-0.5">
         {members.map((user) => (
           <MemberItem
@@ -55,7 +81,7 @@ export function MembersPanel({ onError }: { onError: (message: string | null) =>
             {user.id !== boot.me.id && (
               <button
                 type="button"
-                className={`${secondaryButton} px-2 py-0.5 text-xs`}
+                className={`${secondaryButton} px-2 py-0.5 text-xs max-md:px-3 max-md:py-1.5`}
                 disabled={dmMutation.isPending}
                 onClick={() => {
                   dmMutation.mutate(user.id);

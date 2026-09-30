@@ -9,7 +9,7 @@ const tabClass = ({ isActive }: { isActive: boolean }) =>
 export function AdminLayout() {
   return (
     <div className="flex flex-col gap-6">
-      <nav aria-label="Admin sections" className="flex gap-1">
+      <nav aria-label="Admin sections" className="flex flex-wrap gap-1">
         <NavLink to="/admin/invites" className={tabClass}>
           Invites
         </NavLink>

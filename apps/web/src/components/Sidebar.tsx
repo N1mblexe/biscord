@@ -2,12 +2,15 @@ import type { BootstrapResponse } from '@hearth/shared';
 import { useQuery } from '@tanstack/react-query';
 import type { ReactNode } from 'react';
 import { NavLink } from 'react-router';
+import { meQuery } from '../api/auth';
 import { bootstrapQuery } from '../api/chat';
 import { errorMessage } from '../api/errors';
 import { displayUser } from '../lib/bootstrapPatch';
+import { useDrawerStore } from '../stores/drawers';
 import { useIsOnline } from '../stores/presence';
 import { useUnreadSummary } from '../stores/reads';
 import { AvatarWithPresence } from './Avatar';
+import { CloseIcon, drawerClasses, drawerIconButton, useDrawerPanel } from './Drawer';
 import { VoiceChannelItem } from './VoiceChannels';
 import { VoicePanel } from './VoicePanel';
 
@@ -165,11 +168,55 @@ function SidebarLists({ boot }: { boot: BootstrapResponse }) {
   );
 }
 
-/** Left column: text channels, voice channels (click to join) and DMs, with the voice panel below. */
+const mainLinkClass = ({ isActive }: { isActive: boolean }) =>
+  `rounded-md px-2.5 py-1.5 text-sm font-medium transition hover:bg-white/5 ${
+    isActive ? 'bg-white/5 text-text' : 'text-muted'
+  }`;
+
+/**
+ * The drawer's own header on phones: its close button and the **Main** links (Settings, Admin) that
+ * the app header shows from `md` up. Hidden from `md` up, so each link exists once per layout.
+ */
+function DrawerHeader() {
+  const { data: me } = useQuery(meQuery);
+  const close = useDrawerStore((s) => s.close);
+  return (
+    <div className="flex shrink-0 flex-col gap-2 border-b border-white/5 px-2 py-2 md:hidden">
+      <div className="flex items-center justify-between pl-2">
+        <span className="text-base font-semibold tracking-tight">Hearth</span>
+        <button type="button" aria-label="Close navigation" className={drawerIconButton} onClick={close}>
+          <CloseIcon />
+        </button>
+      </div>
+      <nav aria-label="Main" className="flex items-center gap-1">
+        <NavLink to="/settings" className={mainLinkClass}>
+          Settings
+        </NavLink>
+        {me?.role === 'admin' && (
+          <NavLink to="/admin/invites" className={mainLinkClass}>
+            Admin
+          </NavLink>
+        )}
+      </nav>
+    </div>
+  );
+}
+
+/**
+ * Left column: text channels, voice channels (click to join) and DMs, with the voice panel below.
+ * Below `md` it is an off-canvas drawer (`#app-sidebar`), opened by the header's **Open navigation**.
+ */
 export function Sidebar() {
   const boot = useQuery(bootstrapQuery);
+  const { ref, open, dialogProps } = useDrawerPanel<HTMLDivElement>('nav', 'Navigation');
   return (
-    <div className="flex w-60 shrink-0 flex-col border-r border-white/5 bg-surface">
+    <div
+      ref={ref}
+      id="app-sidebar"
+      {...dialogProps}
+      className={`flex w-60 shrink-0 flex-col border-r border-white/5 bg-surface outline-none ${drawerClasses('left', open)}`}
+    >
+      <DrawerHeader />
       <nav aria-label="Channels" className="flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto px-2 py-4">
         {boot.data ? (
           <SidebarLists boot={boot.data} />
