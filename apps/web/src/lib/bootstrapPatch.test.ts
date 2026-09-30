@@ -38,7 +38,7 @@ const ch = (id: string, name: string, position: number, type: Channel['type'] = 
 });
 
 const boot: BootstrapResponse = {
-  me: { ...user(ME, 'Alice', { role: 'admin' }), createdAt: '2026-09-28T10:00:00.000Z' },
+  me: { ...user(ME, 'Alice', { role: 'admin' }), createdAt: '2026-09-28T10:00:00.000Z', locale: 'en' },
   users: [user(ME, 'Alice', { role: 'admin' }), user(BOB, 'Bob')],
   channels: [ch(GENERAL, 'general', 0), ch(VOICE, 'Lounge', 1, 'voice')],
   dms: [],

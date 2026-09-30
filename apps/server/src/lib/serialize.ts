@@ -31,8 +31,9 @@ export function toPublicUser(row: UserRow): PublicUser {
   };
 }
 
+/** The signed-in user, including the private `locale` (B.11 rule 2). Never broadcast; use `toPublicUser`. */
 export function toMe(row: UserRow): Me {
-  return { ...toPublicUser(row), createdAt: row.createdAt.toISOString() };
+  return { ...toPublicUser(row), createdAt: row.createdAt.toISOString(), locale: row.locale };
 }
 
 export function toInvite(row: InviteRow): Invite {

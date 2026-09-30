@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { lenientText } from '../text.js';
-import { DisplayName, Password, Username } from './common.js';
+import { DisplayName, Locale, Password, Username } from './common.js';
 import { Me } from './users.js';
 
 /** POST `/auth/register` */
@@ -10,6 +10,8 @@ export const RegisterRequest = z.object({
   username: Username,
   displayName: DisplayName,
   password: Password,
+  /** The language the register form was shown in (B.11 rule 3); the account defaults to `en` without it. */
+  locale: Locale.optional(),
 });
 export type RegisterRequest = z.infer<typeof RegisterRequest>;
 
@@ -40,8 +42,12 @@ export type InviteCheckResponse = z.infer<typeof InviteCheckResponse>;
 export const UserResponse = z.object({ user: Me });
 export type UserResponse = z.infer<typeof UserResponse>;
 
-/** PATCH `/me` */
-export const UpdateMeRequest = z.object({ displayName: DisplayName });
+/** PATCH `/me`: at least one field. `locale` is private (B.11 rule 2), so it never triggers `user:updated`. */
+export const UpdateMeRequest = z
+  .object({ displayName: DisplayName.optional(), locale: Locale.optional() })
+  .refine((v) => v.displayName !== undefined || v.locale !== undefined, {
+    message: 'At least one of displayName or locale is required',
+  });
 export type UpdateMeRequest = z.infer<typeof UpdateMeRequest>;
 
 /** POST `/me/password` */

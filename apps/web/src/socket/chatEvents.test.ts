@@ -144,7 +144,7 @@ describe('registerChatEvents (phase 4 events)', () => {
     deactivated: false,
   });
   const boot: BootstrapResponse = {
-    me: { ...person(ME, 'Bob'), createdAt: '2026-09-28T10:00:00.000Z' },
+    me: { ...person(ME, 'Bob'), createdAt: '2026-09-28T10:00:00.000Z', locale: 'en' },
     users: [person(ME, 'Bob'), person(AUTHOR, 'Alice')],
     channels: [{ id: CH, type: 'text', name: 'general', position: 0 }],
     dms: [],
@@ -255,7 +255,7 @@ describe('a bootstrap requested before a socket event but answered after it (sta
   };
   /** What the server answers: its state from before the events below. */
   const stale: BootstrapResponse = {
-    me: { ...person(ME, 'Bob'), createdAt: '2026-09-28T10:00:00.000Z' },
+    me: { ...person(ME, 'Bob'), createdAt: '2026-09-28T10:00:00.000Z', locale: 'en' },
     users: [person(ME, 'Bob'), person(OTHER, 'Alice')],
     channels: [
       { id: CH, type: 'text', name: 'general', position: 0 },
