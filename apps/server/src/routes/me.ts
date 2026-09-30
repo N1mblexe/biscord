@@ -3,7 +3,7 @@ import { ChangePasswordRequest, UpdateMeRequest, UserResponse } from '@hearth/sh
 import { AppError } from '../lib/errors.js';
 import { send } from '../lib/respond.js';
 import { toMe, toPublicUser } from '../lib/serialize.js';
-import { parse } from '../lib/validate.js';
+import { parse, parseLenient } from '../lib/validate.js';
 import { authOf } from '../plugins/auth.js';
 import { changePassword } from '../services/auth.js';
 import { updateDisplayName } from '../services/users.js';
@@ -32,7 +32,8 @@ export function registerMeRoutes(
     '/api/me/password',
     { preHandler: guards.requireUser, config: rateLimiter.changePassword },
     async (request, reply) => {
-      const input = parse(ChangePasswordRequest, request.body);
+      const input = parseLenient(ChangePasswordRequest, request.body);
+      if (input === null) throw new AppError('INVALID_CREDENTIALS', 'Current password is incorrect');
       const revoked = await changePassword(db, authOf(request), input);
       realtime.revokeSessions(revoked, 'password_changed');
       return reply.status(204).send();

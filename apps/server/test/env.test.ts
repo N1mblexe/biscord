@@ -60,6 +60,37 @@ describe('loadEnv', () => {
     expect(env.APP_ORIGIN).toEqual(['http://localhost:5173', 'http://localhost:8080']);
   });
 
+  it('normalizes APP_ORIGIN entries to their origin (B.9 rule 4)', () => {
+    const env = loadEnv({
+      ...base,
+      APP_ORIGIN:
+        'https://Hearth.Example.com/, http://localhost:5173/, https://x.example.com:443, https://hearth.example.com',
+    });
+    expect(env.APP_ORIGIN).toEqual([
+      'https://hearth.example.com',
+      'http://localhost:5173',
+      'https://x.example.com',
+    ]);
+  });
+
+  it('refuses an APP_ORIGIN entry with a path, query, fragment, credentials or another scheme', () => {
+    for (const bad of [
+      'https://hearth.example.com/app',
+      'https://hearth.example.com/app/',
+      'https://hearth.example.com/?x=1',
+      'https://hearth.example.com/#top',
+      'https://hearth.example.com?',
+      'https://user:pw@hearth.example.com',
+      'ftp://hearth.example.com',
+      'hearth.example.com',
+    ]) {
+      expect(() => loadEnv({ ...base, APP_ORIGIN: `http://localhost:5173,${bad}` }), bad).toThrow(
+        /APP_ORIGIN: .*position 2/,
+      );
+    }
+    expect(() => loadEnv({ ...base, APP_ORIGIN: ' , ' })).toThrow(/APP_ORIGIN/);
+  });
+
   it('requires a test token when test mode is on', () => {
     expect(() => loadEnv({ ...base, HEARTH_TEST_MODE: 'true' })).toThrow(/HEARTH_TEST_TOKEN/);
   });

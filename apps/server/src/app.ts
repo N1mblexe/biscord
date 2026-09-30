@@ -75,9 +75,31 @@ declare module 'fastify' {
  */
 export const MAX_PARAM_LENGTH = 1024;
 
-/** Invite codes travel in the check URL (B.4 row 6); keep them out of request logs. */
+/** `%XX` → the byte as a char (enough to compare ASCII path segments); anything else is kept. */
+function decodePercent(segment: string): string {
+  return segment.replace(/%([0-9a-f]{2})/gi, (_match, hex: string) => String.fromCharCode(parseInt(hex, 16)));
+}
+
+/**
+ * Invite codes travel in the check URL (B.4 row 6); keep them out of request logs. The router decodes
+ * percent-encoding, so `/%61pi/%69nvites/<code>/check` reaches the same route: the path segments are compared
+ * decoded (and case-insensitively), and the code segment is replaced whatever its spelling.
+ */
 export function redactUrl(url: string | undefined): string | undefined {
-  return url?.replace(/^(\/api\/invites\/)[^/?]+/, '$1[redacted]');
+  if (url === undefined) return undefined;
+  const queryAt = url.indexOf('?');
+  const path = queryAt === -1 ? url : url.slice(0, queryAt);
+  const segments = path.split('/');
+  // ['', 'api', 'invites', '<code>', ...]
+  if (
+    segments.length >= 4 &&
+    decodePercent(segments[1] ?? '').toLowerCase() === 'api' &&
+    decodePercent(segments[2] ?? '').toLowerCase() === 'invites'
+  ) {
+    segments[3] = '[redacted]';
+    return segments.join('/') + (queryAt === -1 ? '' : url.slice(queryAt));
+  }
+  return url;
 }
 
 function loggerOptions(env: Env, enabled: boolean): FastifyServerOptions['logger'] {

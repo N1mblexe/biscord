@@ -94,5 +94,16 @@ describe('request logging', () => {
   it('redacts invite codes from logged URLs', () => {
     expect(redactUrl('/api/invites/ABCDEFGH12345678/check')).toBe('/api/invites/[redacted]/check');
     expect(redactUrl('/api/me')).toBe('/api/me');
+    expect(redactUrl(undefined)).toBeUndefined();
+  });
+
+  it('also redacts percent-encoded spellings the router resolves to the same route', () => {
+    expect(redactUrl('/%61pi/invites/ABCDEFGH12345678/check')).toBe('/%61pi/invites/[redacted]/check');
+    expect(redactUrl('/api/%69nvites/ABCDEFGH12345678/check')).toBe('/api/%69nvites/[redacted]/check');
+    expect(redactUrl('/%61%70%69/%69%6E%76%69%74%65%73/SECRET/check?x=1')).toBe(
+      '/%61%70%69/%69%6E%76%69%74%65%73/[redacted]/check?x=1',
+    );
+    expect(redactUrl('/api/invites/%41BC/check')).toBe('/api/invites/[redacted]/check');
+    expect(redactUrl('/api/invitesX/ABC/check')).toBe('/api/invitesX/ABC/check');
   });
 });

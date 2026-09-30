@@ -41,7 +41,8 @@ export async function createSession(
     .values({
       userId,
       tokenHash: sha256Hex(token),
-      userAgent: userAgent?.slice(0, USER_AGENT_MAX) ?? null,
+      // B.9 rule 1: Postgres text can't hold a NUL; a header shouldn't carry one, but never let it 500.
+      userAgent: userAgent?.replaceAll('\u0000', '').slice(0, USER_AGENT_MAX) ?? null,
       lastSeenAt: now,
       expiresAt: expiryFrom(now, ttlDays),
     })

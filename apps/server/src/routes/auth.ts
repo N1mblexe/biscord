@@ -7,9 +7,10 @@ import {
   ResetPasswordRequest,
   UserResponse,
 } from '@hearth/shared';
+import { AppError } from '../lib/errors.js';
 import { send } from '../lib/respond.js';
 import { toMe } from '../lib/serialize.js';
-import { parse } from '../lib/validate.js';
+import { parseLenient } from '../lib/validate.js';
 import { authOf, clearSessionCookie, setSessionCookie } from '../plugins/auth.js';
 import { login, register, resetPassword, type AuthConfig } from '../services/auth.js';
 import { isInviteRedeemable } from '../services/invites.js';
@@ -24,14 +25,17 @@ export function registerAuthRoutes(
   const config: AuthConfig = { maxUsers: env.MAX_USERS, sessionTtlDays: env.SESSION_TTL_DAYS };
 
   app.post('/api/auth/register', { config: rateLimiter.authRoute }, async (request, reply) => {
-    const input = parse(RegisterRequest, request.body);
+    const input = parseLenient(RegisterRequest, request.body);
+    // B.9 rule 1: an invite code with a NUL is answered like an unknown one.
+    if (input === null) throw new AppError('INVITE_INVALID', 'This invite is invalid or has expired');
     const { user, token } = await register(db, config, input, request.headers['user-agent']);
     setSessionCookie(reply, env, token);
     return send(reply, UserResponse, { user: toMe(user) }, 201);
   });
 
   app.post('/api/auth/login', { config: rateLimiter.authRoute }, async (request, reply) => {
-    const input = parse(LoginRequest, request.body);
+    const input = parseLenient(LoginRequest, request.body);
+    if (input === null) throw new AppError('INVALID_CREDENTIALS', 'Invalid username or password');
     const { user, token } = await login(db, config, input, request.headers['user-agent']);
     setSessionCookie(reply, env, token);
     return send(reply, UserResponse, { user: toMe(user) });
@@ -46,14 +50,16 @@ export function registerAuthRoutes(
   });
 
   app.post('/api/auth/reset-password', { config: rateLimiter.authRoute }, async (request, reply) => {
-    const input = parse(ResetPasswordRequest, request.body);
+    const input = parseLenient(ResetPasswordRequest, request.body);
+    if (input === null) throw new AppError('INVALID_CREDENTIALS', 'Invalid username or reset code');
     const revoked = await resetPassword(db, input);
     realtime.revokeSessions(revoked, 'password_reset');
     return reply.status(204).send();
   });
 
   app.get('/api/invites/:code/check', { config: rateLimiter.authRoute }, async (request, reply) => {
-    const { code } = parse(InviteCodeParams, request.params);
-    return send(reply, InviteCheckResponse, { valid: await isInviteRedeemable(db, code) });
+    const params = parseLenient(InviteCodeParams, request.params);
+    const valid = params !== null && (await isInviteRedeemable(db, params.code));
+    return send(reply, InviteCheckResponse, { valid });
   });
 }

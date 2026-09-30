@@ -55,6 +55,22 @@ export async function findUserByUsername(db: Queryable, username: string): Promi
   return row ?? null;
 }
 
+/**
+ * The user's row, re-read and locked `FOR UPDATE` until the transaction ends; `null` if there is none.
+ * CONTRACTS B.9 rule 3: login, change-password, reset-password, reset-code issuance, deactivate and reactivate
+ * serialize on it, and each takes it before touching the user's sessions or reset codes (one lock order).
+ */
+export async function lockUserRow(tx: Queryable, id: string): Promise<UserRow | null> {
+  const [row] = await tx.select().from(users).where(eq(users.id, id)).for('update');
+  return row ?? null;
+}
+
+/** `lockUserRow` by (normalized) username. */
+export async function lockUserRowByUsername(tx: Queryable, username: string): Promise<UserRow | null> {
+  const [row] = await tx.select().from(users).where(eq(users.username, username)).for('update');
+  return row ?? null;
+}
+
 /** Every user, including deactivated ones, ordered by username. */
 export function listUsers(db: Queryable): Promise<UserRow[]> {
   return db.select().from(users).orderBy(asc(users.username));

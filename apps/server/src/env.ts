@@ -48,6 +48,43 @@ const trustProxy = z
     return entries;
   });
 
+/**
+ * One APP_ORIGIN entry, normalized to its origin (CONTRACTS B.9 rule 4): `scheme://host[:port]`, lower-case,
+ * default port dropped, no trailing slash, so it compares equal to a browser's `Origin` header. An entry with
+ * a path, query, fragment or credentials is refused (it names a page, not an origin).
+ */
+export function normalizeOrigin(value: string): string | null {
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    return null;
+  }
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') return null;
+  if (url.username !== '' || url.password !== '') return null;
+  if (url.pathname !== '/' || url.search !== '' || url.hash !== '') return null;
+  // `new URL('http://x/?')` has an empty search; reject a raw `?`/`#` too.
+  if (/[?#]/.test(value)) return null;
+  return url.origin;
+}
+
+const appOrigins = z.string().transform((raw, ctx): string[] => {
+  const entries = raw
+    .split(',')
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.length > 0);
+  const origins = entries.map(normalizeOrigin);
+  const badPositions = origins.flatMap((origin, i) => (origin === null ? [i + 1] : []));
+  if (entries.length === 0 || badPositions.length > 0) {
+    ctx.addIssue({
+      code: 'custom',
+      message: `Expected a comma-separated list of origins (scheme://host[:port], no path), e.g. https://hearth.example.com; invalid entry at position ${badPositions.join(', ') || '1'}`,
+    });
+    return z.NEVER;
+  }
+  return [...new Set(origins.filter((origin): origin is string => origin !== null))];
+});
+
 const postgresUrl = z.string().regex(/^postgres(ql)?:\/\/.+/, 'Expected a postgres:// connection URL');
 
 const EnvSchema = z
@@ -58,15 +95,7 @@ const EnvSchema = z
     LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).default('info'),
     // Proxies (Caddy) whose X-Forwarded-For sets `request.ip`; `false` = use the socket address.
     TRUST_PROXY: trustProxy,
-    APP_ORIGIN: z
-      .string()
-      .transform((value) =>
-        value
-          .split(',')
-          .map((origin) => origin.trim())
-          .filter((origin) => origin.length > 0),
-      )
-      .pipe(z.array(z.url()).min(1)),
+    APP_ORIGIN: appOrigins,
 
     // --- Postgres ---
     // POSTGRES_* configure the docker-compose container; the server itself only reads the URLs.
