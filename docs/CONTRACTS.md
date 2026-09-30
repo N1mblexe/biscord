@@ -419,7 +419,7 @@ Reconnect protocol: on every `connect`, the client refetches `GET /bootstrap`, p
 - **Reconcile:** `listRooms` + `listParticipants` runs on server boot and every 60 s.
 - **One voice channel per user:** if a join arrives while the user is already in another room, the server calls `removeParticipant` on the old room.
 - **Duplicate identity** (second device): LiveKit drops the older connection. This is the accepted behaviour.
-- **Publish presets:** camera 720p30, screen 1080p30. Screen-share audio is allowed.
+- **Publish presets:** camera 360p, 720p (default) or 1080p at 30 fps (B.12), screen 1080p30. Screen-share audio is allowed.
 
 ### B.6a Voice rules (Phase 6)
 
@@ -457,7 +457,7 @@ Reconnect protocol: on every `connect`, the client refetches `GET /bootstrap`, p
 
 1. **`camera`/`screen` flags** come from the client and are cosmetic, for the sidebar. The server cross-checks them in the 60 s reconcile: from `listParticipants`, a `ParticipantInfo.tracks[].source` without a published camera or screen track forces the flag to false and emits `voice:updated`. So a crashed client can't leave a LIVE badge stuck.
 2. **Screen-share audio** is published only when the browser provides it (tab audio in Chromium). It follows the per-user volume slider for that sharer through `setVolume(v, Track.Source.ScreenShareAudio)`.
-3. **Publish presets:** camera 720p30 with simulcast (LiveKit defaults). Screen 1080p30 with `contentHint: 'detail'`, and simulcast off for screen share (text sharpness over bandwidth at 6–8 users).
+3. **Publish presets:** camera at the user's chosen quality (360p, 720p or 1080p at 30 fps; default 720p; B.12) with simulcast (LiveKit defaults). Screen 1080p30 with `contentHint: 'detail'`, and simulcast off for screen share (text sharpness over bandwidth at 6–8 users).
 
 ### B.7 Lifecycle rules (ordered, idempotent)
 
@@ -577,6 +577,15 @@ Reconnect protocol: on every `connect`, the client refetches `GET /bootstrap`, p
 3. Before login, the web app uses, in order: the browser-stored choice (`localStorage` `hearth:language`), `navigator.language` starting with `tr`, then `en`. Registration sends the language currently shown. After login the account's `locale` wins.
 4. Only UI text is translated. Message content, usernames, display names, channel names, emoji, invite/reset codes and filenames are shown as typed. Server error `message` strings stay English; the client maps every `ErrorCode` it shows to translated text and uses the server message only as a last resort.
 5. The UI-contract tables in `docs/plans/phase-*.md` and the e2e suite describe the **English** copy; Playwright runs with `locale: 'en-US'`. Language-specific checks live in `e2e/tests/i18n.spec.ts`.
+
+### B.12 Voice and video devices (client-only)
+
+1. Device and input preferences are **per browser/device** and never sent to the server: `localStorage` `hearth:voice-prefs`, JSON validated with zod on read (invalid fields fall back to their defaults), access wrapped in try/catch. Shape and defaults: `audioInputId`, `audioOutputId`, `videoInputId` (`'default'`); `noiseSuppression`, `echoCancellation`, `autoGainControl` (`true`); `inputMode: 'voice' | 'ptt'` (`'voice'`); `vadGate` (`false`, always transmit); `vadThresholdDb` (−100…0, `-50`); `pttKey: {type:'key', code} | {type:'mouse', button: 3|4}` (`{type:'key', code:'Backquote'}`); `pttReleaseMs` (0…1000, `200`); `muteKey`, `deafenKey` (same shape as `pttKey`, or `null`, default `null`); `cameraQuality: '360p' | '720p' | '1080p'` (`'720p'`).
+2. **Mute vs gate:** `voice:state.muted` (and the UI's "Muted") is only the user's own mute. Push-to-talk and voice-activity gating are a local second layer that mutes/unmutes the published mic track; the gate state is never sent over the socket. Transmit = not muted, not deafened, and (`ptt` ? key held : (`!vadGate` or level above threshold)).
+3. **Push-to-talk** works only while the Hearth tab/window has focus (browsers have no global hotkeys), releases after `pttReleaseMs`, releases on window blur or tab hide, and ignores printing keys while focus is in an editable field.
+4. **Device loss:** if the selected device disappears, the client falls back to the system default and shows a notice; the stored preference is kept so re-plugging restores it.
+5. **Output selection** needs `HTMLMediaElement.setSinkId`; where it's missing (iOS Safari) the browser/OS chooses the output and the setting is hidden. The Permissions-Policy allows `speaker-selection=(self)`.
+6. UI contract (labels, testids): `docs/plans/devices.md`.
 
 ### B.8 Runtime topology (ports, URLs, env)
 
