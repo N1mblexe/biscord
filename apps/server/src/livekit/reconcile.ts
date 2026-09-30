@@ -101,17 +101,17 @@ async function reconcileOnce({ db, backend, voice, health, log }: ReconcileDeps)
 
   // Newest join per user; the others are extra rooms to leave.
   const latest = new Map<string, { channelId: string; participant: ObservedParticipant }>();
-  const extras: { channelId: string; userId: string }[] = [];
+  const extras: Extra[] = [];
   for (const [channelId, participants] of listed) {
     for (const participant of participants) {
       const seen = latest.get(participant.userId);
       if (seen === undefined) {
         latest.set(participant.userId, { channelId, participant });
       } else if (participant.joinedAt.getTime() > seen.participant.joinedAt.getTime()) {
-        extras.push({ channelId: seen.channelId, userId: participant.userId });
+        extras.push({ channelId: seen.channelId, userId: participant.userId, sid: seen.participant.sid });
         latest.set(participant.userId, { channelId, participant });
       } else if (channelId !== seen.channelId) {
-        extras.push({ channelId, userId: participant.userId });
+        extras.push({ channelId, userId: participant.userId, sid: participant.sid });
       }
     }
   }
@@ -123,7 +123,7 @@ async function reconcileOnce({ db, backend, voice, health, log }: ReconcileDeps)
     const entry = latest.get(userId);
     if (entry === undefined) continue;
     latest.delete(userId);
-    extras.push({ channelId: entry.channelId, userId });
+    extras.push({ channelId: entry.channelId, userId, sid: entry.participant.sid, deactivated: true });
   }
 
   await voice.exclusive(async () => {
@@ -142,13 +142,42 @@ async function reconcileOnce({ db, backend, voice, health, log }: ReconcileDeps)
     voice.reconcile(desired, since);
   });
 
-  for (const { channelId, userId } of extras) {
-    try {
-      await ignoreNotFound(backend.removeParticipant(voiceRoomName(channelId), userId));
-    } catch (err) {
-      log.warn({ err: loggableError(err), channelId, userId }, 'voice reconcile: removeParticipant failed');
-    }
+  for (const extra of extras) {
+    const { channelId, userId } = extra;
+    // `removeParticipant` targets the identity, not the listed connection (B.9 rule 8): like the join
+    // webhook's kick, it is queued behind the webhooks received so far and skipped if by then the user is
+    // in that room on another connection (a re-join since the listing). A deactivated user always goes.
+    const removal = await voice.exclusive(() => {
+      const membership = voice.membershipOf(userId);
+      if (extra.deactivated !== true && membership?.channelId === channelId && membership.sid !== extra.sid) {
+        log.debug(
+          { channelId, userId, sid: extra.sid },
+          'voice reconcile: removal skipped, the user re-joined',
+        );
+        return null;
+      }
+      // Started under the lock, awaited outside it (a slow LiveKit call mustn't hold up webhooks).
+      const done = ignoreNotFound(backend.removeParticipant(voiceRoomName(channelId), userId)).catch(
+        (err: unknown) => {
+          log.warn(
+            { err: loggableError(err), channelId, userId },
+            'voice reconcile: removeParticipant failed',
+          );
+        },
+      );
+      return { done };
+    });
+    if (removal !== null) await removal.done;
   }
+}
+
+/** A LiveKit connection the reconcile takes out of a room. */
+interface Extra {
+  channelId: string;
+  userId: string;
+  /** The listed connection. */
+  sid: string;
+  deactivated?: boolean;
 }
 
 export function createReconciler(deps: ReconcileDeps): Reconciler {

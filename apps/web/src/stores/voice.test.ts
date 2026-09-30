@@ -85,6 +85,15 @@ describe('voice participants store', () => {
     expect(store().byChannel).toEqual({});
   });
 
+  it('a snapshot requested before a channel was forgotten does not bring its participants back', () => {
+    store().apply({ type: 'joined', channelId: LOUNGE, participant: p(A, 1) });
+    const mark = store().seq;
+    store().forgetChannel(LOUNGE);
+    store().applySnapshot({ [LOUNGE]: [p(A, 1), p(B, 2)], [GAMES]: [p(C, 3)] }, mark);
+    expect(store().byChannel[LOUNGE]).toBeUndefined();
+    expect(ids(GAMES)).toEqual([C]);
+  });
+
   it('reset clears everything', () => {
     store().apply({ type: 'joined', channelId: LOUNGE, participant: p(A, 1) });
     store().reset();

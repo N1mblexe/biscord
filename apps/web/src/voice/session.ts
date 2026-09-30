@@ -107,6 +107,19 @@ export function registerVoiceLeave(leave: () => void): () => void {
   };
 }
 
+/**
+ * Leaves voice if this tab is in (or joining) `channelId`; true if it was. For a deleted channel:
+ * the server's `voice:kicked` only reaches users it already lists there, not one still joining.
+ */
+export function leaveVoiceChannel(channelId: string): boolean {
+  const { channelId: current, state } = useVoiceSession.getState();
+  if (current !== channelId || state === 'disconnected') return false;
+  if (activeLeave) activeLeave();
+  else
+    useVoiceSession.getState().set({ channelId: null, roomName: null, state: 'disconnected', ...MEDIA_OFF });
+  return true;
+}
+
 /** Logout, revoked or dead session: leave the room now and forget mute/deafen. */
 export function endVoiceSession(): void {
   activeLeave?.();

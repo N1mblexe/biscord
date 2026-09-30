@@ -21,6 +21,19 @@ const HANDLED = new Set([
   'room_finished',
 ]);
 
+/**
+ * `DisconnectReason`s (livekit protocol; the enum isn't re-exported by the server SDK) that end the
+ * membership at once: the user left on purpose, was removed, or the room is gone. Any other reason (a lost
+ * or replaced connection, a timeout, unknown) may be followed by a reconnect, so the leave waits out the
+ * rejoin grace (B.9 rule 8).
+ */
+const FINAL_DISCONNECT_REASONS: ReadonlySet<number> = new Set([
+  1, // CLIENT_INITIATED
+  4, // PARTICIPANT_REMOVED
+  5, // ROOM_DELETED
+  10, // ROOM_CLOSED
+]);
+
 function joinedAtOf(event: WebhookEvent): Date {
   const p = event.participant;
   const ms = p === undefined ? 0 : p.joinedAtMs > 0n ? Number(p.joinedAtMs) : Number(p.joinedAt) * 1000;
@@ -67,7 +80,8 @@ async function applyEvent({ db, voice, voiceBackend, log }: ApplyDeps, event: We
     voice.participantJoined(channelId, { userId, sid: participant.sid, joinedAt: joinedAtOf(event) });
   } else {
     // `participant_connection_aborted` counts as left.
-    voice.participantLeft(channelId, userId, participant.sid);
+    const graceful = !FINAL_DISCONNECT_REASONS.has(participant.disconnectReason);
+    voice.participantLeft(channelId, userId, participant.sid, graceful);
   }
 }
 
@@ -113,15 +127,11 @@ export function registerLiveKitWebhookRoute(
         throw new AppError('UNAUTHENTICATED', 'Invalid webhook signature');
       }
 
-      if (voice.claimEvent(event.id)) {
-        try {
-          await voice.exclusive(() => applyEvent({ db, voice, voiceBackend, log: request.log }, event));
-        } catch (err) {
-          // Let LiveKit's retry of this id be processed.
-          voice.releaseEvent(event.id);
-          throw err;
-        }
-      } else {
+      // A failure is not remembered (→ 500), so LiveKit's retry, or a copy already waiting, handles it.
+      const outcome = await voice.processEvent(event.id, () =>
+        voice.exclusive(() => applyEvent({ db, voice, voiceBackend, log: request.log }, event)),
+      );
+      if (outcome === 'duplicate') {
         request.log.debug({ eventId: event.id }, 'duplicate LiveKit webhook ignored');
       }
       return reply.status(200).send();

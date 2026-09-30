@@ -95,12 +95,20 @@ export interface WebhookInput {
   sid?: string;
   joinedAtMs?: number;
   id?: string;
+  /**
+   * `ParticipantInfo.disconnectReason` (protobuf JSON enum name). Leave events default to
+   * `CLIENT_INITIATED` (a deliberate leave, applied at once); e.g. `SIGNAL_CLOSE` is a lost connection,
+   * which waits out the rejoin grace (B.9 rule 8).
+   */
+  disconnectReason?: string;
 }
 
 /** A LiveKit-shaped webhook JSON body (protobuf JSON names: camelCase, int64 as strings). */
 export function webhookBody(input: WebhookInput): string {
   const room = input.roomName ?? (input.channelId === undefined ? undefined : voiceRoomName(input.channelId));
   const joinedAtMs = input.joinedAtMs ?? Date.now();
+  const disconnectReason =
+    input.disconnectReason ?? (input.event === 'participant_joined' ? undefined : 'CLIENT_INITIATED');
   return JSON.stringify({
     event: input.event,
     id: input.id ?? `EV_${randomUUID()}`,
@@ -116,6 +124,7 @@ export function webhookBody(input: WebhookInput): string {
             joinedAt: String(Math.floor(joinedAtMs / 1000)),
             joinedAtMs: String(joinedAtMs),
             name: 'someone',
+            ...(disconnectReason === undefined ? {} : { disconnectReason }),
           },
         }),
   });

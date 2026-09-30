@@ -22,7 +22,7 @@ export function registerVoiceRoutes(
     { preHandler: [guards.requireAdmin, rateLimiter.adminMutation] },
     async (request, reply) => {
       const { channelId, userId } = parse(VoiceParticipantParams, request.params);
-      await lifecycle.disconnectFromVoice(channelId, userId, request.log);
+      await lifecycle.disconnectFromVoice(authOf(request).user.id, channelId, userId, request.log);
       return reply.status(204).send();
     },
   );

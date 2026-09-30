@@ -466,6 +466,33 @@ describe('POST /api/admin/users/:id/deactivate (row 36, B.7 teardown)', () => {
     ]);
     expect(app.voice.state.snapshot()).toEqual({});
   });
+
+  it('a join webhook that checked the user before the commit is still removed (B.9 rule 8)', async () => {
+    const voice = app.voice.state;
+    const bob = users.bob.id;
+    backend.put(lounge.id, bob, 'PA_race');
+    let release = (): void => undefined;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    // The join webhook's task: its deactivation check passed before the commit; it adds bob when it resumes.
+    const joined = voice.exclusive(async () => {
+      await gate;
+      voice.participantJoined(lounge.id, { userId: bob, sid: 'PA_race', joinedAt: new Date() });
+    });
+    const res = deactivate('alice', 'bob');
+    await waitUntil(async () => (await userRow('bob')).deactivatedAt !== null, {
+      message: 'deactivation committed',
+    });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    release();
+    await joined;
+    expect((await res).statusCode).toBe(204);
+    expect(backend.callsOf('removeParticipant')).toEqual([
+      { op: 'removeParticipant', room: voiceRoomName(lounge.id), identity: bob },
+    ]);
+    expect(voice.snapshot()).toEqual({});
+  });
 });
 
 describe('deactivation voids credentials (B.7b rule 7)', () => {
@@ -606,6 +633,18 @@ describe('admin mutations re-check the actor inside the transaction (B.7b rule 7
     expect((await testDb().db.select().from(invites)).map((row) => row.revokedAt)).toEqual([null]);
     // Positive control: re-promoted (no lock held), the same kind of request goes through.
     expect((await api(app, 'POST', '/api/admin/invites', { cookie: cookies.alice })).statusCode).toBe(201);
+  });
+
+  it('row 31: an admin demoted while the voice disconnect waits → 403, nobody kicked', async () => {
+    const bob = await connect('bob');
+    await joinVoice(lounge, 'bob');
+    const [res] = await raceUnderUsersLock(1, () => [kickFromVoice('alice', lounge, 'bob')], demoteAlice);
+    if (res === undefined) throw new Error('no response');
+    expectError(res, 403, 'FORBIDDEN');
+    expect(backend.callsOf('removeParticipant')).toEqual([]);
+    expect(Object.keys(app.voice.state.snapshot())).toEqual([lounge.id]);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(bob.of('voice:kicked')).toEqual([]);
   });
 });
 
