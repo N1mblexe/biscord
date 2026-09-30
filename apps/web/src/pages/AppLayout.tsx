@@ -4,11 +4,13 @@ import { Link, NavLink, Outlet, useLocation, useNavigate } from 'react-router';
 import { logout, meQuery } from '../api/auth';
 import { isUnauthenticated } from '../api/errors';
 import { Avatar } from '../components/Avatar';
+import { DrawerBackdrop, drawerIconButton } from '../components/Drawer';
 import { PageAlert } from '../components/forms';
 import { Sidebar } from '../components/Sidebar';
 import { secondaryButton } from '../components/styles';
 import { loginPathForReason } from '../lib/authNotice';
 import { clearSessionState } from '../lib/session';
+import { useDrawerStore } from '../stores/drawers';
 import { useNoticeStore } from '../stores/notice';
 import { usePageAlertStore } from '../stores/pageAlert';
 import { useSocket } from '../socket/context';
@@ -60,22 +62,27 @@ function AppShell() {
     if (isUnauthenticated(error)) endSession('unauthenticated');
   }, [error, endSession]);
 
-  // A camera or screen share error belongs to the page it happened on: gone once we navigate.
+  // A camera or screen share error belongs to the page it happened on: gone once we navigate. So
+  // does an open drawer (a channel link, **Message**, Settings… were tapped in it).
   const { pathname } = useLocation();
   useEffect(() => {
     usePageAlertStore.getState().clear();
+    useDrawerStore.getState().close();
   }, [pathname]);
 
   const connected = status === 'connected';
 
+  // Below `md` the header is one row: the drawer buttons, and the status and user name as
+  // visually hidden text next to the dot and avatar. From `md` up it is unchanged.
   return (
-    <div className="flex h-screen flex-col">
+    <div className="flex h-dvh flex-col">
       <header className="shrink-0 border-b border-white/5 bg-surface">
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3">
+        <div className="flex items-center gap-x-2 px-2 py-2 md:flex-wrap md:gap-x-4 md:gap-y-2 md:px-4 md:py-3">
+          <OpenNavigationButton />
           <Link to="/" className="text-lg font-semibold tracking-tight">
             Hearth
           </Link>
-          <nav aria-label="Main" className="flex items-center gap-1">
+          <nav aria-label="Main" className="flex items-center gap-1 max-md:hidden">
             <NavLink to="/settings" className={navLinkClass}>
               Settings
             </NavLink>
@@ -85,31 +92,35 @@ function AppShell() {
               </NavLink>
             )}
           </nav>
-          <div className="ml-auto flex items-center gap-4">
+          <div className="ml-auto flex min-w-0 items-center gap-3 md:gap-4">
             <span className="flex items-center gap-2 text-xs text-muted" title="Realtime connection">
               <span
                 aria-hidden="true"
-                className={`size-2 rounded-full ${connected ? 'bg-success' : 'bg-danger'}`}
+                className={`size-2 shrink-0 rounded-full ${connected ? 'bg-success' : 'bg-danger'}`}
               />
-              <span data-testid="socket-status">{status}</span>
+              <span data-testid="socket-status" className="max-md:sr-only">
+                {status}
+              </span>
             </span>
-            <span className="flex items-center gap-2">
+            <span className="flex min-w-0 items-center gap-2">
               {me && <Avatar userId={me.id} name={me.displayName} avatarUrl={me.avatarUrl} size="sm" />}
-              <span data-testid="current-user" className="text-sm font-medium">
+              <span data-testid="current-user" className="truncate text-sm font-medium max-md:sr-only">
                 {me?.displayName ?? ''}
               </span>
             </span>
             <button
               type="button"
-              className={secondaryButton}
+              className={`${secondaryButton} shrink-0 whitespace-nowrap`}
               onClick={onLogout}
               disabled={logoutMutation.isPending}
             >
               Log out
             </button>
+            <MembersButton />
           </div>
         </div>
       </header>
+      <DrawerBackdrop />
       <div className="flex min-h-0 flex-1">
         <Sidebar />
         <main className="flex min-w-0 flex-1 flex-col">
@@ -120,6 +131,73 @@ function AppShell() {
         </main>
       </div>
     </div>
+  );
+}
+
+/** Header button (phones only) that opens the sidebar drawer (`#app-sidebar`). */
+function OpenNavigationButton() {
+  const open = useDrawerStore((s) => s.open === 'nav');
+  const toggle = useDrawerStore((s) => s.toggle);
+  return (
+    <button
+      type="button"
+      aria-label="Open navigation"
+      aria-expanded={open}
+      aria-controls="app-sidebar"
+      className={`${drawerIconButton} md:hidden`}
+      onClick={() => {
+        toggle('nav');
+      }}
+    >
+      <svg aria-hidden="true" viewBox="0 0 16 16" className="size-5" fill="none">
+        <path
+          d="M2.5 4h11M2.5 8h11M2.5 12h11"
+          stroke="currentColor"
+          strokeWidth="1.5"
+          strokeLinecap="round"
+        />
+      </svg>
+    </button>
+  );
+}
+
+/**
+ * Header button (phones only, while the page has a members panel) that opens the members drawer
+ * (`#members-panel`), where **Message** starts a DM.
+ */
+function MembersButton() {
+  const available = useDrawerStore((s) => s.membersHosts > 0);
+  const open = useDrawerStore((s) => s.open === 'members');
+  const toggle = useDrawerStore((s) => s.toggle);
+  if (!available) return null;
+  return (
+    <button
+      type="button"
+      aria-label="Members"
+      title="Members"
+      aria-expanded={open}
+      aria-controls="members-panel"
+      className={`${drawerIconButton} md:hidden`}
+      onClick={() => {
+        toggle('members');
+      }}
+    >
+      <svg aria-hidden="true" viewBox="0 0 20 20" className="size-5" fill="none">
+        <circle cx="7.5" cy="7" r="2.75" stroke="currentColor" strokeWidth="1.5" />
+        <path
+          d="M2.5 16c.5-2.6 2.5-4 5-4s4.5 1.4 5 4"
+          stroke="currentColor"
+          strokeWidth="1.5"
+          strokeLinecap="round"
+        />
+        <path
+          d="M13 4.6a2.6 2.6 0 0 1 0 4.8M14.5 12.3c1.6.5 2.7 1.8 3 3.7"
+          stroke="currentColor"
+          strokeWidth="1.5"
+          strokeLinecap="round"
+        />
+      </svg>
+    </button>
   );
 }
 

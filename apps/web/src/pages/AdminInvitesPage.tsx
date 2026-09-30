@@ -70,7 +70,7 @@ export function AdminInvitesPage() {
   return (
     <div className="flex flex-col gap-6">
       {slot.shared && <PageAlert message={slot.message} onDismiss={slot.dismiss} />}
-      <section className={card} aria-labelledby="invites-create-heading">
+      <section className={`${card} max-md:p-4`} aria-labelledby="invites-create-heading">
         <h1 id="invites-create-heading" className="text-2xl font-semibold tracking-tight">
           Invites
         </h1>
@@ -116,7 +116,7 @@ export function AdminInvitesPage() {
         </form>
       </section>
 
-      <section className={card} aria-labelledby="invites-list-heading">
+      <section className={`${card} max-md:p-4`} aria-labelledby="invites-list-heading">
         <h2 id="invites-list-heading" className="text-lg font-semibold">
           All invites
         </h2>
@@ -127,9 +127,10 @@ export function AdminInvitesPage() {
         ) : invites.data.length === 0 ? (
           <p className="mt-4 text-sm text-muted">No invites yet.</p>
         ) : (
-          <div className="mt-4 overflow-x-auto">
-            <table className="w-full text-left text-sm">
-              <thead className="text-xs tracking-wide text-muted uppercase">
+          // Below `md` each row is a card (code; uses, expiry; status), with inline labels instead of a header row.
+          <div className="mt-4 md:overflow-x-auto">
+            <table className="w-full text-left text-sm max-md:block">
+              <thead className="text-xs tracking-wide text-muted uppercase max-md:hidden">
                 <tr>
                   <th scope="col" className="py-2 pr-4 font-medium">
                     Code
@@ -145,7 +146,7 @@ export function AdminInvitesPage() {
                   </th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-white/5">
+              <tbody className="divide-y divide-white/5 max-md:block">
                 {invites.data.map((invite) => (
                   <InviteRow
                     key={invite.id}
@@ -176,20 +177,25 @@ function InviteRow({ invite, asOf, revoking, onRevoke }: InviteRowProps) {
   const expired = Date.parse(invite.expiresAt) <= asOf;
   const usedUp = invite.uses >= invite.maxUses;
   return (
-    <tr data-testid="invite-row">
-      <td className="py-2 pr-4">
-        <span data-testid="invite-code" className="font-mono">
+    <tr
+      data-testid="invite-row"
+      className="max-md:flex max-md:flex-wrap max-md:items-center max-md:gap-x-4 max-md:gap-y-1 max-md:py-3"
+    >
+      <td className="py-2 pr-4 max-md:w-full max-md:p-0">
+        <span data-testid="invite-code" className="font-mono max-md:break-all">
           {invite.code}
         </span>
       </td>
-      <td className="py-2 pr-4 tabular-nums">
+      <td className="py-2 pr-4 tabular-nums max-md:p-0 max-md:text-xs">
+        <span className="text-muted md:hidden">Uses </span>
         {invite.uses} / {invite.maxUses}
       </td>
-      <td className="py-2 pr-4">
+      <td className="py-2 pr-4 max-md:p-0 max-md:text-xs">
+        <span className="text-muted md:hidden">Expires </span>
         <time dateTime={invite.expiresAt}>{formatDate(invite.expiresAt)}</time>
         {expired && <span className="ml-2 text-xs text-muted">(expired)</span>}
       </td>
-      <td className="py-2">
+      <td className="py-2 max-md:w-full max-md:p-0">
         {invite.revokedAt ? (
           <span className="text-xs font-medium text-muted">revoked</span>
         ) : (

@@ -129,7 +129,7 @@ export function AdminUsersPage() {
   const list = users.data ? sortUsers(users.data) : [];
 
   return (
-    <section className={card} aria-labelledby="users-heading">
+    <section className={`${card} max-md:p-4`} aria-labelledby="users-heading">
       <h1 id="users-heading" className="text-2xl font-semibold tracking-tight">
         Users
       </h1>
@@ -159,9 +159,10 @@ export function AdminUsersPage() {
       ) : users.isError ? (
         <p className="mt-6 text-sm text-danger">{errorMessage(users.error)}</p>
       ) : (
-        <div className="mt-6 overflow-x-auto">
-          <table className="w-full min-w-[40rem] text-left text-sm">
-            <thead className="text-xs text-muted">
+        // Below `md` each row is a card (user; role, status, presence; actions), with no header row.
+        <div className="mt-6 md:overflow-x-auto">
+          <table className="w-full text-left text-sm max-md:block md:min-w-[40rem]">
+            <thead className="text-xs text-muted max-md:hidden">
               <tr className="border-b border-white/5">
                 <th scope="col" className="py-2 pr-3 font-semibold">
                   User
@@ -180,7 +181,7 @@ export function AdminUsersPage() {
                 </th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-white/5">
+            <tbody className="divide-y divide-white/5 max-md:block">
               {list.map((user) => (
                 <UserRow
                   key={user.id}
@@ -229,8 +230,12 @@ function UserRow({
   const online = useIsOnline(user.id);
   const status = userStatus(user);
   return (
-    <tr data-testid="user-row" data-username={user.username} className="align-middle">
-      <td className="py-2 pr-3">
+    <tr
+      data-testid="user-row"
+      data-username={user.username}
+      className="align-middle max-md:flex max-md:flex-wrap max-md:items-center max-md:gap-x-4 max-md:gap-y-2 max-md:py-3"
+    >
+      <td className="py-2 pr-3 max-md:w-full max-md:p-0">
         <span className="flex min-w-0 items-center gap-2">
           <Avatar
             userId={user.id}
@@ -248,7 +253,7 @@ function UserRow({
           </span>
         </span>
       </td>
-      <td className="py-2 pr-3">
+      <td className="py-2 pr-3 max-md:p-0 max-md:text-xs">
         <span
           data-testid="user-role"
           className={user.role === 'admin' ? 'font-medium text-accent' : 'text-muted'}
@@ -256,19 +261,19 @@ function UserRow({
           {user.role}
         </span>
       </td>
-      <td className="py-2 pr-3">
+      <td className="py-2 pr-3 max-md:p-0 max-md:text-xs">
         <span data-testid="user-status" className={status === 'active' ? 'text-success' : 'text-danger'}>
           {status}
         </span>
       </td>
-      <td className="py-2 pr-3">
+      <td className="py-2 pr-3 max-md:p-0">
         <span className="flex items-center gap-1.5 text-xs text-muted">
           <PresenceDot online={online && !user.deactivated} />
           {online && !user.deactivated ? 'Online' : 'Offline'}
         </span>
       </td>
-      <td className="py-2">
-        <span className="flex flex-wrap justify-end gap-1.5">
+      <td className="py-2 max-md:w-full max-md:p-0">
+        <span className="flex flex-wrap justify-end gap-1.5 max-md:justify-start">
           {userActions(user).map((action) => (
             <button
               key={action}

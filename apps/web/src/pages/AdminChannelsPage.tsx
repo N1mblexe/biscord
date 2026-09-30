@@ -149,7 +149,7 @@ export function AdminChannelsPage() {
   return (
     <div className="flex flex-col gap-6">
       {deleting === null && slot.shared && <PageAlert message={slot.message} onDismiss={slot.dismiss} />}
-      <section className={card} aria-labelledby="channels-create-heading">
+      <section className={`${card} max-md:p-4`} aria-labelledby="channels-create-heading">
         <h1 id="channels-create-heading" className="text-2xl font-semibold tracking-tight">
           Channels
         </h1>
@@ -191,7 +191,7 @@ export function AdminChannelsPage() {
         </form>
       </section>
 
-      <section className={card} aria-labelledby="channels-list-heading">
+      <section className={`${card} max-md:p-4`} aria-labelledby="channels-list-heading">
         <h2 id="channels-list-heading" className="text-lg font-semibold">
           All channels
         </h2>
