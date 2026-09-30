@@ -146,7 +146,9 @@ export function Composer({
           ref={inputRef}
           id="composer-input"
           name="content"
-          className={`${inputClass} max-h-48 resize-none`}
+          // The placeholder stays on one line (ellipsis): "Message <long display name>" must not wrap
+          // and make the empty composer two lines tall on a phone.
+          className={`${inputClass} max-h-48 min-w-0 flex-1 resize-none placeholder:truncate`}
           rows={1}
           maxLength={MESSAGE_INPUT_MAX_LENGTH}
           placeholder={disabledReason ?? placeholder}
@@ -163,7 +165,7 @@ export function Composer({
           onKeyDown={onKeyDown}
           onPaste={onPaste}
         />
-        <button type="submit" className={primaryButton} disabled={disabled || uploading}>
+        <button type="submit" className={`${primaryButton} shrink-0`} disabled={disabled || uploading}>
           Send
         </button>
       </div>

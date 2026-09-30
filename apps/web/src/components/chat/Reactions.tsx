@@ -67,9 +67,17 @@ function SmileyPlusIcon() {
 /**
  * **Add reaction**: a button that opens the emoji palette, a modal `role="dialog"` named
  * **Add reaction**. Picking an emoji or pressing Escape (or clicking outside) closes it and returns
- * focus to the button.
+ * focus to the button. `tabIndex` lets the message keep it out of the tab order until it is focused.
  */
-export function AddReaction({ className, onPick }: { className: string; onPick: (emoji: string) => void }) {
+export function AddReaction({
+  className,
+  tabIndex,
+  onPick,
+}: {
+  className: string;
+  tabIndex?: number;
+  onPick: (emoji: string) => void;
+}) {
   const [open, setOpen] = useState(false);
   const triggerRef = useRef<HTMLButtonElement>(null);
   return (
@@ -81,6 +89,7 @@ export function AddReaction({ className, onPick }: { className: string; onPick: 
         title="Add reaction"
         aria-haspopup="dialog"
         aria-expanded={open}
+        tabIndex={tabIndex}
         className={className}
         onClick={() => {
           setOpen(true);

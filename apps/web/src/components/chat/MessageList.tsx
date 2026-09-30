@@ -1,10 +1,20 @@
-import type { BootstrapResponse, Me } from '@hearth/shared';
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import type { BootstrapResponse, Me, Message } from '@hearth/shared';
+import {
+  Fragment,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react';
 import { errorMessage } from '../../api/errors';
 import { authorName } from '../../lib/bootstrapPatch';
+import { timelineMeta, type TimelineInput } from '../../lib/chatTimeline';
 import { loadLatest, loadOlder } from '../../lib/messageSync';
 import { useMarkRead } from '../../lib/readMarking';
-import { compareMessageIds, useMessageStore } from '../../stores/messages';
+import { compareMessageIds, useMessageStore, type PendingMessage } from '../../stores/messages';
 import { useViewingStore } from '../../stores/viewing';
 import { secondaryButton } from '../styles';
 import { MessageItem, PendingItem } from './MessageItem';
@@ -13,7 +23,8 @@ import { MessageItem, PendingItem } from './MessageItem';
 const BOTTOM_SLACK_PX = 48;
 /**
  * The top sentinel must stay visible this long before older messages load on their own. Long enough
- * that a click on **Load older messages** (which scrolls the sentinel into view) wins the race.
+ * that a click on **Load older messages** (which scrolls the sentinel into view) wins the race; the
+ * loser is a no-op either way (`loadOlder`'s `expectedOldest`).
  */
 const AUTO_LOAD_DELAY_MS = 300;
 
@@ -24,6 +35,9 @@ interface Snapshot {
   pendingCount: number;
   scrollHeight: number;
 }
+
+/** One row of the history: a loaded message or one of our pending sends. */
+type Row = { kind: 'message'; message: Message } | { kind: 'pending'; pending: PendingMessage };
 
 interface MessageListProps {
   channelId: string;
@@ -77,11 +91,16 @@ export function MessageList({ channelId, boot, me, isDm, canReact, onError }: Me
     setLoadAttempt((n) => n + 1);
   };
 
-  const requestOlder = useCallback(() => {
-    loadOlder(channelId).catch((err: unknown) => {
-      onError(errorMessage(err));
-    });
-  }, [channelId, onError]);
+  /** One older page before `expectedOldest` (a no-op if that page already landed meanwhile). */
+  const requestOlder = useCallback(
+    (expectedOldest: string | undefined) => {
+      loadOlder(channelId, expectedOldest).catch((err: unknown) => {
+        onError(errorMessage(err));
+      });
+    },
+    [channelId, onError],
+  );
+  const loadOlderButtonRef = useRef<HTMLButtonElement>(null);
 
   // ---- Scroll management ----
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -161,6 +180,26 @@ export function MessageList({ channelId, boot, me, isDm, canReact, onError }: Me
   // Reading at the bottom of a visible tab marks the newest loaded message read.
   useMarkRead(channelId, loaded ? ids.at(-1) : undefined);
 
+  // ---- Jump to latest ----
+  // `seenThrough` follows the newest message while the list is at the bottom; messages newer than it
+  // arrived while scrolled up and are counted on the pill. (Adjusted during render: it is derived
+  // from the viewing store, which the scroll handler and the layout effect above keep current.)
+  const atBottom = useViewingStore((s) => s.channelId === channelId && s.atBottom);
+  const newestId = loaded ? ids.at(-1) : undefined;
+  const [seenThrough, setSeenThrough] = useState<string | undefined>(newestId);
+  if ((atBottom || seenThrough === undefined) && seenThrough !== newestId) setSeenThrough(newestId);
+  const newCount = useMemo(
+    () => (seenThrough === undefined ? 0 : ids.filter((id) => compareMessageIds(id, seenThrough) > 0).length),
+    [ids, seenThrough],
+  );
+  const jumpToLatest = () => {
+    const el = scrollRef.current;
+    if (!el) return;
+    el.scrollTop = el.scrollHeight;
+    onScroll(); // at the bottom now: read marking and the pill follow at once
+    document.getElementById('composer-input')?.focus({ preventScroll: true });
+  };
+
   // Scrolling to the top loads older messages.
   useEffect(() => {
     const root = scrollRef.current;
@@ -173,8 +212,14 @@ export function MessageList({ channelId, boot, me, isDm, canReact, onError }: Me
         visible = entries.some((e) => e.isIntersecting);
         clearTimeout(timer);
         if (!visible) return;
+        // The oldest id when the sentinel came into view: if a click loads that page first, this
+        // auto-load does nothing instead of loading the page after it.
+        const oldest = useMessageStore.getState().channels[channelId]?.ids[0];
         timer = setTimeout(() => {
-          if (visible) requestOlder();
+          // A keyboard user on the button loads pages with it; the button scrolling the sentinel
+          // into view must not load one more on its own.
+          if (!visible || document.activeElement === loadOlderButtonRef.current) return;
+          requestOlder(oldest);
         }, AUTO_LOAD_DELAY_MS);
       },
       { root, rootMargin: '100px 0px 0px 0px' },
@@ -184,76 +229,151 @@ export function MessageList({ channelId, boot, me, isDm, canReact, onError }: Me
       clearTimeout(timer);
       observer.disconnect();
     };
-  }, [hasOlder, requestOlder]);
+  }, [hasOlder, requestOlder, channelId]);
 
-  const byId = entry?.byId ?? {};
   const isAdmin = me.role === 'admin';
   const viewer = useMemo(() => ({ id: me.id, username: me.username }), [me.id, me.username]);
 
+  // The loaded messages, then our pending sends, with day separators and author grouping.
+  const rows = useMemo(() => {
+    const messages: Message[] = [];
+    for (const id of ids) {
+      const message = entry?.byId[id];
+      if (message) messages.push(message);
+    }
+    const items: (TimelineInput & { row: Row })[] = [
+      ...messages.map((message) => ({ ...message, row: { kind: 'message' as const, message } })),
+      ...pending.map((p) => ({ ...p, row: { kind: 'pending' as const, pending: p } })),
+    ];
+    const meta = timelineMeta(items);
+    return items.map((item, i) => ({ ...item.row, ...(meta[i] ?? { separator: null, grouped: false }) }));
+  }, [ids, entry, pending]);
+
   return (
-    <div
-      ref={scrollRef}
-      onScroll={onScroll}
-      className="min-h-0 flex-1 overflow-y-auto [overflow-anchor:none]"
-      aria-label="Chat history"
-      role="region"
-    >
-      <div ref={topRef} aria-hidden="true" className="h-px" />
-      {hasOlder && (
-        <div className="flex justify-center py-3">
-          <button type="button" className={secondaryButton} onClick={requestOlder}>
-            Load older messages
-          </button>
-        </div>
-      )}
-      {!loaded && loadError !== null ? (
-        <div className="flex flex-wrap items-center gap-3 px-4 py-6 text-sm text-muted">
-          <p data-testid="messages-load-error">Couldn’t load messages: {loadError}</p>
-          <button type="button" className={secondaryButton} onClick={retryLoad}>
-            Retry
-          </button>
-        </div>
-      ) : !loaded ? (
-        <p className="px-4 py-6 text-sm text-muted">Loading messages…</p>
-      ) : ids.length === 0 && pending.length === 0 ? (
-        <p className="px-4 py-6 text-sm text-muted">No messages yet. Say hello!</p>
-      ) : (
-        !hasOlder && (
-          <p className="px-4 pt-6 pb-2 text-xs text-muted">This is the beginning of the conversation.</p>
-        )
-      )}
-      <ol ref={listRef} className="flex flex-col pb-2">
-        {ids.map((id) => {
-          const message = byId[id];
-          if (!message) return null;
-          const own = message.authorId === me.id;
-          return (
-            <MessageItem
-              key={id}
-              message={message}
-              authorName={authorName(usersById.get(message.authorId))}
-              me={viewer}
-              usersById={usersById}
-              usernames={usernames}
-              isDm={isDm}
-              canEdit={own}
-              canDelete={own || (isAdmin && !isDm)}
-              canReact={canReact}
-              onError={onError}
+    <div className="relative flex min-h-0 flex-1 flex-col">
+      <div
+        ref={scrollRef}
+        onScroll={onScroll}
+        className="min-h-0 flex-1 overflow-y-auto [overflow-anchor:none]"
+        aria-label="Chat history"
+        role="region"
+      >
+        <div ref={topRef} aria-hidden="true" className="h-px" />
+        {hasOlder && (
+          <div className="flex justify-center py-3">
+            <button
+              ref={loadOlderButtonRef}
+              type="button"
+              className={secondaryButton}
+              onClick={() => {
+                requestOlder(ids[0]);
+              }}
+            >
+              Load older messages
+            </button>
+          </div>
+        )}
+        {!loaded && loadError !== null ? (
+          <div className="flex flex-wrap items-center gap-3 px-4 py-6 text-sm text-muted">
+            <p data-testid="messages-load-error">Couldn’t load messages: {loadError}</p>
+            <button type="button" className={secondaryButton} onClick={retryLoad}>
+              Retry
+            </button>
+          </div>
+        ) : !loaded ? (
+          <p className="px-4 py-6 text-sm text-muted">Loading messages…</p>
+        ) : ids.length === 0 && pending.length === 0 ? (
+          <p className="px-4 py-6 text-sm text-muted">No messages yet. Say hello!</p>
+        ) : (
+          !hasOlder && (
+            <p className="px-4 pt-6 pb-2 text-xs text-muted">This is the beginning of the conversation.</p>
+          )
+        )}
+        <ol ref={listRef} className="flex flex-col pb-2">
+          {rows.map((row) => {
+            const key = row.kind === 'message' ? row.message.id : row.pending.nonce;
+            let item: ReactNode;
+            if (row.kind === 'message') {
+              const { message } = row;
+              const own = message.authorId === me.id;
+              item = (
+                <MessageItem
+                  message={message}
+                  authorName={authorName(usersById.get(message.authorId))}
+                  grouped={row.grouped}
+                  me={viewer}
+                  usersById={usersById}
+                  usernames={usernames}
+                  isDm={isDm}
+                  canEdit={own}
+                  canDelete={own || (isAdmin && !isDm)}
+                  canReact={canReact}
+                  onError={onError}
+                />
+              );
+            } else {
+              item = (
+                <PendingItem
+                  pending={row.pending}
+                  authorName={me.displayName}
+                  authorAvatarUrl={me.avatarUrl}
+                  grouped={row.grouped}
+                  usernames={usernames}
+                  onError={onError}
+                />
+              );
+            }
+            return (
+              <Fragment key={key}>
+                {row.separator !== null && <DaySeparator label={row.separator} />}
+                {item}
+              </Fragment>
+            );
+          })}
+        </ol>
+      </div>
+      {newCount > 0 && !atBottom && (
+        <button
+          type="button"
+          data-testid="jump-to-latest"
+          data-count={newCount}
+          onClick={jumpToLatest}
+          className="absolute bottom-3 left-1/2 flex max-w-[calc(100%-2rem)] -translate-x-1/2 items-center gap-2 rounded-full bg-accent px-4 py-1.5 text-sm font-semibold whitespace-nowrap text-bg shadow-lg ring-1 ring-black/20 transition hover:brightness-110 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+        >
+          <span>
+            {newCount > 99 ? '99+' : newCount} new {newCount === 1 ? 'message' : 'messages'}
+          </span>
+          {/* Narrow screens show just the count and the arrow; the name always says what it does. */}
+          <span aria-hidden="true" className="hidden sm:inline">
+            ·
+          </span>
+          <span className="sr-only sm:not-sr-only">Jump to latest</span>
+          <svg aria-hidden="true" viewBox="0 0 16 16" className="size-3.5" fill="none">
+            <path
+              d="M8 3v10M3.5 8.5 8 13l4.5-4.5"
+              stroke="currentColor"
+              strokeWidth="1.6"
+              strokeLinecap="round"
             />
-          );
-        })}
-        {pending.map((p) => (
-          <PendingItem
-            key={p.nonce}
-            pending={p}
-            authorName={me.displayName}
-            authorAvatarUrl={me.avatarUrl}
-            usernames={usernames}
-            onError={onError}
-          />
-        ))}
-      </ol>
+          </svg>
+        </button>
+      )}
     </div>
+  );
+}
+
+/** "Today", "Yesterday" or a date between two days of history (`data-testid="day-separator"`). */
+function DaySeparator({ label }: { label: string }) {
+  return (
+    <li
+      role="separator"
+      aria-label={label}
+      data-testid="day-separator"
+      className="mx-4 mt-4 mb-1 flex items-center gap-3 text-xs font-semibold text-muted"
+    >
+      <span aria-hidden="true" className="h-px flex-1 bg-white/10" />
+      <span aria-hidden="true">{label}</span>
+      <span aria-hidden="true" className="h-px flex-1 bg-white/10" />
+    </li>
   );
 }

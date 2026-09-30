@@ -3,7 +3,7 @@ import { LIMITS, voiceRoomName, type ChannelType } from '@hearth/shared';
 import type { FastifyBaseLogger } from 'fastify';
 import type { Db } from '../db/client.js';
 import { channels } from '../db/schema.js';
-import type { ChannelRow, Queryable } from '../db/types.js';
+import { isUniqueViolation, type ChannelRow, type Queryable } from '../db/types.js';
 import { AppError, loggableError } from '../lib/errors.js';
 import { ignoreNotFound, type VoiceBackend } from '../livekit/client.js';
 import { storageKeysOfChannel } from './attachments.js';
@@ -23,6 +23,21 @@ async function lockChannels(tx: Queryable): Promise<void> {
 }
 
 const notFound = (): AppError => new AppError('NOT_FOUND', 'Channel not found');
+
+/** The unique index on `lower(name)` for text/voice channels (CONTRACTS B.10 rule 1). */
+const NAME_UNIQUE_INDEX = 'channels_name_lower_uq';
+
+/** Maps a violation of the channel-name unique index to 409 CONFLICT; rethrows anything else. */
+async function mapNameTaken<T>(work: Promise<T>): Promise<T> {
+  try {
+    return await work;
+  } catch (err) {
+    if (isUniqueViolation(err, NAME_UNIQUE_INDEX)) {
+      throw new AppError('CONFLICT', 'A channel with that name already exists.');
+    }
+    throw err;
+  }
+}
 
 /** Every text and voice channel in sidebar order (one `position` order across both types). */
 export function listChannels(db: Queryable): Promise<ChannelRow[]> {
@@ -64,43 +79,50 @@ export async function listVoiceChannelIds(db: Queryable, ids?: readonly string[]
  * (B.7b rule 7: `FORBIDDEN` after a concurrent demotion or deactivation).
  */
 
-/** Appends at `max(position) + 1`; 409 CHANNEL_LIMIT once there are 50 text/voice channels. */
+/**
+ * Appends at `max(position) + 1`; 409 CHANNEL_LIMIT once there are 50 text/voice channels, 409 CONFLICT when
+ * the name (case-insensitively) is taken.
+ */
 export function createChannel(
   db: Db,
   actorId: string,
   input: { type: ChannelType; name: string },
 ): Promise<ChannelRow> {
-  return db.transaction(async (tx) => {
-    await lockStillAdmin(tx, actorId);
-    await lockChannels(tx);
-    const [stats] = await tx
-      .select({ n: count(), maxPosition: max(channels.position) })
-      .from(channels)
-      .where(notDm());
-    if ((stats?.n ?? 0) >= LIMITS.maxChannels) {
-      throw new AppError('CHANNEL_LIMIT', `A server can have at most ${LIMITS.maxChannels} channels`);
-    }
-    const [row] = await tx
-      .insert(channels)
-      .values({ type: input.type, name: input.name, position: (stats?.maxPosition ?? -1) + 1 })
-      .returning();
-    if (row === undefined) throw new Error('channel insert returned no row');
-    return row;
-  });
+  return mapNameTaken(
+    db.transaction(async (tx) => {
+      await lockStillAdmin(tx, actorId);
+      await lockChannels(tx);
+      const [stats] = await tx
+        .select({ n: count(), maxPosition: max(channels.position) })
+        .from(channels)
+        .where(notDm());
+      if ((stats?.n ?? 0) >= LIMITS.maxChannels) {
+        throw new AppError('CHANNEL_LIMIT', `A server can have at most ${LIMITS.maxChannels} channels`);
+      }
+      const [row] = await tx
+        .insert(channels)
+        .values({ type: input.type, name: input.name, position: (stats?.maxPosition ?? -1) + 1 })
+        .returning();
+      if (row === undefined) throw new Error('channel insert returned no row');
+      return row;
+    }),
+  );
 }
 
-/** 404 NOT_FOUND for an unknown id or a DM. */
+/** 404 NOT_FOUND for an unknown id or a DM; 409 CONFLICT when another channel has that name. */
 export function renameChannel(db: Db, actorId: string, id: string, name: string): Promise<ChannelRow> {
-  return db.transaction(async (tx) => {
-    await lockStillAdmin(tx, actorId);
-    const [row] = await tx
-      .update(channels)
-      .set({ name })
-      .where(and(eq(channels.id, id), notDm()))
-      .returning();
-    if (row === undefined) throw notFound();
-    return row;
-  });
+  return mapNameTaken(
+    db.transaction(async (tx) => {
+      await lockStillAdmin(tx, actorId);
+      const [row] = await tx
+        .update(channels)
+        .set({ name })
+        .where(and(eq(channels.id, id), notDm()))
+        .returning();
+      if (row === undefined) throw notFound();
+      return row;
+    }),
+  );
 }
 
 /**

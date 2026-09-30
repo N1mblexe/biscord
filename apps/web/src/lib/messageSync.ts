@@ -80,13 +80,18 @@ const olderInFlight = new Map<string, Promise<void>>();
 /**
  * Loads the page before the oldest loaded message. Concurrent calls for the same channel (the
  * button and the top-of-list observer) share one request.
+ *
+ * `expectedOldest` is the oldest id the caller saw when it decided to load (the button's render, the
+ * observer's trigger). If a page has landed since, the oldest id has moved and the call does nothing:
+ * a click and an auto-load that race each other load one page, not two.
  */
-export function loadOlder(channelId: string): Promise<void> {
+export function loadOlder(channelId: string, expectedOldest?: string): Promise<void> {
   const inFlight = olderInFlight.get(channelId);
   if (inFlight) return inFlight;
   const entry = store().channels[channelId];
   const before = entry?.ids[0];
   if (!entry?.loaded || !entry.hasOlder || before === undefined) return Promise.resolve();
+  if (expectedOldest !== undefined && expectedOldest !== before) return Promise.resolve();
 
   const request = (async () => {
     try {

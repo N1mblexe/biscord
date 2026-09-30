@@ -1,0 +1,1 @@
+CREATE UNIQUE INDEX "channels_name_lower_uq" ON "channels" USING btree (lower("name")) WHERE "channels"."type" <> 'dm';
