@@ -198,8 +198,8 @@ The production setup is a single VM running `docker-compose.prod.yml` with these
 
 Domains:
 
-- `hearth.<domain>` → the web app plus `/api` and `/socket.io`.
-- `lk.hearth.<domain>` → LiveKit signaling (wss through Caddy).
+- `$HEARTH_DOMAIN` (a DuckDNS name such as `myhearth.duckdns.org`) → the web app plus `/api` and `/socket.io`.
+- `lk.$HEARTH_DOMAIN` → LiveKit signaling (wss through Caddy). DuckDNS resolves every name under your DuckDNS name to the same IP.
 
 Ports to open: TCP 80/443, TCP 7881, UDP 50000–50100 and UDP 3478. On Oracle Cloud, open them in **both** the VCN security list and the VM's iptables.
 
