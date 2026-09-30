@@ -36,6 +36,8 @@ export default defineConfig({
   globalSetup: './global-setup.ts',
   use: {
     baseURL: E2E_BASE_URL ?? webURL,
+    // The suite asserts the English (default) copy; language-specific checks live in tests/i18n.spec.ts (B.11).
+    locale: 'en-US',
     trace: 'retain-on-failure',
     permissions: ['microphone', 'camera', 'notifications'],
   },
