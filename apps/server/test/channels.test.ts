@@ -173,6 +173,86 @@ describe('channel admin routes', () => {
     expectError(await api(app, 'DELETE', `/api/channels/${dmId}`, { cookie: admin }), 404, 'NOT_FOUND');
   });
 
+  describe('unique names (CONTRACTS B.10 rule 1)', () => {
+    const taken = 'A channel with that name already exists.';
+
+    it('create with a taken name gets 409 CONFLICT, case-insensitively, after trimming, across types', async () => {
+      await insertChannel('General');
+      for (const body of [
+        { type: 'text', name: 'General' },
+        { type: 'text', name: 'general' },
+        { type: 'voice', name: '  GENERAL ' },
+      ]) {
+        const res = await api(app, 'POST', '/api/channels', { cookie: admin, body });
+        expectError(res, 409, 'CONFLICT');
+        expect(res.json()).toMatchObject({ error: { message: taken } });
+      }
+      expect(await nonDmCount()).toBe(1);
+      const ok = await api(app, 'POST', '/api/channels', {
+        cookie: admin,
+        body: { type: 'text', name: 'general-2' },
+      });
+      expect(ok.statusCode, ok.payload).toBe(201);
+    });
+
+    it('rename to another channel name gets 409 CONFLICT; renaming to its own name in another case is fine', async () => {
+      const general = await insertChannel('general');
+      const random = await insertChannel('random', { position: 1 });
+      const res = await api(app, 'PATCH', `/api/channels/${random.id}`, {
+        cookie: admin,
+        body: { name: ' GENERAL ' },
+      });
+      expectError(res, 409, 'CONFLICT');
+      expect(res.json()).toMatchObject({ error: { message: taken } });
+      const [row] = await testDb().db.select().from(channels).where(eq(channels.id, random.id));
+      expect(row?.name).toBe('random');
+
+      const self = await api(app, 'PATCH', `/api/channels/${general.id}`, {
+        cookie: admin,
+        body: { name: 'General' },
+      });
+      expect(self.statusCode, self.payload).toBe(200);
+      expect(ChannelResponse.parse(self.json()).channel.name).toBe('General');
+    });
+
+    it('a deleted channel frees its name', async () => {
+      const general = await insertChannel('general');
+      expect((await api(app, 'DELETE', `/api/channels/${general.id}`, { cookie: admin })).statusCode).toBe(
+        204,
+      );
+      const res = await api(app, 'POST', '/api/channels', {
+        cookie: admin,
+        body: { type: 'text', name: 'general' },
+      });
+      expect(res.statusCode, res.payload).toBe(201);
+    });
+
+    it('DMs are excluded from the index: many DMs coexist with named channels', async () => {
+      const [a, b, c] = await Promise.all([insertUser('dm_a'), insertUser('dm_b'), insertUser('dm_c')]);
+      await insertDm(a.id, b.id);
+      await insertDm(a.id, c.id);
+      await insertDm(b.id, c.id);
+      const res = await api(app, 'POST', '/api/channels', {
+        cookie: admin,
+        body: { type: 'text', name: 'general' },
+      });
+      expect(res.statusCode, res.payload).toBe(201);
+      const [row] = await testDb().db.select({ n: count() }).from(channels).where(eq(channels.type, 'dm'));
+      expect(row?.n).toBe(3);
+    });
+
+    it('concurrent creates of the same name: exactly one wins', async () => {
+      const results = await Promise.all(
+        ['lobby', 'Lobby', 'LOBBY'].map((name) =>
+          api(app, 'POST', '/api/channels', { cookie: admin, body: { type: 'text', name } }),
+        ),
+      );
+      expect(results.map((r) => r.statusCode).sort()).toEqual([201, 409, 409]);
+      for (const r of results.filter((x) => x.statusCode === 409)) expectError(r, 409, 'CONFLICT');
+      expect(await nonDmCount()).toBe(1);
+    });
+  });
+
   it('reorder rewrites positions 0..n-1 in the given order', async () => {
     const a = await insertChannel('a', { position: 0 });
     const b = await insertChannel('b', { type: 'voice', position: 5 });

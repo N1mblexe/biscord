@@ -1,5 +1,5 @@
 import type { Message, PublicUser } from '@hearth/shared';
-import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
+import { useEffect, useRef, useState, type FocusEvent, type KeyboardEvent } from 'react';
 import { deleteMessage, editMessage } from '../../api/chat';
 import { errorMessage } from '../../api/errors';
 import { useMessageStore, type PendingMessage } from '../../stores/messages';
@@ -28,15 +28,34 @@ function formatFull(iso: string): string {
 type ErrorSink = (message: string | null) => void;
 
 /**
- * The hover toolbar: invisible and click-through (pointer-events-none) until the message is hovered
- * or holds focus, so a click on the author/time line never lands on an invisible Delete. Devices
- * without hover open it with the "⋯" button instead (`open`).
+ * The hover toolbar: invisible and click-through (pointer-events-none) until the message is hovered,
+ * has keyboard focus (on itself or inside), or has a popup open (the reaction palette), so a click on
+ * the author/time line never lands on an invisible Delete. Enter/Space on the message and, on devices
+ * without hover, the "⋯" button open it too (`open`).
  */
 function toolbarClass(open: boolean): string {
   const base = 'flex gap-1 rounded-md bg-surface-raised p-0.5 shadow ring-1 ring-white/10 transition';
   return open
     ? `${base} pointer-events-auto opacity-100`
-    : `${base} pointer-events-none opacity-0 group-focus-within:pointer-events-auto group-focus-within:opacity-100 group-hover:pointer-events-auto group-hover:opacity-100`;
+    : `${base} pointer-events-none opacity-0 group-hover:pointer-events-auto group-hover:opacity-100 ` +
+        'group-focus-visible:pointer-events-auto group-focus-visible:opacity-100 ' +
+        'group-has-[:focus-visible]:pointer-events-auto group-has-[:focus-visible]:opacity-100 ' +
+        'group-has-[[aria-expanded=true]]:pointer-events-auto group-has-[[aria-expanded=true]]:opacity-100';
+}
+
+/** Shown in a grouped message's avatar column while it is hovered or focused (never adds height). */
+const gutterTime =
+  'absolute top-1 right-0 text-[10px] leading-4 whitespace-nowrap text-muted tabular-nums opacity-0 group-hover:opacity-100 ' +
+  'group-focus-visible:opacity-100 group-has-[:focus-visible]:opacity-100';
+
+/** The message `<li>` before (`-1`) or after (`1`) `item`, skipping day separators and pending sends. */
+function siblingMessage(item: HTMLElement | null, direction: -1 | 1): HTMLElement | null {
+  let node = direction < 0 ? item?.previousElementSibling : item?.nextElementSibling;
+  while (node) {
+    if (node instanceof HTMLElement && node.dataset.messageId !== undefined) return node;
+    node = direction < 0 ? node.previousElementSibling : node.nextElementSibling;
+  }
+  return null;
 }
 
 const iconButton =
@@ -56,6 +75,11 @@ export interface Viewer {
 interface MessageItemProps {
   message: Message;
   authorName: string;
+  /**
+   * Follows a message by the same author within 5 minutes (lib/chatTimeline.ts): no avatar and no
+   * visible author line (`message-author` stays in the DOM, visually hidden).
+   */
+  grouped: boolean;
   me: Viewer;
   usersById: ReadonlyMap<string, PublicUser>;
   /** Lowercased usernames of active users (mention highlighting). */
@@ -72,6 +96,7 @@ interface MessageItemProps {
 export function MessageItem({
   message,
   authorName,
+  grouped,
   me,
   usersById,
   usernames,
@@ -83,9 +108,13 @@ export function MessageItem({
 }: MessageItemProps) {
   const [editing, setEditing] = useState(false);
   const [busy, setBusy] = useState(false);
-  // Touch (no hover): the toolbar is opened with the "⋯" button.
+  // Opened with Enter/Space on the message, or the "⋯" button (touch devices).
   const [actionsOpen, setActionsOpen] = useState(false);
+  // Keyboard: the actions are out of the tab order until focus is inside this message, so the
+  // history has one tab stop per message (the message itself) instead of three.
+  const [focusWithin, setFocusWithin] = useState(false);
   const itemRef = useRef<HTMLLIElement>(null);
+  const toolbarRef = useRef<HTMLDivElement>(null);
   const editButtonRef = useRef<HTMLButtonElement>(null);
   // Set when an edit ends, so focus goes back to this message's Edit button once it is rendered.
   const restoreFocus = useRef(false);
@@ -112,6 +141,50 @@ export function MessageItem({
   const author = usersById.get(message.authorId);
   const mentionsMe = message.mentionUserIds.includes(me.id);
   const highlight = mentionsMe && !isDm;
+  const hasActions = !editing && (canReact || canEdit || canDelete);
+  const actionTabIndex = focusWithin || actionsOpen ? 0 : -1;
+
+  /** Opens the toolbar and moves focus to its first action (keyboard). */
+  const openActions = () => {
+    setActionsOpen(true);
+    toolbarRef.current?.querySelector('button')?.focus();
+  };
+
+  const onItemKeyDown = (event: KeyboardEvent<HTMLLIElement>) => {
+    if (event.defaultPrevented || event.nativeEvent.isComposing) return;
+    const target = event.target;
+    if (target === event.currentTarget) {
+      if ((event.key === 'Enter' || event.key === ' ') && hasActions) {
+        event.preventDefault();
+        openActions();
+      } else if (event.key === 'ArrowUp' || event.key === 'ArrowDown') {
+        const next = siblingMessage(event.currentTarget, event.key === 'ArrowUp' ? -1 : 1);
+        if (next) {
+          event.preventDefault();
+          next.focus();
+        }
+      }
+      return;
+    }
+    // Escape in the toolbar (not in the reaction palette, which closes itself) goes back to the message.
+    if (
+      event.key === 'Escape' &&
+      target instanceof Element &&
+      toolbarRef.current?.contains(target) === true &&
+      target.closest('dialog') === null
+    ) {
+      event.preventDefault();
+      setActionsOpen(false);
+      itemRef.current?.focus();
+    }
+  };
+
+  const onItemBlur = (event: FocusEvent<HTMLLIElement>) => {
+    const next = event.relatedTarget;
+    if (next instanceof Node && event.currentTarget.contains(next)) return;
+    setFocusWithin(false);
+    setActionsOpen(false);
+  };
 
   const react = (emoji: string, add: boolean) => {
     onError(null);
@@ -124,9 +197,14 @@ export function MessageItem({
     if (!window.confirm('Delete this message?')) return;
     onError(null);
     setBusy(true);
+    // Focus moves to the neighbouring message (or the composer) instead of getting lost on <body>.
+    const item = itemRef.current;
+    const hadFocus = item?.contains(document.activeElement) ?? false;
     try {
       await deleteMessage(message.id);
+      const neighbour = siblingMessage(item, 1) ?? siblingMessage(item, -1);
       useMessageStore.getState().remove(message.channelId, message.id);
+      if (hadFocus) (neighbour ?? document.getElementById('composer-input'))?.focus();
     } catch (err) {
       onError(errorMessage(err));
       setBusy(false);
@@ -139,31 +217,53 @@ export function MessageItem({
       data-testid="message-item"
       data-message-id={message.id}
       data-mentions-me={mentionsMe ? 'true' : undefined}
-      className={`group relative flex gap-3 py-1.5 pr-4 hover:bg-white/[0.03] ${
-        highlight ? 'border-l-2 border-accent bg-accent/[0.06] pl-[14px]' : 'pl-4'
-      }`}
+      data-grouped={grouped ? 'true' : undefined}
+      tabIndex={0}
+      aria-keyshortcuts={hasActions ? 'Enter' : undefined}
+      onFocus={() => {
+        setFocusWithin(true);
+      }}
+      onBlur={onItemBlur}
+      onKeyDown={onItemKeyDown}
+      className={`group relative flex gap-3 pr-4 outline-accent hover:bg-white/[0.03] focus-visible:outline-2 focus-visible:-outline-offset-2 ${
+        grouped ? 'py-0.5' : 'mt-1.5 pt-1 pb-0.5'
+      } ${highlight ? 'border-l-2 border-accent bg-accent/[0.06] pl-[14px]' : 'pl-4'}`}
     >
-      <div className="pt-0.5">
-        <Avatar
-          userId={message.authorId}
-          name={authorName}
-          avatarUrl={author?.avatarUrl ?? null}
-          deleted={author?.deactivated === true}
-        />
-      </div>
-      <div className="min-w-0 flex-1">
-        <div className="flex items-baseline gap-2">
-          <span data-testid="message-author" className="text-sm font-semibold">
-            {authorName}
-          </span>
-          <time
-            dateTime={message.createdAt}
-            title={formatFull(message.createdAt)}
-            className="text-xs text-muted"
-          >
+      {grouped ? (
+        <div className="relative w-9 shrink-0">
+          <time dateTime={message.createdAt} title={formatFull(message.createdAt)} className={gutterTime}>
             {formatTime(message.createdAt)}
           </time>
         </div>
+      ) : (
+        <div className="pt-0.5">
+          <Avatar
+            userId={message.authorId}
+            name={authorName}
+            avatarUrl={author?.avatarUrl ?? null}
+            deleted={author?.deactivated === true}
+          />
+        </div>
+      )}
+      <div className="min-w-0 flex-1">
+        {grouped ? (
+          <span data-testid="message-author" className="sr-only">
+            {authorName}
+          </span>
+        ) : (
+          <div className="flex items-baseline gap-2">
+            <span data-testid="message-author" className="text-sm font-semibold">
+              {authorName}
+            </span>
+            <time
+              dateTime={message.createdAt}
+              title={formatFull(message.createdAt)}
+              className="text-xs text-muted"
+            >
+              {formatTime(message.createdAt)}
+            </time>
+          </div>
+        )}
         {editing ? (
           <EditForm
             message={message}
@@ -200,13 +300,14 @@ export function MessageItem({
           onToggle={react}
         />
       </div>
-      {!editing && (canReact || canEdit || canDelete) && (
+      {hasActions && (
         // The wrapper never takes clicks itself (only the visible toolbar and the "⋯" button do).
         <div className="pointer-events-none absolute top-1 right-4 flex items-start gap-1">
-          <div className={toolbarClass(actionsOpen)}>
+          <div ref={toolbarRef} className={toolbarClass(actionsOpen)}>
             {canReact && (
               <AddReaction
                 className={iconButton}
+                tabIndex={actionTabIndex}
                 onPick={(emoji) => {
                   setActionsOpen(false);
                   react(emoji, true);
@@ -217,6 +318,7 @@ export function MessageItem({
               <button
                 ref={editButtonRef}
                 type="button"
+                tabIndex={actionTabIndex}
                 className={actionButton}
                 onClick={() => {
                   onError(null);
@@ -230,6 +332,7 @@ export function MessageItem({
             {canDelete && (
               <button
                 type="button"
+                tabIndex={actionTabIndex}
                 className={`${actionButton} hover:text-danger`}
                 disabled={busy}
                 onClick={() => {
@@ -247,10 +350,17 @@ export function MessageItem({
             aria-label="Message actions"
             title="Message actions"
             aria-expanded={actionsOpen}
+            tabIndex={actionTabIndex}
             className={moreButton}
             onClick={(event) => {
-              if (actionsOpen) event.currentTarget.blur();
-              setActionsOpen(!actionsOpen);
+              if (actionsOpen) {
+                event.currentTarget.blur();
+                setActionsOpen(false);
+              } else if (event.detail === 0) {
+                openActions(); // Enter/Space: straight to the first action
+              } else {
+                setActionsOpen(true);
+              }
             }}
           >
             <span aria-hidden="true">⋯</span>
@@ -347,12 +457,15 @@ export function PendingItem({
   pending,
   authorName,
   authorAvatarUrl,
+  grouped,
   usernames,
   onError,
 }: {
   pending: PendingMessage;
   authorName: string;
   authorAvatarUrl: string | null;
+  /** Follows our own message within 5 minutes: drawn like a grouped `MessageItem`. */
+  grouped: boolean;
   usernames: ReadonlySet<string>;
   onError: ErrorSink;
 }) {
@@ -369,13 +482,19 @@ export function PendingItem({
       data-testid="message-item"
       data-pending="true"
       data-failed={failed ? 'true' : undefined}
-      className="flex gap-3 px-4 py-1.5"
+      data-grouped={grouped ? 'true' : undefined}
+      className={`flex gap-3 px-4 ${grouped ? 'py-0.5' : 'mt-1.5 pt-1 pb-0.5'}`}
     >
-      <div className="pt-0.5">
-        <Avatar userId={pending.authorId} name={authorName} avatarUrl={authorAvatarUrl} />
-      </div>
+      {grouped ? (
+        <div className="w-9 shrink-0" />
+      ) : (
+        <div className="pt-0.5">
+          <Avatar userId={pending.authorId} name={authorName} avatarUrl={authorAvatarUrl} />
+        </div>
+      )}
       <div className="min-w-0 flex-1">
-        <div className="flex items-baseline gap-2">
+        {/* Grouped: the author line is visually hidden, and "Not sent" moves next to Retry. */}
+        <div className={grouped ? 'sr-only' : 'flex items-baseline gap-2'}>
           <span data-testid="message-author" className="text-sm font-semibold">
             {authorName}
           </span>
@@ -391,7 +510,12 @@ export function PendingItem({
           <AttachmentList attachments={pending.attachments} />
         </div>
         {failed && (
-          <div className="mt-1 flex gap-1">
+          <div className="mt-1 flex items-center gap-1">
+            {grouped && (
+              <span aria-hidden="true" className="mr-1 text-xs text-muted">
+                Not sent
+              </span>
+            )}
             <button type="button" className={actionButton} onClick={retry}>
               Retry
             </button>

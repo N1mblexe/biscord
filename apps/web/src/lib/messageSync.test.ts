@@ -97,6 +97,21 @@ describe('message sync', () => {
     expect(HISTORY_PAGE).toBe(50);
   });
 
+  it('an older-page request made before a page landed does not load a second page', async () => {
+    const urls = fakeServer(200);
+    await loadLatest(CH);
+    const seen = store().channels[CH]?.ids[0];
+    expect(seen).toBe('151');
+    // The button and the auto-load both saw 151 as the oldest id: one wins, the late one is a no-op.
+    await loadOlder(CH, seen);
+    await loadOlder(CH, seen);
+    expect(store().channels[CH]?.ids[0]).toBe('101');
+    expect(urls.filter((u) => u.searchParams.has('before'))).toHaveLength(1);
+    // A request that saw the new oldest id loads the next page.
+    await loadOlder(CH, '101');
+    expect(store().channels[CH]?.ids[0]).toBe('51');
+  });
+
   it('catches up after a reconnect by paging ?after= until a short page', async () => {
     const urls = fakeServer(10);
     await loadLatest(CH);

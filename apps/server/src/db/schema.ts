@@ -91,7 +91,13 @@ export const channels = pgTable(
     position: integer('position').notNull().default(0),
     createdAt: createdAt(),
   },
-  (t) => [check('channels_name_ck', sql`(${t.type} = 'dm') = (${t.name} is null)`)],
+  (t) => [
+    check('channels_name_ck', sql`(${t.type} = 'dm') = (${t.name} is null)`),
+    // CONTRACTS B.10 rule 1: text/voice channel names are unique, case-insensitively (names arrive trimmed).
+    uniqueIndex('channels_name_lower_uq')
+      .on(sql`lower(${t.name})`)
+      .where(sql`${t.type} <> 'dm'`),
+  ],
 );
 
 export const dmChannels = pgTable(
