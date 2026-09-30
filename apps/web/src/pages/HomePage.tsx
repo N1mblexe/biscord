@@ -2,10 +2,12 @@ import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router';
 import { meQuery } from '../api/auth';
 import { bootstrapQuery } from '../api/chat';
+import { EmptyState } from '../components/EmptyState';
 import { PageAlert } from '../components/forms';
 import { MembersPanel } from '../components/MembersPanel';
 import { usePageAlert } from '../components/usePageAlert';
-import { card, linkClass } from '../components/styles';
+import { primaryButton } from '../components/styles';
+import { noChannelsCopy } from '../lib/emptyStates';
 
 /**
  * `/`: the loader redirects to the first text channel. This page shows when there is none, or when
@@ -18,29 +20,39 @@ export function HomePage() {
   if (!me) return null;
 
   const hasTextChannel = boot?.channels.some((c) => c.type === 'text') ?? false;
+  const isAdmin = me.role === 'admin';
+  const empty = noChannelsCopy(isAdmin);
 
   return (
     <div className="flex min-h-0 flex-1">
       <div className="min-h-0 flex-1 overflow-y-auto">
-        <div className="mx-auto flex w-full max-w-3xl flex-col gap-4 px-4 py-8">
+        <div className="mx-auto flex w-full max-w-3xl flex-col gap-4 px-3 py-6 sm:px-4 sm:py-12">
           <PageAlert message={alert} onDismiss={dismissAlert} />
-          <section className={card}>
-            <h1 data-testid="home-welcome" className="text-2xl font-semibold tracking-tight">
+          <section className="rounded-card bg-surface px-4 pt-6 pb-2 shadow-card ring-1 ring-line sm:px-8 sm:pt-8">
+            <h1
+              data-testid="home-welcome"
+              className="text-center text-2xl font-semibold tracking-tight break-words"
+            >
               Welcome, {me.displayName}
             </h1>
             {hasTextChannel ? (
-              <p className="mt-2 text-sm text-muted">Pick a channel from the sidebar to start chatting.</p>
-            ) : me.role === 'admin' ? (
-              <p className="mt-2 text-sm text-muted">
-                There are no text channels yet.{' '}
-                <Link to="/admin/channels" className={linkClass}>
-                  Create the first channel
-                </Link>
-              </p>
+              <EmptyState icon="chat" title="Pick a channel" headingLevel={2}>
+                Choose a channel from the sidebar to start chatting, or message someone from the members list.
+              </EmptyState>
             ) : (
-              <p className="mt-2 text-sm text-muted">
-                There are no text channels yet. Ask an admin to create one — or message someone directly.
-              </p>
+              <EmptyState
+                icon="channels"
+                title={empty.title}
+                action={
+                  isAdmin ? (
+                    <Link to="/admin/channels" className={primaryButton}>
+                      Create the first channel
+                    </Link>
+                  ) : undefined
+                }
+              >
+                {empty.body}
+              </EmptyState>
             )}
           </section>
         </div>
