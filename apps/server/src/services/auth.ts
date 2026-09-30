@@ -85,7 +85,14 @@ export async function register(
     try {
       [user] = await tx
         .insert(users)
-        .values({ username: input.username, displayName: input.displayName, passwordHash, role })
+        .values({
+          username: input.username,
+          displayName: input.displayName,
+          passwordHash,
+          role,
+          // B.11 rule 3: the language the form was shown in; the column default (`en`) otherwise.
+          ...(input.locale === undefined ? {} : { locale: input.locale }),
+        })
         .returning();
     } catch (err) {
       if (isUniqueViolation(err, 'users_username_unique')) {

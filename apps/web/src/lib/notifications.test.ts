@@ -44,7 +44,7 @@ const user = (id: string, displayName: string) => ({
 });
 
 const boot: BootstrapResponse = {
-  me: { ...user(ME, 'Bob'), createdAt: '2026-09-28T10:00:00.000Z' },
+  me: { ...user(ME, 'Bob'), createdAt: '2026-09-28T10:00:00.000Z', locale: 'en' },
   users: [user(ME, 'Bob'), user(ALICE, 'Alice')],
   channels: [{ id: GENERAL, type: 'text', name: 'general', position: 0 }],
   dms: [{ id: DM, type: 'dm', otherUserId: ALICE }],

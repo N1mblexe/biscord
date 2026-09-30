@@ -19,6 +19,8 @@ import {
   isLenientNulFailure,
   IsoDate,
   ListMessagesQuery,
+  Me,
+  PublicUser,
   MessageId,
   MessageIdOrZero,
   Username,
@@ -217,5 +219,43 @@ describe('NUL characters (B.9 rule 1)', () => {
     expect(LoginRequest.safeParse({ username: 'Bob ', password: 'x' }).success).toBe(true);
     expect(DisplayName.parse('  Bob  ')).toBe('Bob');
     expect(InviteCodeParams.safeParse({ code: 'abc' }).success).toBe(true);
+  });
+});
+
+describe('locale (B.11)', () => {
+  const base = { inviteCode: 'ABC', username: 'bob', displayName: 'Bob', password: 'longenough1' };
+  const publicUser = {
+    id: UUID_A,
+    username: 'bob',
+    displayName: 'Bob',
+    avatarUrl: null,
+    role: 'member',
+    deactivated: false,
+  };
+
+  it('RegisterRequest accepts an optional supported locale', () => {
+    expect(RegisterRequest.safeParse(base).success).toBe(true);
+    expect(RegisterRequest.parse({ ...base, locale: 'tr' }).locale).toBe('tr');
+    expect(RegisterRequest.safeParse({ ...base, locale: 'de' }).success).toBe(false);
+  });
+
+  it('UpdateMeRequest needs at least one supported field', () => {
+    expect(UpdateMeRequest.safeParse({}).success).toBe(false);
+    expect(UpdateMeRequest.safeParse({ locale: 'de' }).success).toBe(false);
+    expect(UpdateMeRequest.safeParse({ unknown: 1 }).success).toBe(false);
+    expect(UpdateMeRequest.parse({ locale: 'tr' })).toEqual({ locale: 'tr' });
+    expect(UpdateMeRequest.parse({ displayName: ' Bob ' })).toEqual({ displayName: 'Bob' });
+    expect(UpdateMeRequest.parse({ displayName: 'Bob', locale: 'en' })).toEqual({
+      displayName: 'Bob',
+      locale: 'en',
+    });
+  });
+
+  it('Me requires a locale; PublicUser strips it', () => {
+    const createdAt = '2026-10-01T00:00:00.000Z';
+    expect(Me.safeParse({ ...publicUser, createdAt }).success).toBe(false);
+    expect(Me.parse({ ...publicUser, createdAt, locale: 'tr' }).locale).toBe('tr');
+    expect(Me.safeParse({ ...publicUser, createdAt, locale: 'de' }).success).toBe(false);
+    expect(PublicUser.parse({ ...publicUser, locale: 'tr' })).not.toHaveProperty('locale');
   });
 });

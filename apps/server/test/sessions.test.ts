@@ -139,6 +139,7 @@ describe('/api/me', () => {
       role: 'member',
       deactivated: false,
       createdAt: user.createdAt.toISOString(),
+      locale: 'en',
     });
   });
 

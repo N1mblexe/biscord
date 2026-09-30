@@ -6,7 +6,7 @@ import { toMe, toPublicUser } from '../lib/serialize.js';
 import { parse, parseLenient } from '../lib/validate.js';
 import { authOf } from '../plugins/auth.js';
 import { changePassword } from '../services/auth.js';
-import { updateDisplayName } from '../services/users.js';
+import { updateProfile } from '../services/users.js';
 import type { RouteDeps } from './deps.js';
 
 /** CONTRACTS B.4 rows 7–9. */
@@ -20,10 +20,13 @@ export function registerMeRoutes(
 
   app.patch('/api/me', { preHandler: guards.requireUser }, async (request, reply) => {
     const { user } = authOf(request);
-    const { displayName } = parse(UpdateMeRequest, request.body);
-    const updated = await updateDisplayName(db, user.id, displayName);
+    const changes = parse(UpdateMeRequest, request.body);
+    const updated = await updateProfile(db, user.id, changes);
     if (updated === null) throw new AppError('UNAUTHENTICATED', 'Authentication required');
-    realtime.emitToAll('user:updated', { user: toPublicUser(updated) });
+    // B.11 rule 2: `locale` is private, so a locale-only change is not broadcast.
+    if (changes.displayName !== undefined) {
+      realtime.emitToAll('user:updated', { user: toPublicUser(updated) });
+    }
     return send(reply, UserResponse, { user: toMe(updated) });
   });
 

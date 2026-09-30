@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { IsoDate, Uuid } from '../ids.js';
-import { DisplayName, Role, Username } from './common.js';
+import { DisplayName, Locale, Role, Username } from './common.js';
 
 export const PublicUser = z.object({
   id: Uuid,
@@ -12,8 +12,10 @@ export const PublicUser = z.object({
 });
 export type PublicUser = z.infer<typeof PublicUser>;
 
+/** The signed-in user. `locale` is private (CONTRACTS B.11 rule 2): it is never part of `PublicUser`. */
 export const Me = PublicUser.extend({
   createdAt: IsoDate,
+  locale: Locale,
 });
 export type Me = z.infer<typeof Me>;
 

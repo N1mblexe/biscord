@@ -1,4 +1,5 @@
 import { and, asc, count, eq, inArray, isNotNull, isNull, ne, sql } from 'drizzle-orm';
+import type { Locale } from '@hearth/shared';
 import type { Db } from '../db/client.js';
 import { AppError } from '../lib/errors.js';
 import { users } from '../db/schema.js';
@@ -109,12 +110,21 @@ export async function listDeactivatedUserIds(db: Queryable, ids: readonly string
   return rows.map((row) => row.id);
 }
 
-export async function updateDisplayName(
+export interface ProfileChanges {
+  displayName?: string;
+  locale?: Locale;
+}
+
+/** Applies the given profile fields in one statement; `null` when the user no longer exists. */
+export async function updateProfile(
   db: Queryable,
   id: string,
-  displayName: string,
+  changes: ProfileChanges,
 ): Promise<UserRow | null> {
-  const [row] = await db.update(users).set({ displayName }).where(eq(users.id, id)).returning();
+  const set: ProfileChanges = {};
+  if (changes.displayName !== undefined) set.displayName = changes.displayName;
+  if (changes.locale !== undefined) set.locale = changes.locale;
+  const [row] = await db.update(users).set(set).where(eq(users.id, id)).returning();
   return row ?? null;
 }
 

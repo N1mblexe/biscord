@@ -13,6 +13,7 @@ import {
   uuid,
   varchar,
 } from 'drizzle-orm/pg-core';
+import type { Locale } from '@hearth/shared';
 
 const ts = (name: string) => timestamp(name, { withTimezone: true });
 const createdAt = () => ts('created_at').notNull().defaultNow();
@@ -20,16 +21,22 @@ const createdAt = () => ts('created_at').notNull().defaultNow();
 export const userRole = pgEnum('user_role', ['admin', 'member']);
 export const channelType = pgEnum('channel_type', ['text', 'voice', 'dm']);
 
-export const users = pgTable('users', {
-  id: uuid('id').primaryKey().defaultRandom(),
-  username: varchar('username', { length: 32 }).notNull().unique(),
-  displayName: varchar('display_name', { length: 32 }).notNull(),
-  passwordHash: text('password_hash').notNull(),
-  role: userRole('role').notNull().default('member'),
-  avatarKey: text('avatar_key'), // storage key; null = default avatar
-  createdAt: createdAt(),
-  deactivatedAt: ts('deactivated_at'), // soft delete
-});
+export const users = pgTable(
+  'users',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    username: varchar('username', { length: 32 }).notNull().unique(),
+    displayName: varchar('display_name', { length: 32 }).notNull(),
+    passwordHash: text('password_hash').notNull(),
+    role: userRole('role').notNull().default('member'),
+    avatarKey: text('avatar_key'), // storage key; null = default avatar
+    createdAt: createdAt(),
+    deactivatedAt: ts('deactivated_at'), // soft delete
+    // CONTRACTS B.11: the account's UI language; private to the user (never on PublicUser).
+    locale: varchar('locale', { length: 5 }).$type<Locale>().notNull().default('en'),
+  },
+  (t) => [check('users_locale_ck', sql`${t.locale} in ('en', 'tr')`)],
+);
 
 export const sessions = pgTable(
   'sessions',
