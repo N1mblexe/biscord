@@ -1,5 +1,4 @@
 import type { AudioCaptureOptions, AudioOutputOptions, VideoCaptureOptions } from 'livekit-client';
-import { audioConstraints } from './devices';
 import { CAMERA_QUALITY, type VoicePrefs } from './prefs';
 
 /**
@@ -15,14 +14,36 @@ export interface ResolvedDevices {
   videoinput: string;
 }
 
-/** Mic constraints for capture and `restartMic`: `audioConstraints` plus voice isolation (follows noise suppression). */
+/**
+ * The mic's device constraint. Chromium ignores an `ideal` (or bare) audio `deviceId` and opens the
+ * system default, so a chosen mic is asked for `exact`ly; capture that fails because the device is
+ * gone falls back to the default (engine, `isMissingDevice`). The system default stays `ideal`.
+ */
+export function micDeviceConstraint(deviceId: string): ConstrainDOMString {
+  return deviceId === 'default' ? { ideal: 'default' } : { exact: deviceId };
+}
+
+/** Mic constraints that capture the system default instead of `constraints`' device (device-gone fallback). */
+export function withDefaultMic<T extends { deviceId?: ConstrainDOMString }>(constraints: T): T {
+  return { ...constraints, deviceId: micDeviceConstraint('default') };
+}
+
+/** `getUserMedia` failed because the asked-for device isn't there (an `exact` id that went away). */
+export function isMissingDevice(error: unknown): boolean {
+  if (typeof error !== 'object' || error === null || !('name' in error)) return false;
+  return error.name === 'OverconstrainedError' || error.name === 'NotFoundError';
+}
+
+/**
+ * Mic constraints for capture and `restartMic`: the processing flags of `audioConstraints`, the
+ * device as `micDeviceConstraint`, plus voice isolation (follows noise suppression).
+ */
 export function micConstraints(
   prefs: VoicePrefs,
   deviceId: string,
 ): MediaTrackConstraints & AudioCaptureOptions {
-  const base = audioConstraints(prefs, deviceId);
   return {
-    deviceId: base.deviceId,
+    deviceId: micDeviceConstraint(deviceId),
     noiseSuppression: prefs.noiseSuppression,
     echoCancellation: prefs.echoCancellation,
     autoGainControl: prefs.autoGainControl,

@@ -1,7 +1,14 @@
 import { VideoPresets } from 'livekit-client';
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_VOICE_PREFS } from './prefs';
-import { cameraCaptureOptions, micConstraints, roomOptionsFromPrefs } from './roomOptions';
+import {
+  cameraCaptureOptions,
+  isMissingDevice,
+  micConstraints,
+  micDeviceConstraint,
+  roomOptionsFromPrefs,
+  withDefaultMic,
+} from './roomOptions';
 
 const defaults = { audioinput: 'default', audiooutput: 'default', videoinput: 'default' };
 
@@ -39,7 +46,7 @@ describe('prefs → RoomOptions', () => {
       roomOptionsFromPrefs(prefs, { audioinput: 'mic-1', audiooutput: 'out-2', videoinput: 'cam-3' }),
     ).toEqual({
       audioCaptureDefaults: {
-        deviceId: { ideal: 'mic-1' },
+        deviceId: { exact: 'mic-1' },
         noiseSuppression: false,
         echoCancellation: false,
         autoGainControl: true,
@@ -59,11 +66,28 @@ describe('prefs → RoomOptions', () => {
       resolution: { width: 640, height: 360, frameRate: 30, aspectRatio: 640 / 360 },
     });
     expect(micConstraints({ ...DEFAULT_VOICE_PREFS, echoCancellation: false }, 'mic-2')).toEqual({
-      deviceId: { ideal: 'mic-2' },
+      deviceId: { exact: 'mic-2' },
       noiseSuppression: true,
       echoCancellation: false,
       autoGainControl: true,
       voiceIsolation: true,
     });
+  });
+
+  it('a chosen mic is exact (Chromium ignores an ideal audio deviceId); the default stays ideal', () => {
+    expect(micDeviceConstraint('mic-2')).toEqual({ exact: 'mic-2' });
+    expect(micDeviceConstraint('default')).toEqual({ ideal: 'default' });
+    const chosen = micConstraints(DEFAULT_VOICE_PREFS, 'mic-2');
+    expect(withDefaultMic(chosen)).toEqual({ ...chosen, deviceId: { ideal: 'default' } });
+    expect(chosen.deviceId).toEqual({ exact: 'mic-2' });
+  });
+
+  it('isMissingDevice: only a device that is not there', () => {
+    expect(isMissingDevice(Object.assign(new Error('x'), { name: 'OverconstrainedError' }))).toBe(true);
+    expect(isMissingDevice(new DOMException('gone', 'NotFoundError'))).toBe(true);
+    expect(isMissingDevice(new DOMException('denied', 'NotAllowedError'))).toBe(false);
+    expect(isMissingDevice(new DOMException('busy', 'NotReadableError'))).toBe(false);
+    expect(isMissingDevice('OverconstrainedError')).toBe(false);
+    expect(isMissingDevice(null)).toBe(false);
   });
 });

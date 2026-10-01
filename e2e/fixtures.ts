@@ -24,6 +24,7 @@ import type {
   TestSeedMessagesRequest,
   TestSeedMessagesResponse,
   UserResponse,
+  VoicePrefs,
 } from '@hearth/shared';
 import { readdir, readFile } from 'node:fs/promises';
 import { join, relative } from 'node:path';
@@ -696,6 +697,11 @@ export interface VoiceDebugRemote {
   volume: number;
   /** Whether this remote's audio is muted in local playback. */
   muted: boolean;
+  /**
+   * The remote's own microphone publication is muted (their mute, or their push-to-talk/voice
+   * activity gate being closed; B.12 rule 2). `true` when they publish no mic.
+   */
+  remoteMicMuted: boolean;
   /** This remote's camera and screen-share video publications (Phase 7; empty when none). */
   video: VoiceDebugVideo[];
 }
@@ -730,6 +736,52 @@ export interface VoiceDebug {
   playbackMuted: boolean;
   remotes: VoiceDebugRemote[];
   local: VoiceDebugLocal;
+  /** Our mic is sending: in a room, not muted/deafened, and the PTT/voice-activity gate open (B.12 rule 2). */
+  transmitting: boolean;
+  /** The push-to-talk key (or hold button) is held, including a release still waiting out `pttReleaseMs`. */
+  pttActive: boolean;
+  /** Our published mic (device, muted by our mute or the gate, `getConstraints()`), or `null`. */
+  localMic: VoiceDebugLocalMic | null;
+  /** Our published, unmuted camera (device and capture width), or `null`. */
+  camera: VoiceDebugCamera | null;
+  /** The `sinkId` remote audio plays through (`''` = system default), else the configured output, else `null`. */
+  audioSinkId: string | null;
+}
+
+/** `localMic` of `window.__hearthDebug.voice()` (docs/plans/devices.md). */
+export interface VoiceDebugLocalMic {
+  deviceId: string | null;
+  muted: boolean;
+  constraints: Record<string, unknown>;
+}
+
+/** `camera` of `window.__hearthDebug.voice()` (docs/plans/devices.md). */
+export interface VoiceDebugCamera {
+  deviceId: string | null;
+  width: number;
+}
+
+function isVoiceDebugLocalMic(value: unknown): value is VoiceDebugLocalMic {
+  if (typeof value !== 'object' || value === null) return false;
+  return (
+    'deviceId' in value &&
+    optionalString(value.deviceId) &&
+    'muted' in value &&
+    typeof value.muted === 'boolean' &&
+    'constraints' in value &&
+    typeof value.constraints === 'object' &&
+    value.constraints !== null
+  );
+}
+
+function isVoiceDebugCamera(value: unknown): value is VoiceDebugCamera {
+  if (typeof value !== 'object' || value === null) return false;
+  return (
+    'deviceId' in value &&
+    optionalString(value.deviceId) &&
+    'width' in value &&
+    typeof value.width === 'number'
+  );
 }
 
 function isVoiceDebugVideo(value: unknown): value is VoiceDebugVideo {
@@ -769,6 +821,8 @@ function isVoiceDebugRemote(value: unknown): value is VoiceDebugRemote {
     typeof value.volume === 'number' &&
     'muted' in value &&
     typeof value.muted === 'boolean' &&
+    'remoteMicMuted' in value &&
+    typeof value.remoteMicMuted === 'boolean' &&
     // Strict (Phase 7): every remote reports its video publications, possibly none.
     'video' in value &&
     Array.isArray(value.video) &&
@@ -807,6 +861,15 @@ export async function voiceDebug(page: Page): Promise<VoiceDebug> {
   const remotes: unknown[] = value.remotes;
   if (!remotes.every(isVoiceDebugRemote)) throw malformed();
   if (!('local' in value) || !isVoiceDebugLocal(value.local)) throw malformed();
+  // Strict (devices, docs/plans/devices.md): the gate, push-to-talk and device fields.
+  if (!('transmitting' in value) || typeof value.transmitting !== 'boolean') throw malformed();
+  if (!('pttActive' in value) || typeof value.pttActive !== 'boolean') throw malformed();
+  const localMic = 'localMic' in value ? value.localMic : undefined;
+  if (localMic !== null && !isVoiceDebugLocalMic(localMic)) throw malformed();
+  const camera = 'camera' in value ? value.camera : undefined;
+  if (camera !== null && !isVoiceDebugCamera(camera)) throw malformed();
+  const audioSinkId = 'audioSinkId' in value ? value.audioSinkId : undefined;
+  if (!optionalString(audioSinkId)) throw malformed();
   return {
     state: value.state,
     roomName: roomName ?? null,
@@ -814,6 +877,11 @@ export async function voiceDebug(page: Page): Promise<VoiceDebug> {
     playbackMuted: value.playbackMuted,
     remotes,
     local: { camera: value.local.camera, screen: value.local.screen },
+    transmitting: value.transmitting,
+    pttActive: value.pttActive,
+    localMic: localMic === null ? null : { ...localMic, deviceId: localMic.deviceId ?? null },
+    camera: camera === null ? null : { ...camera, deviceId: camera.deviceId ?? null },
+    audioSinkId: audioSinkId ?? null,
   };
 }
 
@@ -1029,4 +1097,87 @@ export async function displayMediaCalls(page: Page): Promise<number> {
   );
   if (typeof calls !== 'number') throw new Error('forceDisplayMediaReject was not installed');
   return calls;
+}
+
+// ---- Voice and video devices (CONTRACTS B.12; docs/plans/devices.md) ----
+
+/** localStorage key of the per-browser voice prefs (B.12 rule 1); mirrors `voice/prefs.ts`. */
+export const VOICE_PREFS_KEY = 'hearth:voice-prefs';
+
+/**
+ * Stores `prefs` (fields left out fall back to their defaults) before the app loads, on every
+ * navigation in `context`. Call it before the first `goto`.
+ */
+export async function seedVoicePrefs(context: BrowserContext, prefs: Partial<VoicePrefs>): Promise<void> {
+  await context.addInitScript(
+    ({ key, value }) => {
+      const g = globalThis as unknown as { localStorage: { setItem(k: string, v: string): void } };
+      g.localStorage.setItem(key, value);
+    },
+    { key: VOICE_PREFS_KEY, value: JSON.stringify(prefs) },
+  );
+}
+
+/**
+ * Merges `patch` into the stored voice prefs of a loaded page, as another tab (e.g. Settings in a
+ * second tab) would: writes localStorage, then dispatches the `storage` event a real second tab
+ * would deliver to this one, so the prefs store reloads and the engine reconciles live.
+ */
+export async function changeVoicePrefs(page: Page, patch: Partial<VoicePrefs>): Promise<void> {
+  await page.evaluate(
+    ({ key, patch }) => {
+      const g = globalThis as unknown as {
+        localStorage: { getItem(k: string): string | null; setItem(k: string, v: string): void };
+        StorageEvent: new (type: string, init: Record<string, unknown>) => unknown;
+        dispatchEvent(event: unknown): boolean;
+      };
+      const oldValue = g.localStorage.getItem(key);
+      let current: unknown;
+      try {
+        current = JSON.parse(oldValue ?? '{}');
+      } catch {
+        current = {};
+      }
+      const base = typeof current === 'object' && current !== null ? current : {};
+      const newValue = JSON.stringify({ ...base, ...patch });
+      g.localStorage.setItem(key, newValue);
+      g.dispatchEvent(
+        new g.StorageEvent('storage', { key, oldValue, newValue, storageArea: g.localStorage }),
+      );
+    },
+    { key: VOICE_PREFS_KEY, patch },
+  );
+}
+
+/** One `MediaDeviceInfo` as `enumerateDevices()` reports it in the page. */
+export interface MediaDeviceView {
+  kind: 'audioinput' | 'audiooutput' | 'videoinput';
+  deviceId: string;
+  label: string;
+}
+
+/** `navigator.mediaDevices.enumerateDevices()` in `page` (Chromium's fake devices in e2e). */
+export async function mediaDevices(page: Page): Promise<MediaDeviceView[]> {
+  const raw: unknown = await page.evaluate(async () => {
+    const g = globalThis as unknown as {
+      navigator: {
+        mediaDevices: { enumerateDevices(): Promise<{ kind: string; deviceId: string; label: string }[]> };
+      };
+    };
+    const list = await g.navigator.mediaDevices.enumerateDevices();
+    return list.map((d) => ({ kind: d.kind, deviceId: d.deviceId, label: d.label }));
+  });
+  if (!Array.isArray(raw)) throw new Error('enumerateDevices: unexpected result');
+  const items: unknown[] = raw;
+  return items.filter(
+    (d): d is MediaDeviceView =>
+      typeof d === 'object' &&
+      d !== null &&
+      'kind' in d &&
+      (d.kind === 'audioinput' || d.kind === 'audiooutput' || d.kind === 'videoinput') &&
+      'deviceId' in d &&
+      typeof d.deviceId === 'string' &&
+      'label' in d &&
+      typeof d.label === 'string',
+  );
 }

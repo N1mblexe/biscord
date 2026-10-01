@@ -31,7 +31,13 @@ import { createVadHysteresis } from './gate';
 import { createLevelMeter, type LevelMeter } from './levelMeter';
 import { publishedVideo, screenPublications, unpublishAndStop, watchLocalVideo } from './localVideo';
 import { useVoicePrefs } from './prefs';
-import { cameraCaptureOptions, roomOptionsFromPrefs, type ResolvedDevices } from './roomOptions';
+import {
+  cameraCaptureOptions,
+  isMissingDevice,
+  roomOptionsFromPrefs,
+  withDefaultMic,
+  type ResolvedDevices,
+} from './roomOptions';
 import { useVoiceSession } from './session';
 import { energySample, SpeakingMeter } from './speakingMeter';
 import { createVoiceStateSender } from './stateSender';
@@ -222,7 +228,13 @@ function createController(room: Room, socket: HearthSocket, devices: ResolvedDev
           await published.mute();
           return;
         }
-        await lp().setMicrophoneEnabled(enabled);
+        try {
+          await lp().setMicrophoneEnabled(enabled);
+        } catch (error) {
+          // The chosen mic (asked for `exact`ly) is gone: publish the system default instead.
+          if (!enabled || !isMissingDevice(error)) throw error;
+          await lp().setMicrophoneEnabled(true, withDefaultMic(room.options.audioCaptureDefaults ?? {}));
+        }
         // A first publish while the gate is closed: mute it straight away.
         if (enabled && !transmit) await micTrack(room)?.mute();
       },
@@ -235,7 +247,15 @@ function createController(room: Room, socket: HearthSocket, devices: ResolvedDev
       restartMic: async (constraints) => {
         // Our constraints (voice/roomOptions.ts micConstraints) hold plain booleans for the
         // processing flags, which is all LiveKit's capture options add over MediaTrackConstraints.
-        await micTrack(room)?.restartTrack(constraints as AudioCaptureOptions);
+        const track = micTrack(room);
+        if (!track) return;
+        try {
+          await track.restartTrack(constraints as AudioCaptureOptions);
+        } catch (error) {
+          // The chosen mic went away between listing and capture: keep talking on the default.
+          if (!isMissingDevice(error)) throw error;
+          await track.restartTrack(withDefaultMic(constraints) as AudioCaptureOptions);
+        }
       },
       // Presets: CONTRACTS B.6b rule 3 (camera at the chosen quality and device, 30 fps, with
       // LiveKit's default simulcast).

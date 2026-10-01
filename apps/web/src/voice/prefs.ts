@@ -116,3 +116,23 @@ function sameValue(a: unknown, b: unknown): boolean {
   }
   return false;
 }
+
+/**
+ * Follows changes another tab makes (the `storage` event fires only in the *other* same-origin
+ * documents): Settings open in a second tab then apply to a call in this one. Returns the unbind
+ * function.
+ */
+export function followVoicePrefsStorage(
+  win: Pick<Window, 'addEventListener' | 'removeEventListener'>,
+): () => void {
+  const onStorage = (e: StorageEvent) => {
+    // `key === null`: the other tab cleared the whole storage.
+    if (e.key === VOICE_PREFS_KEY || e.key === null) useVoicePrefs.getState().reload();
+  };
+  win.addEventListener('storage', onStorage);
+  return () => {
+    win.removeEventListener('storage', onStorage);
+  };
+}
+
+if (typeof window !== 'undefined') followVoicePrefsStorage(window);

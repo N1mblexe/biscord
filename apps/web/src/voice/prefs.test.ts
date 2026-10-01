@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   CAMERA_QUALITY,
   DEFAULT_VOICE_PREFS,
+  followVoicePrefsStorage,
   parseVoicePrefs,
   readVoicePrefs,
   useVoicePrefs,
@@ -179,5 +180,32 @@ describe('voice prefs (CONTRACTS B.12 rule 1)', () => {
     storage.data.set(VOICE_PREFS_KEY, JSON.stringify({ inputMode: 'ptt' }));
     useVoicePrefs.getState().reload();
     expect(useVoicePrefs.getState().prefs).toEqual({ ...DEFAULT_VOICE_PREFS, inputMode: 'ptt' });
+  });
+});
+
+describe('followVoicePrefsStorage (another tab changed the prefs)', () => {
+  it('reloads on a storage event for our key or a clear, ignores other keys, and unbinds', () => {
+    const storage = memoryStorage();
+    vi.stubGlobal('localStorage', storage);
+    const target = new EventTarget();
+    const fire = (key: string | null) => {
+      target.dispatchEvent(Object.assign(new Event('storage'), { key }));
+    };
+    const stop = followVoicePrefsStorage(target);
+
+    storage.data.set(VOICE_PREFS_KEY, JSON.stringify({ inputMode: 'ptt' }));
+    fire('something-else');
+    expect(useVoicePrefs.getState().prefs.inputMode).toBe('voice');
+    fire(VOICE_PREFS_KEY);
+    expect(useVoicePrefs.getState().prefs.inputMode).toBe('ptt');
+
+    storage.data.clear();
+    fire(null);
+    expect(useVoicePrefs.getState().prefs).toEqual(DEFAULT_VOICE_PREFS);
+
+    stop();
+    storage.data.set(VOICE_PREFS_KEY, JSON.stringify({ inputMode: 'ptt' }));
+    fire(VOICE_PREFS_KEY);
+    expect(useVoicePrefs.getState().prefs.inputMode).toBe('voice');
   });
 });

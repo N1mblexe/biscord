@@ -67,6 +67,7 @@ export const CAMERA_QUALITY: Record<CameraQuality, { width: number; height: numb
 export function parseVoicePrefs(raw: unknown): VoicePrefs; // per-field fallback to defaults, clamps ranges
 export function readVoicePrefs(): VoicePrefs; // try/catch, never throws
 export function writeVoicePrefs(prefs: VoicePrefs): void; // try/catch
+export function followVoicePrefsStorage(win): () => void; // `storage` event from another tab → reload (installed at module load)
 export const useVoicePrefs: UseBoundStore<
   StoreApi<{
     prefs: VoicePrefs;
@@ -163,7 +164,10 @@ export function dbToFraction(db: number): number; // −100…0 → 0…1 for me
 //                  setMicGate(open), restartMic(constraints)
 //   VoiceController: setGate(gate: LocalGate), restartMic(constraints): Promise<void> (both on micQueue)
 //   LocalGate = Omit<GateInput, 'micMuted' | 'deafened'>
-// voice/roomOptions.ts (pure): roomOptionsFromPrefs(prefs, devices), micConstraints, cameraCaptureOptions
+// voice/roomOptions.ts (pure): roomOptionsFromPrefs(prefs, devices), micConstraints, cameraCaptureOptions,
+//   micDeviceConstraint (a chosen mic is { exact }: Chromium ignores an ideal/bare audio deviceId and opens
+//   the default; 'default' stays { ideal }), withDefaultMic + isMissingDevice (the engine retries capture on
+//   the default when an exact mic is gone: OverconstrainedError/NotFoundError)
 // voice/deviceSync.ts (engine chunk): startDeviceSync(...) — live device/processing/quality changes, device loss
 // debug (e2e): localMic { deviceId, muted, constraints } | null, camera { deviceId, width } | null, audioSinkId: string | null,
 //              transmitting, pttActive

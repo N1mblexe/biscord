@@ -114,7 +114,7 @@ describe('device sync (engine)', () => {
     await flush();
     expect(s.log).toEqual([]);
     expect(s.devices.audioinput).toBe('mic-1');
-    expect(s.room.options.audioCaptureDefaults).toMatchObject({ deviceId: { ideal: 'mic-1' } });
+    expect(s.room.options.audioCaptureDefaults).toMatchObject({ deviceId: { exact: 'mic-1' } });
     s.stop();
   });
 
@@ -128,7 +128,7 @@ describe('device sync (engine)', () => {
     expect(useVoicePrefs.getState().prefs.audioInputId).toBe('mic-1');
 
     await s.setDevices(plugged);
-    expect(s.log.at(-1)).toMatch(/^mic restart .*"ideal":"mic-1"/);
+    expect(s.log.at(-1)).toMatch(/^mic restart .*"exact":"mic-1"/);
     expect(s.notices).toHaveLength(1);
     s.stop();
   });
@@ -139,7 +139,7 @@ describe('device sync (engine)', () => {
     useVoicePrefs.getState().update({ noiseSuppression: false });
     await flush();
     expect(s.log).toEqual([
-      'mic restart {"deviceId":{"ideal":"mic-1"},"noiseSuppression":false,"echoCancellation":true,"autoGainControl":true,"voiceIsolation":false}',
+      'mic restart {"deviceId":{"exact":"mic-1"},"noiseSuppression":false,"echoCancellation":true,"autoGainControl":true,"voiceIsolation":false}',
     ]);
     s.stop();
   });
