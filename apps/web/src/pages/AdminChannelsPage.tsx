@@ -14,9 +14,18 @@ import { FormAlert, FormSuccess, formString, PageAlert, TextField } from '../com
 import { card, dangerButton, inputClass, primaryButton, secondaryButton } from '../components/styles';
 import { usePageAlert } from '../components/usePageAlert';
 import { removeChannel, replaceChannels, upsertChannel } from '../lib/bootstrapPatch';
+import { Trans, useT, type TFunction } from '../i18n';
 import { useMessageStore } from '../stores/messages';
 
-const TYPE_LABELS: Record<ChannelType, string> = { text: 'Text', voice: 'Voice' };
+/** A channel type's label ("Text", "Voice"). */
+function typeLabel(type: ChannelType, t: TFunction): string {
+  return t(`admin.channels.types.${type}`);
+}
+
+/** The alert for a failed create or rename: CONFLICT here means the name is taken. */
+function channelFormAlert(err: unknown, t: TFunction): string | null {
+  return formAlertMessage(err, ['name'], { CONFLICT: t('admin.channels.nameTaken') });
+}
 
 const smallButton = `${secondaryButton} px-2 py-1 text-xs`;
 
@@ -30,6 +39,7 @@ function isChannelType(value: string): value is ChannelType {
 }
 
 export function AdminChannelsPage() {
+  const t = useT();
   const queryClient = useQueryClient();
   const { data: boot, error: bootError, isPending: bootPending } = useQuery(bootstrapQuery);
   const channels = boot?.channels ?? [];
@@ -105,7 +115,7 @@ export function AdminChannelsPage() {
       },
       (err) => {
         setRenameErrors(fieldErrors(err));
-        return formAlertMessage(err, ['name']);
+        return channelFormAlert(err, t);
       },
     );
     if (ok) setRenamingId(null);
@@ -142,7 +152,7 @@ export function AdminChannelsPage() {
   // The page's single alert slot, shared with the app-wide camera and screen share errors. While the
   // delete dialog is open (modal, the rest of the page is inert) it shows the slot instead.
   const slot = usePageAlert(
-    createMutation.isError ? formAlertMessage(createMutation.error, ['name']) : alert,
+    createMutation.isError ? channelFormAlert(createMutation.error, t) : alert,
   );
   const errors = fieldErrors(createMutation.error);
 
@@ -151,41 +161,42 @@ export function AdminChannelsPage() {
       {deleting === null && slot.shared && <PageAlert message={slot.message} onDismiss={slot.dismiss} />}
       <section className={`${card} max-md:p-4`} aria-labelledby="channels-create-heading">
         <h1 id="channels-create-heading" className="text-2xl font-semibold tracking-tight">
-          Channels
+          {t('admin.channels.heading')}
         </h1>
         <p className="mt-1 text-sm text-muted">
-          Up to {LIMITS.maxChannels} channels. Deleting a channel deletes all of its messages.
+          {t('admin.channels.description', { max: LIMITS.maxChannels })}
         </p>
         <form className="mt-4 flex flex-col gap-4" onSubmit={onCreate} noValidate>
           <div className="grid max-w-md grid-cols-1 gap-4 sm:grid-cols-[1fr_auto]">
             <TextField
               id="channel-name"
               name="name"
-              label="Name"
+              label={t('admin.channels.name')}
               autoComplete="off"
               maxLength={32}
               errors={errors}
             />
             <div className="flex flex-col gap-1.5">
               <label htmlFor="channel-type" className="text-sm font-medium text-text">
-                Type
+                {t('admin.channels.type')}
               </label>
               <select id="channel-type" name="type" className={inputClass} defaultValue="text">
-                <option value="text">Text</option>
-                <option value="voice">Voice</option>
+                <option value="text">{typeLabel('text', t)}</option>
+                <option value="voice">{typeLabel('voice', t)}</option>
               </select>
             </div>
           </div>
           {deleting === null && !slot.shared && <FormAlert message={slot.message} />}
           {createMutation.isSuccess && (
             <FormSuccess>
-              Created {createMutation.data.type === 'text' ? '#' : ''}
-              {createMutation.data.name}.
+              {t('admin.channels.created', {
+                name: `${createMutation.data.type === 'text' ? '#' : ''}${createMutation.data.name}`,
+              })}
             </FormSuccess>
           )}
           <div>
             <button type="submit" className={primaryButton} disabled={createMutation.isPending}>
-              Create channel
+              {t('admin.channels.submit')}
             </button>
           </div>
         </form>
@@ -193,14 +204,14 @@ export function AdminChannelsPage() {
 
       <section className={`${card} max-md:p-4`} aria-labelledby="channels-list-heading">
         <h2 id="channels-list-heading" className="text-lg font-semibold">
-          All channels
+          {t('admin.channels.listHeading')}
         </h2>
         {bootPending ? (
-          <p className="mt-4 text-sm text-muted">Loading channels…</p>
+          <p className="mt-4 text-sm text-muted">{t('admin.channels.loading')}</p>
         ) : bootError ? (
           <p className="mt-4 text-sm text-danger">{errorMessage(bootError)}</p>
         ) : channels.length === 0 ? (
-          <p className="mt-4 text-sm text-muted">No channels yet.</p>
+          <p className="mt-4 text-sm text-muted">{t('admin.channels.empty')}</p>
         ) : (
           <ul className="mt-4 divide-y divide-white/5">
             {channels.map((channel, index) => (
@@ -224,7 +235,7 @@ export function AdminChannelsPage() {
                     <span data-testid="channel-row-name" className="font-medium">
                       {channel.name}
                     </span>
-                    <span className="ml-2 text-xs text-muted">{TYPE_LABELS[channel.type]}</span>
+                    <span className="ml-2 text-xs text-muted">{typeLabel(channel.type, t)}</span>
                   </span>
                 )}
                 <div className="flex flex-wrap gap-1.5">
@@ -238,7 +249,7 @@ export function AdminChannelsPage() {
                         setRenamingId(channel.id);
                       }}
                     >
-                      Rename
+                      {t('admin.channels.rename')}
                     </button>
                   )}
                   <button
@@ -249,7 +260,7 @@ export function AdminChannelsPage() {
                       onMove(index, -1);
                     }}
                   >
-                    Move up
+                    {t('admin.channels.moveUp')}
                   </button>
                   <button
                     type="button"
@@ -259,7 +270,7 @@ export function AdminChannelsPage() {
                       onMove(index, 1);
                     }}
                   >
-                    Move down
+                    {t('admin.channels.moveDown')}
                   </button>
                   <button
                     type="button"
@@ -270,7 +281,7 @@ export function AdminChannelsPage() {
                       setDeleting(channel);
                     }}
                   >
-                    Delete
+                    {t('admin.channels.delete')}
                   </button>
                 </div>
               </li>
@@ -307,6 +318,7 @@ interface RenameFormProps {
 }
 
 function RenameForm({ channel, busy, errors, onSave, onCancel }: RenameFormProps) {
+  const t = useT();
   const inputId = `rename-${channel.id}`;
   const errorId = `${inputId}-error`;
   return (
@@ -318,7 +330,7 @@ function RenameForm({ channel, busy, errors, onSave, onCancel }: RenameFormProps
       }}
     >
       <label htmlFor={inputId} className="sr-only">
-        New name
+        {t('admin.channels.newName')}
       </label>
       <input
         id={inputId}
@@ -335,10 +347,10 @@ function RenameForm({ channel, busy, errors, onSave, onCancel }: RenameFormProps
         }}
       />
       <button type="submit" className={`${primaryButton} px-3 py-1 text-xs`} disabled={busy}>
-        Save
+        {t('common.save')}
       </button>
       <button type="button" className={smallButton} onClick={onCancel}>
-        Cancel
+        {t('common.cancel')}
       </button>
       {errors && (
         <p id={errorId} className="basis-full text-xs text-danger">
@@ -358,6 +370,7 @@ interface DeleteChannelDialogProps {
 }
 
 function DeleteChannelDialog({ channel, busy, alert, onConfirm, onClose }: DeleteChannelDialogProps) {
+  const t = useT();
   const ref = useRef<HTMLDialogElement>(null);
   const [typed, setTyped] = useState('');
 
@@ -385,16 +398,19 @@ function DeleteChannelDialog({ channel, busy, alert, onConfirm, onClose }: Delet
         }}
       >
         <h2 id="delete-channel-heading" className="text-lg font-semibold">
-          Delete {channel.name}?
+          {t('admin.channels.deleteDialog.title', { name: channel.name })}
         </h2>
         <p className="text-sm text-muted">
-          This permanently deletes the channel and all of its messages. Type{' '}
-          <span className="font-mono text-text">{channel.name}</span> to confirm.
+          <Trans
+            k="admin.channels.deleteDialog.body"
+            params={{ name: channel.name }}
+            components={{ name: (c) => <span className="font-mono text-text">{c}</span> }}
+          />
         </p>
         <TextField
           id="delete-channel-confirm"
           name="confirm"
-          label="Type the channel name to confirm"
+          label={t('admin.channels.deleteDialog.confirmLabel')}
           autoComplete="off"
           value={typed}
           onChange={(event) => {
@@ -410,10 +426,10 @@ function DeleteChannelDialog({ channel, busy, alert, onConfirm, onClose }: Delet
               ref.current?.close();
             }}
           >
-            Cancel
+            {t('common.cancel')}
           </button>
           <button type="submit" className={dangerSolidButton} disabled={!matches || busy}>
-            Delete channel
+            {t('admin.channels.deleteDialog.submit')}
           </button>
         </div>
       </form>

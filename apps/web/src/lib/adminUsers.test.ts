@@ -2,12 +2,14 @@ import type { PublicUser } from '@hearth/shared';
 import { describe, expect, it } from 'vitest';
 import { ApiError } from '../api/client';
 import {
-  ADMIN_USER_ACTION_LABELS,
+  adminUserActionLabel,
   adminUserError,
   reduceUsers,
   sortUsers,
   userActions,
+  userRoleLabel,
   userStatus,
+  userStatusLabel,
   voiceDisconnectError,
 } from './adminUsers';
 
@@ -27,7 +29,7 @@ const user = (id: string, username: string, extra: Partial<PublicUser> = {}): Pu
 
 describe('admin users: row actions', () => {
   it('offers the role toggle, a reset code and Deactivate for active users', () => {
-    const labels = (u: PublicUser) => userActions(u).map((a) => ADMIN_USER_ACTION_LABELS[a]);
+    const labels = (u: PublicUser) => userActions(u).map((a) => adminUserActionLabel(a));
     expect(labels(user(A, 'alice', { role: 'admin' }))).toEqual([
       'Remove admin',
       'Generate reset code',
@@ -44,6 +46,13 @@ describe('admin users: row actions', () => {
   it('maps the status for `user-status`', () => {
     expect(userStatus({ deactivated: false })).toBe('active');
     expect(userStatus({ deactivated: true })).toBe('deactivated');
+  });
+
+  it('labels roles and statuses with the English texts the e2e specs read', () => {
+    expect(userRoleLabel('admin')).toBe('admin');
+    expect(userRoleLabel('member')).toBe('member');
+    expect(userStatusLabel('active')).toBe('active');
+    expect(userStatusLabel('deactivated')).toBe('deactivated');
   });
 
   it('sorts by username without mutating the input', () => {

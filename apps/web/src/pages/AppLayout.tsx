@@ -7,6 +7,7 @@ import { Avatar } from '../components/Avatar';
 import { ConnectionStatus } from '../components/ConnectionStatus';
 import { DrawerBackdrop, drawerIconButton } from '../components/Drawer';
 import { PageAlert } from '../components/forms';
+import { useAccountLocale } from '../i18n/useAccountLocale';
 import { Sidebar } from '../components/Sidebar';
 import { secondaryButton } from '../components/styles';
 import { loginPathForReason } from '../lib/authNotice';
@@ -23,6 +24,7 @@ import { VideoStageSlot, VoiceProvider } from '../voice/VoiceProvider';
  * shown, so voice survives moving between channels and pages.
  */
 export function AppLayout() {
+  useAccountLocale();
   return (
     <SocketProvider>
       <VoiceProvider>

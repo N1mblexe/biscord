@@ -6,9 +6,12 @@ import { fieldErrors, formAlertMessage } from '../api/errors';
 import { AuthCard } from '../components/AuthCard';
 import { FormAlert, formString, inlineLinkClass, TextField } from '../components/forms';
 import { primaryButton } from '../components/styles';
+import { Trans } from '../i18n/Trans';
+import { useT } from '../i18n/useT';
 import { loginPathForReason } from '../lib/authNotice';
 
 export function ResetPasswordPage() {
+  const t = useT();
   const navigate = useNavigate();
 
   const mutation = useMutation({
@@ -30,19 +33,25 @@ export function ResetPasswordPage() {
 
   const errors = fieldErrors(mutation.error);
   const message = formAlertMessage(mutation.error, ['username', 'code', 'newPassword'], {
-    INVALID_CREDENTIALS: 'Wrong username or reset code, or the code has expired.',
+    INVALID_CREDENTIALS: t('auth.reset.invalidCredentials'),
   });
 
   return (
     <AuthCard
-      title="Reset your password"
-      description="Ask an admin for a reset code. Codes are valid for 24 hours."
+      title={t('auth.reset.title')}
+      description={t('auth.reset.description')}
       footer={
         <p className="text-center text-sm text-muted">
-          Remembered it?{' '}
-          <Link to="/login" className={inlineLinkClass}>
-            Back to log in
-          </Link>
+          <Trans
+            k="auth.reset.remembered"
+            components={{
+              link: (c) => (
+                <Link to="/login" className={inlineLinkClass}>
+                  {c}
+                </Link>
+              ),
+            }}
+          />
         </p>
       }
     >
@@ -50,7 +59,7 @@ export function ResetPasswordPage() {
         <TextField
           id="reset-username"
           name="username"
-          label="Username"
+          label={t('auth.username')}
           autoComplete="username"
           autoCapitalize="none"
           spellCheck={false}
@@ -59,7 +68,7 @@ export function ResetPasswordPage() {
         <TextField
           id="reset-code-input"
           name="code"
-          label="Reset code"
+          label={t('auth.reset.code')}
           autoComplete="one-time-code"
           autoCapitalize="characters"
           spellCheck={false}
@@ -68,10 +77,10 @@ export function ResetPasswordPage() {
         <TextField
           id="reset-new-password"
           name="newPassword"
-          label="New password"
+          label={t('auth.newPassword')}
           type="password"
           autoComplete="new-password"
-          hint="At least 10 characters."
+          hint={t('auth.passwordHint')}
           errors={errors}
         />
         <FormAlert message={message} />
@@ -81,7 +90,7 @@ export function ResetPasswordPage() {
           disabled={mutation.isPending}
           aria-busy={mutation.isPending}
         >
-          Set new password
+          {t('auth.reset.submit')}
         </button>
       </form>
     </AuthCard>

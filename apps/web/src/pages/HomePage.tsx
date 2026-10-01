@@ -7,6 +7,7 @@ import { PageAlert } from '../components/forms';
 import { MembersPanel } from '../components/MembersPanel';
 import { usePageAlert } from '../components/usePageAlert';
 import { primaryButton } from '../components/styles';
+import { useT } from '../i18n/useT';
 import { noChannelsCopy } from '../lib/emptyStates';
 
 /**
@@ -14,6 +15,7 @@ import { noChannelsCopy } from '../lib/emptyStates';
  * the user was just sent here with a notice (e.g. the channel they were viewing was deleted).
  */
 export function HomePage() {
+  const t = useT();
   const { data: me } = useQuery(meQuery);
   const { data: boot } = useQuery(bootstrapQuery);
   const { message: alert, setAlert, dismiss: dismissAlert } = usePageAlert();
@@ -33,11 +35,11 @@ export function HomePage() {
               data-testid="home-welcome"
               className="text-center text-2xl font-semibold tracking-tight break-words"
             >
-              Welcome, {me.displayName}
+              {t('common.home.welcome', { name: me.displayName })}
             </h1>
             {hasTextChannel ? (
-              <EmptyState icon="chat" title="Pick a channel" headingLevel={2}>
-                Choose a channel from the sidebar to start chatting, or message someone from the members list.
+              <EmptyState icon="chat" title={t('common.home.pickChannel')} headingLevel={2}>
+                {t('common.home.pickChannelBody')}
               </EmptyState>
             ) : (
               <EmptyState
@@ -46,7 +48,7 @@ export function HomePage() {
                 action={
                   isAdmin ? (
                     <Link to="/admin/channels" className={primaryButton}>
-                      Create the first channel
+                      {t('common.home.createFirstChannel')}
                     </Link>
                   ) : undefined
                 }

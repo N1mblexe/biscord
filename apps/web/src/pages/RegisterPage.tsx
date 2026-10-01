@@ -6,9 +6,14 @@ import { fieldErrors, formAlertMessage } from '../api/errors';
 import { AuthCard } from '../components/AuthCard';
 import { FormAlert, formString, inlineLinkClass, TextField } from '../components/forms';
 import { primaryButton } from '../components/styles';
-import { normalizeUsername, USERNAME_RULE } from '../lib/username';
+import { Trans } from '../i18n/Trans';
+import { useLocale, useT } from '../i18n/useT';
+import { normalizeUsername, usernameRule } from '../lib/username';
 
 export function RegisterPage() {
+  const t = useT();
+  // Sent with the account, so it is created in the language shown (CONTRACTS B.11 rule 3).
+  const [locale] = useLocale();
   const [searchParams] = useSearchParams();
   const queryClient = useQueryClient();
   const navigate = useNavigate();
@@ -29,21 +34,28 @@ export function RegisterPage() {
       username: normalizeUsername(formString(data, 'username')),
       displayName: formString(data, 'displayName').trim(),
       password: formString(data, 'password'),
+      locale,
     });
   };
 
-  const errors = fieldErrors(mutation.error, { username: USERNAME_RULE });
+  const errors = fieldErrors(mutation.error, { username: usernameRule() });
 
   return (
     <AuthCard
-      title="Create your account"
-      description="You’ll need an invite code from one of the admins."
+      title={t('auth.register.title')}
+      description={t('auth.register.description')}
       footer={
         <p className="text-center text-sm text-muted">
-          Already have an account?{' '}
-          <Link to="/login" className={inlineLinkClass}>
-            Log in instead
-          </Link>
+          <Trans
+            k="auth.register.haveAccount"
+            components={{
+              link: (c) => (
+                <Link to="/login" className={inlineLinkClass}>
+                  {c}
+                </Link>
+              ),
+            }}
+          />
         </p>
       }
     >
@@ -51,7 +63,7 @@ export function RegisterPage() {
         <TextField
           id="register-invite"
           name="inviteCode"
-          label="Invite code"
+          label={t('auth.register.inviteCode')}
           defaultValue={searchParams.get('invite') ?? ''}
           autoComplete="off"
           autoCapitalize="characters"
@@ -61,28 +73,28 @@ export function RegisterPage() {
         <TextField
           id="register-username"
           name="username"
-          label="Username"
+          label={t('auth.username')}
           autoComplete="username"
           autoCapitalize="none"
           spellCheck={false}
-          hint="3–32 lowercase letters, digits or underscores. Friends @mention you with it."
+          hint={t('auth.register.usernameHint')}
           errors={errors}
         />
         <TextField
           id="register-display-name"
           name="displayName"
-          label="Display name"
+          label={t('auth.register.displayName')}
           autoComplete="nickname"
-          hint="What everyone sees. You can change it later in Settings."
+          hint={t('auth.register.displayNameHint')}
           errors={errors}
         />
         <TextField
           id="register-password"
           name="password"
-          label="Password"
+          label={t('auth.password')}
           type="password"
           autoComplete="new-password"
-          hint="At least 10 characters."
+          hint={t('auth.passwordHint')}
           errors={errors}
         />
         <FormAlert
@@ -94,7 +106,7 @@ export function RegisterPage() {
           disabled={mutation.isPending}
           aria-busy={mutation.isPending}
         >
-          Create account
+          {t('auth.register.submit')}
         </button>
       </form>
     </AuthCard>

@@ -6,19 +6,25 @@ import { errorMessage, fieldErrors, formAlertMessage } from '../api/errors';
 import { FormAlert, FormSuccess, formString, PageAlert, TextField } from '../components/forms';
 import { card, dangerButton, primaryButton } from '../components/styles';
 import { usePageAlert } from '../components/usePageAlert';
-import { formatDateTime } from '../i18n';
+import { formatDateTime, useT, type TFunction } from '../i18n';
 
 function inviteLink(code: string): string {
   return `${window.location.origin}/register?invite=${encodeURIComponent(code)}`;
 }
 
+/** The fields that show their own VALIDATION messages. */
+const INVITE_FIELDS = ['maxUses', 'expiresInHours'];
+
 /** Each field's whole rule, shown instead of zod's per-check messages. */
-const INVITE_FIELD_RULES = {
-  maxUses: `Must be a whole number between 1 and ${LIMITS.inviteMaxUses}`,
-  expiresInHours: `Must be a whole number between 1 and ${LIMITS.inviteMaxExpiresHours}`,
-};
+function inviteFieldRules(t: TFunction): Record<string, string> {
+  return {
+    maxUses: t('admin.invites.wholeNumberRule', { max: LIMITS.inviteMaxUses }),
+    expiresInHours: t('admin.invites.wholeNumberRule', { max: LIMITS.inviteMaxExpiresHours }),
+  };
+}
 
 export function AdminInvitesPage() {
+  const t = useT();
   const queryClient = useQueryClient();
   const invites = useQuery(invitesQuery);
 
@@ -52,13 +58,13 @@ export function AdminInvitesPage() {
     : revokeMutation.isError
       ? revokeMutation.error
       : null;
-  const errors = fieldErrors(createMutation.error, INVITE_FIELD_RULES);
+  const errors = fieldErrors(createMutation.error, inviteFieldRules(t));
   const created = createMutation.data;
   // The page's single alert slot, shared with the app-wide camera and screen share errors. Field
   // problems are shown under their fields instead.
   const slot = usePageAlert(
     failed === createMutation.error
-      ? formAlertMessage(failed, Object.keys(INVITE_FIELD_RULES))
+      ? formAlertMessage(failed, INVITE_FIELDS)
       : failed
         ? errorMessage(failed)
         : null,
@@ -69,14 +75,14 @@ export function AdminInvitesPage() {
       {slot.shared && <PageAlert message={slot.message} onDismiss={slot.dismiss} />}
       <section className={`${card} max-md:p-4`} aria-labelledby="invites-create-heading">
         <h1 id="invites-create-heading" className="text-2xl font-semibold tracking-tight">
-          Invites
+          {t('admin.invites.heading')}
         </h1>
         <form className="mt-4 flex flex-col gap-4" onSubmit={onSubmit} noValidate>
           <div className="grid max-w-md grid-cols-1 gap-4 sm:grid-cols-2">
             <TextField
               id="invite-max-uses"
               name="maxUses"
-              label="Max uses"
+              label={t('admin.invites.maxUses')}
               type="number"
               inputMode="numeric"
               min={1}
@@ -87,7 +93,7 @@ export function AdminInvitesPage() {
             <TextField
               id="invite-expires"
               name="expiresInHours"
-              label="Expires in (hours)"
+              label={t('admin.invites.expiresIn')}
               type="number"
               inputMode="numeric"
               min={1}
@@ -99,7 +105,7 @@ export function AdminInvitesPage() {
           <FormAlert message={slot.shared ? null : slot.message} />
           {created && (
             <FormSuccess>
-              Invite created. Share this link:{' '}
+              {t('admin.invites.created')}{' '}
               <span data-testid="new-invite-link" className="font-mono break-all select-all">
                 {inviteLink(created.code)}
               </span>
@@ -107,7 +113,7 @@ export function AdminInvitesPage() {
           )}
           <div>
             <button type="submit" className={primaryButton} disabled={createMutation.isPending}>
-              Create invite
+              {t('admin.invites.submit')}
             </button>
           </div>
         </form>
@@ -115,14 +121,14 @@ export function AdminInvitesPage() {
 
       <section className={`${card} max-md:p-4`} aria-labelledby="invites-list-heading">
         <h2 id="invites-list-heading" className="text-lg font-semibold">
-          All invites
+          {t('admin.invites.listHeading')}
         </h2>
         {invites.isPending ? (
-          <p className="mt-4 text-sm text-muted">Loading invites…</p>
+          <p className="mt-4 text-sm text-muted">{t('admin.invites.loading')}</p>
         ) : invites.isError ? (
           <p className="mt-4 text-sm text-danger">{errorMessage(invites.error)}</p>
         ) : invites.data.length === 0 ? (
-          <p className="mt-4 text-sm text-muted">No invites yet.</p>
+          <p className="mt-4 text-sm text-muted">{t('admin.invites.empty')}</p>
         ) : (
           // Below `md` each row is a card (code; uses, expiry; status), with inline labels instead of a header row.
           <div className="mt-4 md:overflow-x-auto">
@@ -130,16 +136,16 @@ export function AdminInvitesPage() {
               <thead className="text-xs tracking-wide text-muted uppercase max-md:hidden">
                 <tr>
                   <th scope="col" className="py-2 pr-4 font-medium">
-                    Code
+                    {t('admin.invites.columns.code')}
                   </th>
                   <th scope="col" className="py-2 pr-4 font-medium">
-                    Uses
+                    {t('admin.invites.columns.uses')}
                   </th>
                   <th scope="col" className="py-2 pr-4 font-medium">
-                    Expires
+                    {t('admin.invites.columns.expires')}
                   </th>
                   <th scope="col" className="py-2 font-medium">
-                    Status
+                    {t('admin.invites.columns.status')}
                   </th>
                 </tr>
               </thead>
@@ -171,6 +177,7 @@ interface InviteRowProps {
 }
 
 function InviteRow({ invite, asOf, revoking, onRevoke }: InviteRowProps) {
+  const t = useT();
   const expired = Date.parse(invite.expiresAt) <= asOf;
   const usedUp = invite.uses >= invite.maxUses;
   return (
@@ -184,20 +191,20 @@ function InviteRow({ invite, asOf, revoking, onRevoke }: InviteRowProps) {
         </span>
       </td>
       <td className="py-2 pr-4 tabular-nums max-md:p-0 max-md:text-xs">
-        <span className="text-muted md:hidden">Uses </span>
+        <span className="text-muted md:hidden">{t('admin.invites.columns.uses')} </span>
         {invite.uses} / {invite.maxUses}
       </td>
       <td className="py-2 pr-4 max-md:p-0 max-md:text-xs">
-        <span className="text-muted md:hidden">Expires </span>
+        <span className="text-muted md:hidden">{t('admin.invites.columns.expires')} </span>
         <time dateTime={invite.expiresAt}>{formatDateTime(invite.expiresAt)}</time>
-        {expired && <span className="ml-2 text-xs text-muted">(expired)</span>}
+        {expired && <span className="ml-2 text-xs text-muted">{t('admin.invites.expired')}</span>}
       </td>
       <td className="py-2 max-md:w-full max-md:p-0">
         {invite.revokedAt ? (
-          <span className="text-xs font-medium text-muted">revoked</span>
+          <span className="text-xs font-medium text-muted">{t('admin.invites.revoked')}</span>
         ) : (
           <div className="flex items-center gap-3">
-            {usedUp && <span className="text-xs text-muted">used</span>}
+            {usedUp && <span className="text-xs text-muted">{t('admin.invites.used')}</span>}
             <button
               type="button"
               className={dangerButton}
@@ -206,7 +213,7 @@ function InviteRow({ invite, asOf, revoking, onRevoke }: InviteRowProps) {
                 onRevoke(invite);
               }}
             >
-              Revoke
+              {t('admin.invites.revoke')}
             </button>
           </div>
         )}

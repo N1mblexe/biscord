@@ -1,5 +1,7 @@
+import { LOCALES } from '@hearth/shared';
 import type { InputHTMLAttributes, ReactNode } from 'react';
 import type { FieldErrors } from '../api/errors';
+import { useT } from '../i18n/useT';
 import { inputClass } from './styles';
 
 /**
@@ -101,6 +103,7 @@ export function formString(data: FormData, name: string): string {
 
 /** A page's single `role="alert"` with a dismiss button. Renders nothing without a message. */
 export function PageAlert({ message, onDismiss }: { message: string | null; onDismiss: () => void }) {
+  const t = useT();
   if (!message) return null;
   return (
     <div className="flex items-start gap-2">
@@ -109,7 +112,7 @@ export function PageAlert({ message, onDismiss }: { message: string | null; onDi
       </div>
       <button
         type="button"
-        aria-label="Dismiss error"
+        aria-label={t('common.dismissError')}
         className="inline-flex size-9 shrink-0 items-center justify-center rounded-control text-muted transition hover:bg-white/5 hover:text-text"
         onClick={onDismiss}
       >
@@ -118,5 +121,22 @@ export function PageAlert({ message, onDismiss }: { message: string | null; onDi
         </svg>
       </button>
     </div>
+  );
+}
+
+/**
+ * The `<option>`s of a language picker: every UI language in its own name ("English", "Türkçe"),
+ * whatever the current language, with `lang` so a screen reader pronounces it right.
+ */
+export function LanguageOptions() {
+  const t = useT();
+  return (
+    <>
+      {LOCALES.map((locale) => (
+        <option key={locale} value={locale} lang={locale}>
+          {t(`common.language.${locale}`)}
+        </option>
+      ))}
+    </>
   );
 }

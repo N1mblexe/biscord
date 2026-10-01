@@ -1,4 +1,5 @@
 import type { BootstrapResponse, Message } from '@hearth/shared';
+import { t } from '../i18n/translate';
 import { authorName } from './bootstrapPatch';
 
 /**
@@ -74,7 +75,7 @@ export function shouldNotify({ message, meId, enabled, permission, visibility }:
 export function notificationTitle(boot: BootstrapResponse, message: Message): string {
   const author = authorName(boot.users.find((u) => u.id === message.authorId));
   const channel = boot.channels.find((c) => c.id === message.channelId);
-  return channel ? `${author} in #${channel.name}` : author;
+  return channel ? t('settings.notifications.channelTitle', { author, channel: channel.name }) : author;
 }
 
 /** The first `max` characters of a message with its Markdown syntax crudely stripped. */

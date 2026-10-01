@@ -1,7 +1,9 @@
 import {
   AVATAR_MIME_TYPES,
+  LIMITS,
   type BootstrapResponse,
   type ChangePasswordRequest,
+  type Locale,
   type Me,
   type UpdateMeRequest,
 } from '@hearth/shared';
@@ -9,16 +11,29 @@ import { useMutation, useQuery, useQueryClient, type UseMutationResult } from '@
 import { useState, type ChangeEvent, type SubmitEvent } from 'react';
 import { changePassword, meQuery, updateMe } from '../api/auth';
 import { bootstrapQueryKey } from '../api/chat';
-import { fieldErrors, formAlertMessage } from '../api/errors';
+import { errorMessage, fieldErrors, formAlertMessage } from '../api/errors';
 import { removeAvatar, setAvatar } from '../api/uploads';
 import { Avatar } from '../components/Avatar';
-import { FormAlert, FormSuccess, formString, PageAlert, TextField } from '../components/forms';
-import { card, primaryButton, secondaryButton } from '../components/styles';
+import {
+  FormAlert,
+  FormSuccess,
+  formString,
+  LanguageOptions,
+  PageAlert,
+  TextField,
+} from '../components/forms';
+import { card, inputClass, primaryButton, secondaryButton } from '../components/styles';
 import { usePageAlert } from '../components/usePageAlert';
+import { isLocale } from '../i18n/detect';
+import { formatBytes } from '../i18n/format';
+import { getLocale } from '../i18n/store';
+import { Trans } from '../i18n/Trans';
+import { useLocale, useT } from '../i18n/useT';
 import { avatarUploadError, checkAvatarFile } from '../lib/avatar';
 import { upsertUser } from '../lib/bootstrapPatch';
 import {
   notificationPermission,
+  type PermissionState,
   readNotificationsPref,
   requestNotificationPermission,
   writeNotificationsPref,
@@ -28,8 +43,12 @@ type ProfileMutation = UseMutationResult<Me, Error, UpdateMeRequest>;
 type PasswordMutation = UseMutationResult<undefined, Error, ChangePasswordRequest>;
 type AvatarMutation = UseMutationResult<Me, Error, File>;
 type RemoveAvatarMutation = UseMutationResult<Me, Error, void>;
+type LanguageMutation = UseMutationResult<Me, Error, Locale, { previous: Locale }>;
+type Form = 'profile' | 'password' | 'avatar' | 'language';
 
 export function SettingsPage() {
+  const t = useT();
+  const [, setLocale] = useLocale();
   const { data: me } = useQuery(meQuery);
   const queryClient = useQueryClient();
 
@@ -49,13 +68,28 @@ export function SettingsPage() {
   const password: PasswordMutation = useMutation({ mutationFn: changePassword });
   const avatarSet: AvatarMutation = useMutation({ mutationFn: setAvatar, onSuccess: storeMe });
   const avatarRemove: RemoveAvatarMutation = useMutation({ mutationFn: removeAvatar, onSuccess: storeMe });
+  // The language switches at once and is then saved to the account; a failed save switches back.
+  const language: LanguageMutation = useMutation({
+    mutationFn: (locale: Locale) => updateMe({ locale }),
+    onMutate: (locale) => {
+      const previous = getLocale();
+      setLocale(locale);
+      return { previous };
+    },
+    onError: (_err, locale, context) => {
+      // Only if nothing switched it again since.
+      if (context && getLocale() === locale) setLocale(context.previous);
+    },
+    onSuccess: storeMe,
+  });
   // The avatar pre-check's alert (wrong type or too big), shown instead of a request.
   const [avatarCheck, setAvatarCheck] = useState<string | null>(null);
 
-  const resetAllBut = (keep: 'profile' | 'password' | 'avatar') => {
+  const resetAllBut = (keep: Form) => {
     if (keep !== 'profile') profile.reset();
     if (keep !== 'password') password.reset();
     if (keep !== 'avatar') setAvatarCheck(null);
+    if (keep !== 'language') language.reset();
     avatarSet.reset();
     avatarRemove.reset();
   };
@@ -64,26 +98,28 @@ export function SettingsPage() {
   // and screen share errors share the slot with it (the newer one is shown).
   const avatarFailed = avatarSet.isError ? avatarSet.error : avatarRemove.isError ? avatarRemove.error : null;
   const avatarMessage = avatarCheck ?? (avatarFailed ? avatarUploadError(avatarFailed) : null);
-  const own: { form: 'profile' | 'password' | 'avatar'; message: string | null } | null = profile.isError
+  const own: { form: Form; message: string | null } | null = profile.isError
     ? { form: 'profile', message: formAlertMessage(profile.error, ['displayName']) }
     : password.isError
       ? {
           form: 'password',
           message: formAlertMessage(password.error, ['currentPassword', 'newPassword'], {
-            INVALID_CREDENTIALS: 'Your current password is wrong.',
+            INVALID_CREDENTIALS: t('settings.password.wrongCurrent'),
           }),
         }
       : avatarMessage !== null
         ? { form: 'avatar', message: avatarMessage }
-        : null;
+        : language.isError
+          ? { form: 'language', message: errorMessage(language.error) }
+          : null;
   const slot = usePageAlert(own?.message ?? null);
-  const alertFor = (form: 'profile' | 'password' | 'avatar') =>
+  const alertFor = (form: Form) =>
     !slot.shared && own?.form === form ? slot.message : null;
 
   if (!me) return null;
   return (
     <div className="flex flex-col gap-6">
-      <h1 className="text-2xl font-semibold tracking-tight">Settings</h1>
+      <h1 className="text-2xl font-semibold tracking-tight">{t('settings.title')}</h1>
       {slot.shared && <PageAlert message={slot.message} onDismiss={slot.dismiss} />}
       {/* Keyed so a different signed-in user never sees stale form values. */}
       <ProfileForm
@@ -113,6 +149,13 @@ export function SettingsPage() {
         }}
       />
       <NotificationsSection />
+      <LanguageSection
+        mutation={language}
+        alert={alertFor('language')}
+        onSubmitStart={() => {
+          resetAllBut('language');
+        }}
+      />
     </div>
   );
 }
@@ -137,6 +180,7 @@ function AvatarSection({
   /** Resets the other forms' results; `checkError` is the pre-check alert (or `null` to go ahead). */
   onStart: (checkError: string | null) => void;
 }) {
+  const t = useT();
   const busy = setMutation.isPending || removeMutation.isPending;
 
   const onChange = (event: ChangeEvent<HTMLInputElement>) => {
@@ -152,14 +196,16 @@ function AvatarSection({
 
   return (
     <section className={`${card} max-md:p-4`}>
-      <h2 className="text-lg font-semibold">Avatar</h2>
-      <p className="mt-1 text-sm text-muted">A PNG, JPEG or WebP image up to 2 MB.</p>
+      <h2 className="text-lg font-semibold">{t('settings.avatar.heading')}</h2>
+      <p className="mt-1 text-sm text-muted">
+        {t('settings.avatar.description', { size: formatBytes(LIMITS.avatarMaxBytes) })}
+      </p>
       <div className="mt-4 flex max-w-sm flex-col gap-4">
         <div className="flex items-center gap-4">
           <Avatar userId={me.id} name={me.displayName} avatarUrl={me.avatarUrl} size="lg" />
           <div className="flex flex-col gap-2 max-md:min-w-0 max-md:flex-1">
             <label htmlFor="settings-avatar" className="text-sm font-medium">
-              Avatar
+              {t('settings.avatar.label')}
             </label>
             <input
               id="settings-avatar"
@@ -173,8 +219,8 @@ function AvatarSection({
           </div>
         </div>
         <FormAlert message={alert} />
-        {setMutation.isSuccess && <FormSuccess>Avatar updated.</FormSuccess>}
-        {removeMutation.isSuccess && <FormSuccess>Avatar removed.</FormSuccess>}
+        {setMutation.isSuccess && <FormSuccess>{t('settings.avatar.updated')}</FormSuccess>}
+        {removeMutation.isSuccess && <FormSuccess>{t('settings.avatar.removed')}</FormSuccess>}
         {me.avatarUrl !== null && (
           <div>
             <button
@@ -186,7 +232,7 @@ function AvatarSection({
                 removeMutation.mutate();
               }}
             >
-              Remove avatar
+              {t('settings.avatar.remove')}
             </button>
           </div>
         )}
@@ -195,11 +241,12 @@ function AvatarSection({
   );
 }
 
+/** The hint shown when turning notifications on didn't get permission. */
 const PERMISSION_HINTS = {
-  denied: 'Notifications are blocked for this site. Allow them in your browser settings, then try again.',
-  default: 'Notifications were not allowed.',
-  unsupported: "This browser doesn't support desktop notifications.",
-} as const;
+  denied: 'settings.notifications.denied',
+  default: 'settings.notifications.default',
+  unsupported: 'settings.notifications.unsupported',
+} as const satisfies Record<Exclude<PermissionState, 'granted'>, string>;
 
 /**
  * **Desktop notifications**: mentions and DMs while the tab is hidden (lib/notifications.ts).
@@ -207,10 +254,11 @@ const PERMISSION_HINTS = {
  * preference is per browser (localStorage).
  */
 function NotificationsSection() {
+  const t = useT();
   const [enabled, setEnabled] = useState(
     () => readNotificationsPref() && notificationPermission() === 'granted',
   );
-  const [hint, setHint] = useState<string | null>(null);
+  const [hint, setHint] = useState<keyof typeof PERMISSION_HINTS | null>(null);
   const [asking, setAsking] = useState(false);
 
   const onChange = async (event: ChangeEvent<HTMLInputElement>) => {
@@ -227,18 +275,15 @@ function NotificationsSection() {
     const granted = permission === 'granted';
     writeNotificationsPref(granted);
     setEnabled(granted);
-    if (!granted) setHint(PERMISSION_HINTS[permission]);
+    if (permission !== 'granted') setHint(permission);
   };
 
   return (
     <section className={`${card} max-md:p-4`} aria-labelledby="settings-notifications-heading">
       <h2 id="settings-notifications-heading" className="text-lg font-semibold">
-        Notifications
+        {t('settings.notifications.heading')}
       </h2>
-      <p className="mt-1 text-sm text-muted">
-        Get a desktop notification when someone mentions you or sends you a direct message while Hearth is in
-        the background.
-      </p>
+      <p className="mt-1 text-sm text-muted">{t('settings.notifications.description')}</p>
       <div className="mt-4 flex items-center gap-2">
         <input
           id="settings-desktop-notifications"
@@ -251,10 +296,10 @@ function NotificationsSection() {
           }}
         />
         <label htmlFor="settings-desktop-notifications" className="text-sm font-medium">
-          Desktop notifications
+          {t('settings.notifications.label')}
         </label>
       </div>
-      {hint && <p className="mt-2 text-sm text-muted">{hint}</p>}
+      {hint && <p className="mt-2 text-sm text-muted">{t(PERMISSION_HINTS[hint])}</p>}
     </section>
   );
 }
@@ -268,6 +313,7 @@ interface FormProps<M> {
 }
 
 function ProfileForm({ me, mutation, alert, onSubmitStart }: FormProps<ProfileMutation> & { me: Me }) {
+  const t = useT();
   const onSubmit = (event: SubmitEvent<HTMLFormElement>) => {
     event.preventDefault();
     const data = new FormData(event.currentTarget);
@@ -280,25 +326,29 @@ function ProfileForm({ me, mutation, alert, onSubmitStart }: FormProps<ProfileMu
   return (
     <section className={`${card} max-md:p-4`} aria-labelledby="settings-profile-heading">
       <h2 id="settings-profile-heading" className="text-lg font-semibold">
-        Profile
+        {t('settings.profile.heading')}
       </h2>
       <p className="mt-1 text-sm text-muted">
-        Signed in as <span className="font-mono">{me.username}</span>
+        <Trans
+          k="settings.profile.signedInAs"
+          params={{ username: me.username }}
+          components={{ mono: (c) => <span className="font-mono">{c}</span> }}
+        />
       </p>
       <form className="mt-4 flex max-w-sm flex-col gap-4" onSubmit={onSubmit} noValidate>
         <TextField
           id="settings-display-name"
           name="displayName"
-          label="Display name"
+          label={t('settings.profile.displayName')}
           defaultValue={me.displayName}
           autoComplete="nickname"
           errors={errors}
         />
         <FormAlert message={alert} />
-        {mutation.isSuccess && <FormSuccess>Profile saved.</FormSuccess>}
+        {mutation.isSuccess && <FormSuccess>{t('settings.profile.saved')}</FormSuccess>}
         <div>
           <button type="submit" className={primaryButton} disabled={mutation.isPending}>
-            Save profile
+            {t('settings.profile.submit')}
           </button>
         </div>
       </form>
@@ -307,6 +357,7 @@ function ProfileForm({ me, mutation, alert, onSubmitStart }: FormProps<ProfileMu
 }
 
 function PasswordForm({ mutation, alert, onSubmitStart }: FormProps<PasswordMutation>) {
+  const t = useT();
   const onSubmit = (event: SubmitEvent<HTMLFormElement>) => {
     event.preventDefault();
     const form = event.currentTarget;
@@ -327,14 +378,14 @@ function PasswordForm({ mutation, alert, onSubmitStart }: FormProps<PasswordMuta
   return (
     <section className={`${card} max-md:p-4`} aria-labelledby="settings-password-heading">
       <h2 id="settings-password-heading" className="text-lg font-semibold">
-        Password
+        {t('settings.password.heading')}
       </h2>
-      <p className="mt-1 text-sm text-muted">Changing your password signs you out everywhere else.</p>
+      <p className="mt-1 text-sm text-muted">{t('settings.password.description')}</p>
       <form className="mt-4 flex max-w-sm flex-col gap-4" onSubmit={onSubmit} noValidate>
         <TextField
           id="settings-current-password"
           name="currentPassword"
-          label="Current password"
+          label={t('settings.password.current')}
           type="password"
           autoComplete="current-password"
           errors={errors}
@@ -342,20 +393,66 @@ function PasswordForm({ mutation, alert, onSubmitStart }: FormProps<PasswordMuta
         <TextField
           id="settings-new-password"
           name="newPassword"
-          label="New password"
+          label={t('settings.password.new')}
           type="password"
           autoComplete="new-password"
-          placeholder="at least 10 characters"
+          placeholder={t('settings.password.placeholder')}
           errors={errors}
         />
         <FormAlert message={alert} />
-        {mutation.isSuccess && <FormSuccess>Password changed.</FormSuccess>}
+        {mutation.isSuccess && <FormSuccess>{t('settings.password.changed')}</FormSuccess>}
         <div>
           <button type="submit" className={primaryButton} disabled={mutation.isPending}>
-            Change password
+            {t('settings.password.submit')}
           </button>
         </div>
       </form>
+    </section>
+  );
+}
+
+/**
+ * **Language** (CONTRACTS B.11): the UI language, saved to the account. Changing it switches at once,
+ * then PATCHes `/me`; "Language updated." confirms the save, and a failure switches back and shows
+ * the page's alert here.
+ */
+function LanguageSection({ mutation, alert, onSubmitStart }: FormProps<LanguageMutation>) {
+  const t = useT();
+  const [locale] = useLocale();
+  return (
+    <section className={`${card} max-md:p-4`} aria-labelledby="settings-language-heading">
+      <h2
+        id="settings-language-heading"
+        data-testid="settings-language-heading"
+        className="text-lg font-semibold"
+      >
+        {t('settings.language.heading')}
+      </h2>
+      <p className="mt-1 text-sm text-muted">{t('settings.language.description')}</p>
+      <div className="mt-4 flex max-w-sm flex-col gap-4">
+        <div className="flex flex-col gap-1.5">
+          <label htmlFor="settings-language" className="text-sm font-medium text-text">
+            {t('common.language.label')}
+          </label>
+          <select
+            id="settings-language"
+            data-testid="language-select"
+            className={inputClass}
+            value={locale}
+            aria-busy={mutation.isPending}
+            onChange={(event) => {
+              const next = event.target.value;
+              if (!isLocale(next) || next === locale) return;
+              onSubmitStart();
+              mutation.mutate(next);
+            }}
+          >
+            <LanguageOptions />
+          </select>
+        </div>
+        <FormAlert message={alert} />
+        {mutation.isSuccess && <FormSuccess>{t('settings.language.updated')}</FormSuccess>}
+      </div>
     </section>
   );
 }
