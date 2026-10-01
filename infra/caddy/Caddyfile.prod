@@ -13,7 +13,7 @@
 	header ?Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' blob: data:; media-src 'self' blob:; connect-src 'self' wss://lk.{$HEARTH_DOMAIN} https://lk.{$HEARTH_DOMAIN}; font-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'; object-src 'none'"
 	header ?X-Content-Type-Options "nosniff"
 	header ?Referrer-Policy "no-referrer"
-	header ?Permissions-Policy "camera=(self), microphone=(self), display-capture=(self), geolocation=()"
+	header ?Permissions-Policy "camera=(self), microphone=(self), display-capture=(self), speaker-selection=(self), geolocation=()"
 	header ?Cross-Origin-Opener-Policy "same-origin"
 	# HTTPS only from now on; one year, no includeSubDomains/preload (a DuckDNS name is not ours to preload).
 	header ?Strict-Transport-Security "max-age=31536000"

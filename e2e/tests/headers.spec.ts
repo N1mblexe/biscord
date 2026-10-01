@@ -95,7 +95,12 @@ test.describe('security headers', { tag: ['@smoke', '@headers'] }, () => {
       expect(headers['x-content-type-options']).toBe('nosniff');
       expect(headers['referrer-policy']).toBe('no-referrer');
       expect(headers['permissions-policy']).toBeDefined();
-      for (const feature of ['camera=(self)', 'microphone=(self)', 'display-capture=(self)']) {
+      for (const feature of [
+        'camera=(self)',
+        'microphone=(self)',
+        'display-capture=(self)',
+        'speaker-selection=(self)',
+      ]) {
         expect(headers['permissions-policy']).toContain(feature);
       }
       expect(headers['cross-origin-opener-policy']).toBe('same-origin');
