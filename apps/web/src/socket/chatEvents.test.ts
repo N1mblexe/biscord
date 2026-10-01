@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { bootstrapQuery, bootstrapQueryKey } from '../api/chat';
 import { setSocketConnected } from '../lib/messageSync';
 import { useMessageStore } from '../stores/messages';
-import { NOTICES, useNoticeStore } from '../stores/notice';
+import { useNoticeStore } from '../stores/notice';
 import { usePresenceStore } from '../stores/presence';
 import { unreadSummary, useReadsStore } from '../stores/reads';
 import { useTypingStore } from '../stores/typing';
@@ -337,7 +337,7 @@ describe('channel:deleted for our own voice channel', () => {
     expect(leave).not.toHaveBeenCalled();
     fake.fire('channel:deleted', { channelId: VOICE });
     expect(leave).toHaveBeenCalledTimes(1);
-    expect(useNoticeStore.getState().notice).toBe(NOTICES.voiceChannelDeleted);
+    expect(useNoticeStore.getState().notice).toBe('This voice channel was deleted.');
     unregister();
     unregisterLeave();
   });

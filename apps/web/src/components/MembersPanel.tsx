@@ -4,7 +4,7 @@ import { useEffect, type ReactNode } from 'react';
 import { useNavigate } from 'react-router';
 import { bootstrapQuery, bootstrapQueryKey, openDm } from '../api/chat';
 import { errorMessage } from '../api/errors';
-import { compare, useLocale } from '../i18n';
+import { compare, useLocale, useT } from '../i18n';
 import { upsertDm } from '../lib/bootstrapPatch';
 import { useDrawerStore } from '../stores/drawers';
 import { useIsOnline } from '../stores/presence';
@@ -33,6 +33,7 @@ export function MembersPanel({ onError }: { onError: (message: string | null) =>
   const { ref, open, dialogProps } = useDrawerPanel<HTMLElement>('members');
   const closeDrawer = useDrawerStore((s) => s.close);
   const [locale] = useLocale();
+  const t = useT();
 
   // The header shows its **Members** button only while a page has this panel.
   useEffect(() => useDrawerStore.getState().hostMembers(), []);
@@ -70,11 +71,11 @@ export function MembersPanel({ onError }: { onError: (message: string | null) =>
     >
       <div className="flex items-center justify-between">
         <h2 id="members-heading" className="px-1 text-xs font-semibold tracking-wide text-muted">
-          Members
+          {t('a11y.layout.members')}
         </h2>
         <button
           type="button"
-          aria-label="Close members"
+          aria-label={t('a11y.closeMembers')}
           className={`${drawerIconButton} md:hidden`}
           onClick={closeDrawer}
         >
@@ -98,7 +99,7 @@ export function MembersPanel({ onError }: { onError: (message: string | null) =>
                   dmMutation.mutate(user.id);
                 }}
               >
-                Message
+                {t('a11y.layout.message')}
               </button>
             )}
           </MemberItem>

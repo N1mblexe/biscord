@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { RoomEvent, Track, type Room } from 'livekit-client';
 import { useState, type CSSProperties } from 'react';
 import { bootstrapQuery } from '../api/chat';
+import { useT } from '../i18n';
 import { useVoiceRoom } from './context';
 import { INITIAL_FOCUS, reduceFocus, tileKey, tilesChanged, type TileInfo, type TileSource } from './focus';
 import { useIsSpeakingInMyRoom, useVoiceSession } from './session';
@@ -32,6 +33,7 @@ export function VideoStage() {
 
 function Stage({ room }: { room: Room }) {
   const trackRefs = useTracks(VIDEO_SOURCES, { room, onlySubscribed: true, updateOnlyOn: UPDATE_ON });
+  const t = useT();
   const { data: boot } = useQuery(bootstrapQuery);
   const [focusState, setFocusState] = useState(INITIAL_FOCUS);
 
@@ -41,14 +43,15 @@ function Stage({ room }: { room: Room }) {
       const userId = ref.participant.identity;
       const source: TileSource = ref.source === Track.Source.ScreenShare ? 'screen_share' : 'camera';
       const name =
-        boot?.users.find((u) => u.id === userId)?.displayName ?? (ref.participant.name || 'Unknown user');
+        boot?.users.find((u) => u.id === userId)?.displayName ??
+        (ref.participant.name || t('voice.stage.unknownUser'));
       return {
         key: tileKey(userId, source),
         userId,
         source,
         local: ref.participant.isLocal,
         trackRef: ref,
-        label: source === 'screen_share' ? `${name} (screen)` : name,
+        label: source === 'screen_share' ? t('voice.stage.screenTile', { name }) : name,
       };
     });
 
@@ -65,8 +68,8 @@ function Stage({ room }: { room: Room }) {
   const select = (key: string) => {
     setFocusState((s) => reduceFocus(s, { type: 'select', key }));
   };
-  const focused = tiles.find((t) => t.key === focus.focused);
-  const others = focused ? tiles.filter((t) => t !== focused) : tiles;
+  const focused = tiles.find((tile) => tile.key === focus.focused);
+  const others = focused ? tiles.filter((tile) => tile !== focused) : tiles;
 
   const wide = stageGrid(tiles.length, false);
   const narrow = stageGrid(tiles.length, true);
@@ -80,7 +83,7 @@ function Stage({ room }: { room: Room }) {
   return (
     <section
       data-testid="video-stage"
-      aria-label="Video"
+      aria-label={t('voice.stage.label')}
       className="flex h-[40vh] min-h-56 shrink-0 flex-col gap-2 border-b border-line bg-black/40 p-2 sm:h-[45vh]"
     >
       {focused ? (
@@ -89,10 +92,10 @@ function Stage({ room }: { room: Room }) {
             <VideoTile tile={focused} focused onSelect={select} className="min-h-0 flex-1" />
           </div>
           <div className="flex shrink-0 items-center gap-2 overflow-x-auto p-0.5">
-            {others.map((t) => (
+            {others.map((tile) => (
               <VideoTile
-                key={t.key}
-                tile={t}
+                key={tile.key}
+                tile={tile}
                 focused={false}
                 onSelect={select}
                 className="aspect-video h-16 shrink-0 sm:h-20"
@@ -106,7 +109,7 @@ function Stage({ room }: { room: Room }) {
               }}
             >
               <GridIcon />
-              Grid view
+              {t('voice.stage.gridView')}
             </button>
           </div>
         </>
@@ -115,8 +118,8 @@ function Stage({ room }: { room: Room }) {
           style={gridVars}
           className="grid min-h-0 flex-1 grid-cols-(--stage-cols) grid-rows-(--stage-rows) gap-2 overflow-y-auto p-0.5 sm:grid-cols-(--stage-cols-sm) sm:grid-rows-(--stage-rows-sm)"
         >
-          {tiles.map((t) => (
-            <VideoTile key={t.key} tile={t} focused={false} onSelect={select} className="min-h-0" />
+          {tiles.map((tile) => (
+            <VideoTile key={tile.key} tile={tile} focused={false} onSelect={select} className="min-h-0" />
           ))}
         </div>
       )}
@@ -183,6 +186,7 @@ function VideoTile({
   onSelect: (key: string) => void;
   className: string;
 }) {
+  const t = useT();
   // Our own camera is mirrored, like a mirror; screens never are.
   const mirrored = tile.local && tile.source === 'camera';
   const speaking = useIsSpeakingInMyRoom(tile.userId) && tile.source === 'camera';
@@ -199,7 +203,7 @@ function VideoTile({
       data-user-id={tile.userId}
       data-source={tile.source}
       data-focused={focused ? 'true' : 'false'}
-      title={focused ? undefined : `Focus ${tile.label}`}
+      title={focused ? undefined : t('voice.stage.focus', { label: tile.label })}
       className={`relative overflow-hidden rounded-xl bg-black text-left transition ${ring} ${className}`}
       onClick={() => {
         onSelect(tile.key);
@@ -213,7 +217,9 @@ function VideoTile({
         <SourceIcon source={tile.source} />
         <span className="truncate">{tile.label}</span>
         {tile.local && (
-          <span className="ml-0.5 shrink-0 rounded bg-white/20 px-1 text-2xs font-semibold">You</span>
+          <span className="ml-0.5 shrink-0 rounded bg-white/20 px-1 text-2xs font-semibold">
+            {t('voice.stage.you')}
+          </span>
         )}
       </span>
     </button>

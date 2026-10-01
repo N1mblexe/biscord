@@ -9,6 +9,7 @@ import { DrawerBackdrop, drawerIconButton } from '../components/Drawer';
 import { PageAlert } from '../components/forms';
 import { Sidebar } from '../components/Sidebar';
 import { secondaryButton } from '../components/styles';
+import { useT } from '../i18n';
 import { loginPathForReason } from '../lib/authNotice';
 import { clearSessionState } from '../lib/session';
 import { useDrawerStore } from '../stores/drawers';
@@ -71,6 +72,8 @@ function AppShell() {
     useDrawerStore.getState().close();
   }, [pathname]);
 
+  const t = useT();
+
   // Below `md` the header is one row: the drawer buttons, and the status and user name as
   // visually hidden text next to the dot and avatar. From `md` up it is unchanged.
   return (
@@ -79,15 +82,15 @@ function AppShell() {
         <div className="flex items-center gap-x-2 px-2 py-2 md:flex-wrap md:gap-x-4 md:gap-y-2 md:px-4 md:py-3">
           <OpenNavigationButton />
           <Link to="/" className="text-lg font-semibold tracking-tight">
-            Hearth
+            {t('common.appName')}
           </Link>
-          <nav aria-label="Main" className="flex items-center gap-1 max-md:hidden">
+          <nav aria-label={t('a11y.mainNav')} className="flex items-center gap-1 max-md:hidden">
             <NavLink to="/settings" className={navLinkClass}>
-              Settings
+              {t('a11y.layout.settings')}
             </NavLink>
             {me?.role === 'admin' && (
               <NavLink to="/admin/invites" className={navLinkClass}>
-                Admin
+                {t('a11y.layout.admin')}
               </NavLink>
             )}
           </nav>
@@ -105,7 +108,7 @@ function AppShell() {
               onClick={onLogout}
               disabled={logoutMutation.isPending}
             >
-              Log out
+              {t('a11y.layout.logOut')}
             </button>
             <MembersButton />
           </div>
@@ -127,12 +130,13 @@ function AppShell() {
 
 /** Header button (phones only) that opens the sidebar drawer (`#app-sidebar`). */
 function OpenNavigationButton() {
+  const t = useT();
   const open = useDrawerStore((s) => s.open === 'nav');
   const toggle = useDrawerStore((s) => s.toggle);
   return (
     <button
       type="button"
-      aria-label="Open navigation"
+      aria-label={t('a11y.openNavigation')}
       aria-expanded={open}
       aria-controls="app-sidebar"
       className={`${drawerIconButton} md:hidden`}
@@ -157,6 +161,7 @@ function OpenNavigationButton() {
  * (`#members-panel`), where **Message** starts a DM.
  */
 function MembersButton() {
+  const t = useT();
   const available = useDrawerStore((s) => s.membersHosts > 0);
   const open = useDrawerStore((s) => s.open === 'members');
   const toggle = useDrawerStore((s) => s.toggle);
@@ -164,8 +169,8 @@ function MembersButton() {
   return (
     <button
       type="button"
-      aria-label="Members"
-      title="Members"
+      aria-label={t('a11y.layout.members')}
+      title={t('a11y.layout.members')}
       aria-expanded={open}
       aria-controls="members-panel"
       className={`${drawerIconButton} md:hidden`}
@@ -210,6 +215,7 @@ function FallbackAlert() {
 
 /** The app-wide notice (e.g. "This channel was deleted."), until dismissed or a channel is opened. */
 function AppNotice() {
+  const t = useT();
   const notice = useNoticeStore((s) => s.notice);
   const clearNotice = useNoticeStore((s) => s.clearNotice);
   if (!notice) return null;
@@ -222,7 +228,7 @@ function AppNotice() {
         {notice}
       </p>
       <button type="button" className="text-xs font-medium hover:underline" onClick={clearNotice}>
-        Dismiss
+        {t('a11y.layout.dismiss')}
       </button>
     </div>
   );

@@ -1,14 +1,15 @@
 import { useEffect, useState } from 'react';
+import { useT, type MessageKey } from '../i18n';
 import { fetchHealth, type ServerHealth } from '../lib/health';
 
 type Status = ServerHealth | 'checking';
 
-const LABELS: Record<Status, string> = {
-  checking: 'Server: checking…',
-  ok: 'Server: ok',
-  degraded: 'Server: degraded',
-  unreachable: 'Server: unreachable',
-};
+const LABELS = {
+  checking: 'a11y.server.checking',
+  ok: 'a11y.server.ok',
+  degraded: 'a11y.server.degraded',
+  unreachable: 'a11y.server.unreachable',
+} as const satisfies Record<Status, MessageKey>;
 
 const DOT: Record<Status, string> = {
   checking: 'bg-muted motion-safe:animate-skeleton',
@@ -19,6 +20,7 @@ const DOT: Record<Status, string> = {
 
 /** The Phase 1 health indicator (`data-testid="server-status"`). */
 export function ServerStatus() {
+  const t = useT();
   const [status, setStatus] = useState<Status>('checking');
 
   useEffect(() => {
@@ -38,7 +40,7 @@ export function ServerStatus() {
     >
       <span aria-hidden="true" className={`size-2 shrink-0 rounded-full ${DOT[status]}`} />
       <span data-testid="server-status" role="status">
-        {LABELS[status]}
+        {t(LABELS[status])}
       </span>
     </p>
   );

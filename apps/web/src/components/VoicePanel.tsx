@@ -1,17 +1,22 @@
 import { useQuery } from '@tanstack/react-query';
 import { bootstrapQuery } from '../api/chat';
+import { useT, type MessageKey } from '../i18n';
 import { useVoice } from '../voice/context';
 import { useId, type ReactNode } from 'react';
 import { useVoiceSession, type PublishState, type VoiceConnectionState } from '../voice/session';
 
 const STATUS: Record<
   Exclude<VoiceConnectionState, 'disconnected'>,
-  { label: string; tone: string; dot: string }
+  { label: MessageKey; tone: string; dot: string }
 > = {
-  connecting: { label: 'Connecting…', tone: 'text-accent', dot: 'bg-accent motion-safe:animate-skeleton' },
-  connected: { label: 'Voice connected', tone: 'text-success', dot: 'bg-success' },
+  connecting: {
+    label: 'voice.panel.connecting',
+    tone: 'text-accent',
+    dot: 'bg-accent motion-safe:animate-skeleton',
+  },
+  connected: { label: 'voice.panel.connected', tone: 'text-success', dot: 'bg-success' },
   reconnecting: {
-    label: 'Reconnecting…',
+    label: 'voice.panel.reconnecting',
     tone: 'text-accent',
     dot: 'bg-accent motion-safe:animate-skeleton',
   },
@@ -108,6 +113,7 @@ function ScreenIcon() {
  * while the browser asks or LiveKit (un)publishes) and the **Share tab audio** checkbox.
  */
 export function VoicePanel() {
+  const t = useT();
   const state = useVoiceSession((s) => s.state);
   const channelId = useVoiceSession((s) => s.channelId);
   const micMuted = useVoiceSession((s) => s.micMuted);
@@ -121,7 +127,8 @@ export function VoicePanel() {
   const tabAudioId = useId();
 
   if (state === 'disconnected' || channelId === null) return null;
-  const channelName = boot?.channels.find((c) => c.id === channelId)?.name ?? 'Voice channel';
+  const channelName =
+    boot?.channels.find((c) => c.id === channelId)?.name ?? t('voice.panel.fallbackChannel');
   const status = STATUS[state];
   const live = state === 'connected' || state === 'reconnecting';
   // Starting needs a connected room; stopping works while reconnecting too.
@@ -131,13 +138,13 @@ export function VoicePanel() {
     <section
       data-testid="voice-panel"
       data-state={state}
-      aria-label="Voice connection"
+      aria-label={t('voice.panel.label')}
       className="flex shrink-0 flex-col gap-2 border-t border-line bg-bg/40 px-3 pt-2.5 pb-3"
     >
       <div className="flex min-w-0 items-center gap-2" role="status">
         <span aria-hidden="true" className={`size-2 shrink-0 rounded-full ${status.dot}`} />
         <div className="min-w-0">
-          <p className={`text-xs font-semibold ${status.tone}`}>{status.label}</p>
+          <p className={`text-xs font-semibold ${status.tone}`}>{t(status.label)}</p>
           <p className="truncate text-sm text-text" title={channelName}>
             {channelName}
           </p>
@@ -150,13 +157,13 @@ export function VoicePanel() {
           className="rounded-control bg-accent px-2 py-1.5 text-xs font-semibold text-bg transition hover:brightness-110"
           onClick={startAudio}
         >
-          Click to enable audio
+          {t('voice.enableAudio')}
         </button>
       )}
       <div className="flex gap-1.5">
         <button type="button" aria-pressed={micMuted} className={toggleClass(micMuted)} onClick={toggleMute}>
           <MicIcon off={micMuted} />
-          {micMuted ? 'Unmute' : 'Mute'}
+          {t(micMuted ? 'voice.unmute' : 'voice.mute')}
         </button>
         <button
           type="button"
@@ -165,7 +172,7 @@ export function VoicePanel() {
           onClick={toggleDeafen}
         >
           <HeadphonesIcon off={deafened} />
-          {deafened ? 'Undeafen' : 'Deafen'}
+          {t(deafened ? 'voice.undeafen' : 'voice.deafen')}
         </button>
         <button
           type="button"
@@ -173,7 +180,7 @@ export function VoicePanel() {
           onClick={leave}
         >
           <LeaveIcon />
-          Leave
+          {t('voice.leave')}
         </button>
       </div>
       <div className="flex gap-1.5">
@@ -185,7 +192,7 @@ export function VoicePanel() {
           onClick={toggleCamera}
         >
           <CameraIcon on={camera === 'on'} />
-          {camera === 'on' ? 'Stop camera' : 'Camera'}
+          {t(camera === 'on' ? 'voice.stopCamera' : 'voice.camera')}
         </button>
         <button
           type="button"
@@ -195,7 +202,7 @@ export function VoicePanel() {
           onClick={toggleScreen}
         >
           <ScreenIcon />
-          {screen === 'on' ? 'Stop sharing' : 'Share screen'}
+          {t(screen === 'on' ? 'voice.stopSharing' : 'voice.shareScreen')}
         </button>
       </div>
       <div className="flex items-center gap-2 px-0.5 text-xs text-muted">
@@ -210,7 +217,7 @@ export function VoicePanel() {
           }}
         />
         <label htmlFor={tabAudioId} className={screen !== 'off' ? 'opacity-70' : undefined}>
-          Share tab audio
+          {t('voice.shareTabAudio')}
         </label>
       </div>
     </section>

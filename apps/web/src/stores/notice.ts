@@ -37,12 +37,4 @@ export const NOTICES = {
   get voiceChannelNoText(): string {
     return t('chat.notice.voiceChannelNoText');
   },
-  /** `voice:kicked` (CONTRACTS B.7b rule 4), reason `admin`. */
-  get voiceKickedByAdmin(): string {
-    return t('chat.notice.voiceKickedByAdmin');
-  },
-  /** `voice:kicked`, reason `channel_deleted`. */
-  get voiceChannelDeleted(): string {
-    return t('chat.notice.voiceChannelDeleted');
-  },
 };

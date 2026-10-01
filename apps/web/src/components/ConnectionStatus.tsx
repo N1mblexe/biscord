@@ -1,5 +1,6 @@
 import { useState, useSyncExternalStore } from 'react';
-import { CONNECTION_LABELS, connectionState, type ConnectionState } from '../lib/connectionStatus';
+import { useT } from '../i18n';
+import { connectionLabel, connectionState, type ConnectionState } from '../lib/connectionStatus';
 import type { SocketStatus } from '../socket/socket';
 
 function subscribeOnline(onChange: () => void): () => void {
@@ -36,18 +37,19 @@ const DOT: Record<ConnectionState, string> = {
  * it isn't read twice.
  */
 export function ConnectionStatus({ status }: { status: SocketStatus }) {
+  const t = useT();
   const online = useOnline();
   const [everConnected, setEverConnected] = useState(status === 'connected');
   if (status === 'connected' && !everConnected) setEverConnected(true);
   const state = connectionState({ status, online, everConnected });
-  const label = CONNECTION_LABELS[state];
+  const label = connectionLabel(state, t);
 
   return (
     <span
       data-testid="connection-status"
       data-state={state}
       role="status"
-      title={`Realtime connection: ${label}`}
+      title={t('a11y.connection.title', { status: label })}
       className="flex items-center gap-2 text-xs text-muted"
     >
       <span aria-hidden="true" className={`size-2 shrink-0 rounded-full ${DOT[state]}`} />

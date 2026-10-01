@@ -1,3 +1,5 @@
+import { t } from '../i18n/translate';
+import type { MessageKey, TFunction } from '../i18n/types';
 import type { SocketStatus } from '../socket/socket';
 
 /**
@@ -23,9 +25,17 @@ export function connectionState({ status, online, everConnected }: ConnectionInp
   return everConnected ? 'reconnecting' : 'connecting';
 }
 
-export const CONNECTION_LABELS: Record<ConnectionState, string> = {
-  connected: 'Connected',
-  connecting: 'Connecting…',
-  reconnecting: 'Reconnecting…',
-  offline: 'Offline',
-};
+const LABEL_KEYS = {
+  connected: 'a11y.connection.connected',
+  connecting: 'a11y.connection.connecting',
+  reconnecting: 'a11y.connection.reconnecting',
+  offline: 'a11y.connection.offline',
+} as const satisfies Record<ConnectionState, MessageKey>;
+
+/**
+ * The friendly label for `state` ("Connected", "Reconnecting…"…), in the UI language (`translate` is
+ * a component's `useT()`; the default is the current language). `data-state` stays the raw value.
+ */
+export function connectionLabel(state: ConnectionState, translate: TFunction = t): string {
+  return translate(LABEL_KEYS[state]);
+}

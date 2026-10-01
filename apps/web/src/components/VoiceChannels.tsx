@@ -1,6 +1,7 @@
 import type { Channel, PublicUser, VoiceParticipant } from '@hearth/shared';
 import { useEffect, useId, useRef, useState } from 'react';
 import { disconnectVoiceParticipant } from '../api/voice';
+import { formatNumber, useT } from '../i18n';
 import { voiceDisconnectError } from '../lib/adminUsers';
 import { displayUser } from '../lib/bootstrapPatch';
 import { usePageAlertStore } from '../stores/pageAlert';
@@ -25,15 +26,17 @@ function SpeakerIcon() {
 }
 
 function MicOffIcon() {
+  const t = useT();
+  const label = t('voice.participant.muted');
   return (
     <svg
       role="img"
-      aria-label="Muted"
+      aria-label={label}
       viewBox="0 0 16 16"
       className="size-3.5 shrink-0 text-danger"
       fill="none"
     >
-      <title>Muted</title>
+      <title>{label}</title>
       <path d="M6 3.5a2 2 0 0 1 4 0V8a2 2 0 0 1-4 0z" stroke="currentColor" strokeWidth="1.3" />
       <path
         d="M3.5 7.5a4.5 4.5 0 0 0 9 0M8 12v2"
@@ -47,15 +50,17 @@ function MicOffIcon() {
 }
 
 function DeafenedIcon() {
+  const t = useT();
+  const label = t('voice.participant.deafened');
   return (
     <svg
       role="img"
-      aria-label="Deafened"
+      aria-label={label}
       viewBox="0 0 16 16"
       className="size-3.5 shrink-0 text-danger"
       fill="none"
     >
-      <title>Deafened</title>
+      <title>{label}</title>
       <path
         d="M2.5 10V8a5.5 5.5 0 0 1 11 0v2M2.5 10h2v3.5h-2zM11.5 10h2v3.5h-2z"
         stroke="currentColor"
@@ -68,15 +73,17 @@ function DeafenedIcon() {
 }
 
 function CameraIcon() {
+  const t = useT();
+  const label = t('voice.participant.cameraOn');
   return (
     <svg
       role="img"
-      aria-label="Camera on"
+      aria-label={label}
       viewBox="0 0 16 16"
       className="size-3.5 shrink-0 text-accent"
       fill="none"
     >
-      <title>Camera on</title>
+      <title>{label}</title>
       <rect x="1.5" y="4" width="9" height="8" rx="1.5" stroke="currentColor" strokeWidth="1.3" />
       <path d="m10.5 7 4-2.5v7l-4-2.5" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" />
     </svg>
@@ -85,12 +92,13 @@ function CameraIcon() {
 
 /** The screen-share badge (`data-live="screen"` on the row). */
 function LiveBadge() {
+  const t = useT();
   return (
     <span
-      title="Sharing their screen"
+      title={t('voice.participant.liveTitle')}
       className="shrink-0 rounded bg-danger-strong px-1 py-px text-[10px] leading-none font-bold tracking-wide text-white"
     >
-      LIVE
+      {t('voice.participant.live')}
     </span>
   );
 }
@@ -124,10 +132,13 @@ function VolumeControl({
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
+  const t = useT();
   const volume = useVolume(userId);
   const { setUserVolume } = useVoice();
   const sliderId = useId();
   const percent = Math.round(volume * 100);
+  const percentText = t('voice.participant.volumePercent', { percent: formatNumber(percent) });
+  const volumeFor = t('voice.participant.volumeFor', { name: displayName });
   const [disconnecting, setDisconnecting] = useState(false);
 
   const onDisconnect = () => {
@@ -149,8 +160,8 @@ function VolumeControl({
     <>
       <button
         type="button"
-        aria-label="Volume"
-        title={`Volume for ${displayName}`}
+        aria-label={t('voice.participant.volume')}
+        title={volumeFor}
         aria-expanded={open}
         aria-controls={open ? sliderId : undefined}
         className="ml-auto inline-flex size-6 shrink-0 items-center justify-center rounded-md text-muted transition hover:bg-white/10 hover:text-text aria-expanded:bg-white/10 aria-expanded:text-text"
@@ -169,8 +180,8 @@ function VolumeControl({
             max={100}
             step={1}
             value={percent}
-            aria-label={`Volume for ${displayName}`}
-            aria-valuetext={`${percent}%`}
+            aria-label={volumeFor}
+            aria-valuetext={percentText}
             className="h-1 min-w-0 flex-1 accent-accent"
             onChange={(e) => {
               setUserVolume(userId, Number(e.currentTarget.value) / 100);
@@ -179,7 +190,7 @@ function VolumeControl({
               if (e.key === 'Escape') onOpenChange(false);
             }}
           />
-          <span className="w-9 shrink-0 text-right text-2xs text-muted tabular-nums">{percent}%</span>
+          <span className="w-9 shrink-0 text-right text-2xs text-muted tabular-nums">{percentText}</span>
         </div>
       )}
       {open && canDisconnect && (
@@ -190,7 +201,7 @@ function VolumeControl({
             disabled={disconnecting}
             onClick={onDisconnect}
           >
-            Disconnect
+            {t('voice.participant.disconnect')}
           </button>
         </div>
       )}
@@ -306,6 +317,7 @@ export function VoiceChannelItem({
   /** Admins get **Disconnect** in other participants' menus. */
   isAdmin: boolean;
 }) {
+  const t = useT();
   const participants = useVoiceParticipants(channel.id);
   const { join } = useVoice();
   const mine = useVoiceSession((s) => s.channelId === channel.id && s.state !== 'disconnected');
@@ -320,7 +332,7 @@ export function VoiceChannelItem({
         data-testid="voice-channel"
         data-channel-id={channel.id}
         aria-current={mine ? 'true' : undefined}
-        title={mine ? undefined : `Join ${channel.name}`}
+        title={mine ? undefined : t('voice.channel.join', { name: channel.name })}
         className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm transition hover:bg-white/5 hover:text-text ${
           mine ? 'bg-white/10 font-medium text-text' : 'text-muted'
         }`}
@@ -333,7 +345,7 @@ export function VoiceChannelItem({
       </button>
       {participants.length > 0 && (
         <ul
-          aria-label={`In ${channel.name}`}
+          aria-label={t('voice.channel.participants', { name: channel.name })}
           className="mt-0.5 mb-1 ml-3 flex flex-col gap-0.5 border-l border-line pl-1"
         >
           {participants.map((p) => (

@@ -72,7 +72,5 @@ export const chat: MessagesOf<'chat'> = {
     channelDeleted: 'Bu kanal silindi.',
     channelUnavailable: 'Bu kanal yok ya da erişim izniniz yok.',
     voiceChannelNoText: 'Ses kanallarında metin sohbeti yok. Katılmak için kenar çubuğunda birine tıklayın.',
-    voiceKickedByAdmin: 'Bir yönetici bağlantınızı ses kanalından kesti.',
-    voiceChannelDeleted: 'Bu ses kanalı silindi.',
   },
 };

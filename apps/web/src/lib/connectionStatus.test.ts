@@ -1,5 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { CONNECTION_LABELS, connectionState } from './connectionStatus';
+import { tFor } from '../i18n/translate';
+import type { MessageKey } from '../i18n/types';
+import { connectionLabel, connectionState, type ConnectionState } from './connectionStatus';
+
+const STATES: readonly ConnectionState[] = ['connected', 'connecting', 'reconnecting', 'offline'];
+
+function labels(translate?: (key: MessageKey) => string): Record<string, string> {
+  return Object.fromEntries(STATES.map((state) => [state, connectionLabel(state, translate)]));
+}
 
 describe('connectionState', () => {
   it('is connected whenever the socket is, even if the browser claims to be offline', () => {
@@ -25,11 +33,20 @@ describe('connectionState', () => {
   });
 
   it('has a friendly label for every state', () => {
-    expect(CONNECTION_LABELS).toEqual({
+    expect(labels()).toEqual({
       connected: 'Connected',
       connecting: 'Connecting…',
       reconnecting: 'Reconnecting…',
       offline: 'Offline',
+    });
+  });
+
+  it('translates the label, not the state', () => {
+    expect(labels((key) => tFor('tr', key))).toEqual({
+      connected: 'Bağlı',
+      connecting: 'Bağlanıyor…',
+      reconnecting: 'Yeniden bağlanıyor…',
+      offline: 'Çevrimdışı',
     });
   });
 });
