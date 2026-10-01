@@ -19,16 +19,18 @@ import { PresenceDot } from '../components/PresenceDot';
 import { card, dangerButton, secondaryButton } from '../components/styles';
 import { usePageAlert } from '../components/usePageAlert';
 import {
-  ADMIN_USER_ACTION_LABELS,
+  adminUserActionLabel,
   adminUserError,
   reduceUsers,
   sortUsers,
   userActions,
+  userRoleLabel,
   userStatus,
+  userStatusLabel,
   type AdminUserAction,
   type UsersChange,
 } from '../lib/adminUsers';
-import { formatDateTime } from '../i18n';
+import { formatDateTime, Trans, useT } from '../i18n';
 import { upsertUser } from '../lib/bootstrapPatch';
 import { useIsOnline } from '../stores/presence';
 
@@ -50,6 +52,7 @@ interface IssuedCode extends ResetCodeResponse {
  * while it is open.
  */
 export function AdminUsersPage() {
+  const t = useT();
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const users = useQuery(usersQuery);
@@ -128,13 +131,9 @@ export function AdminUsersPage() {
   return (
     <section className={`${card} max-md:p-4`} aria-labelledby="users-heading">
       <h1 id="users-heading" className="text-2xl font-semibold tracking-tight">
-        Users
+        {t('admin.users.heading')}
       </h1>
-      <p className="mt-1 text-sm text-muted">
-        Deactivating signs a user out everywhere and removes them from voice; their messages stay, shown as
-        “Deleted user”. A reset code lets a user set a new password on the reset password page: it is shown
-        once, expires after 24 hours, and replaces any older code.
-      </p>
+      <p className="mt-1 text-sm text-muted">{t('admin.users.description')}</p>
       {deactivating === null && alert !== null && (
         <div className="mt-4">
           <PageAlert message={alert} onDismiss={dismiss} />
@@ -143,16 +142,22 @@ export function AdminUsersPage() {
       {issued && (
         <div className="mt-4">
           <FormSuccess>
-            Reset code for <span className="font-semibold">{issued.username}</span>:{' '}
+            <Trans
+              k="admin.users.resetCodeFor"
+              params={{ username: issued.username }}
+              components={{ name: (c) => <span className="font-semibold">{c}</span> }}
+            />{' '}
             <code data-testid="reset-code" className="font-mono text-base text-text select-all">
               {issued.code}
             </code>
-            <span className="mt-1 block text-xs text-muted">Expires {formatDateTime(issued.expiresAt)}</span>
+            <span className="mt-1 block text-xs text-muted">
+              {t('admin.users.expires', { time: formatDateTime(issued.expiresAt) })}
+            </span>
           </FormSuccess>
         </div>
       )}
       {users.isPending ? (
-        <p className="mt-6 text-sm text-muted">Loading users…</p>
+        <p className="mt-6 text-sm text-muted">{t('admin.users.loading')}</p>
       ) : users.isError ? (
         <p className="mt-6 text-sm text-danger">{errorMessage(users.error)}</p>
       ) : (
@@ -162,19 +167,19 @@ export function AdminUsersPage() {
             <thead className="text-xs text-muted max-md:hidden">
               <tr className="border-b border-white/5">
                 <th scope="col" className="py-2 pr-3 font-semibold">
-                  User
+                  {t('admin.users.columns.user')}
                 </th>
                 <th scope="col" className="py-2 pr-3 font-semibold">
-                  Role
+                  {t('admin.users.columns.role')}
                 </th>
                 <th scope="col" className="py-2 pr-3 font-semibold">
-                  Status
+                  {t('admin.users.columns.status')}
                 </th>
                 <th scope="col" className="py-2 pr-3 font-semibold">
-                  Presence
+                  {t('admin.users.columns.presence')}
                 </th>
                 <th scope="col" className="py-2 font-semibold">
-                  <span className="sr-only">Actions</span>
+                  <span className="sr-only">{t('admin.users.columns.actions')}</span>
                 </th>
               </tr>
             </thead>
@@ -224,6 +229,7 @@ function UserRow({
   busy: boolean;
   onAction: (action: AdminUserAction) => void;
 }) {
+  const t = useT();
   const online = useIsOnline(user.id);
   const status = userStatus(user);
   return (
@@ -244,7 +250,7 @@ function UserRow({
           <span className="min-w-0">
             <span className="block truncate font-medium">
               {user.displayName}
-              {isMe && <span className="ml-1 text-xs font-normal text-muted">(you)</span>}
+              {isMe && <span className="ml-1 text-xs font-normal text-muted">{t('admin.users.you')}</span>}
             </span>
             <span className="block truncate text-xs text-muted">@{user.username}</span>
           </span>
@@ -255,18 +261,18 @@ function UserRow({
           data-testid="user-role"
           className={user.role === 'admin' ? 'font-medium text-accent' : 'text-muted'}
         >
-          {user.role}
+          {userRoleLabel(user.role, t)}
         </span>
       </td>
       <td className="py-2 pr-3 max-md:p-0 max-md:text-xs">
         <span data-testid="user-status" className={status === 'active' ? 'text-success' : 'text-danger'}>
-          {status}
+          {userStatusLabel(status, t)}
         </span>
       </td>
       <td className="py-2 pr-3 max-md:p-0">
         <span className="flex items-center gap-1.5 text-xs text-muted">
           <PresenceDot online={online && !user.deactivated} />
-          {online && !user.deactivated ? 'Online' : 'Offline'}
+          {online && !user.deactivated ? t('admin.users.online') : t('admin.users.offline')}
         </span>
       </td>
       <td className="py-2 max-md:w-full max-md:p-0">
@@ -281,7 +287,7 @@ function UserRow({
                 onAction(action);
               }}
             >
-              {ADMIN_USER_ACTION_LABELS[action]}
+              {adminUserActionLabel(action, t)}
             </button>
           ))}
         </span>
@@ -300,6 +306,7 @@ interface DeactivateDialogProps {
 
 /** The **Deactivate user** confirm dialog (modal; the page's alert shows inside it while open). */
 function DeactivateDialog({ user, busy, alert, onConfirm, onClose }: DeactivateDialogProps) {
+  const t = useT();
   const ref = useRef<HTMLDialogElement>(null);
 
   useEffect(() => {
@@ -324,12 +331,14 @@ function DeactivateDialog({ user, busy, alert, onConfirm, onClose }: DeactivateD
         }}
       >
         <h2 id="deactivate-user-heading" className="text-lg font-semibold">
-          Deactivate user
+          {t('admin.users.deactivateDialog.title')}
         </h2>
         <p className="text-sm text-muted">
-          Deactivate <span className="font-medium text-text">{user.displayName}</span> (@{user.username})?
-          They are signed out everywhere and removed from voice. Their messages stay, shown as “Deleted user”,
-          and DMs with them become read-only. You can reactivate the account later.
+          <Trans
+            k="admin.users.deactivateDialog.body"
+            params={{ displayName: user.displayName, username: user.username }}
+            components={{ name: (c) => <span className="font-medium text-text">{c}</span> }}
+          />
         </p>
         <FormAlert message={alert} />
         <div className="flex justify-end gap-2">
@@ -340,10 +349,10 @@ function DeactivateDialog({ user, busy, alert, onConfirm, onClose }: DeactivateD
               ref.current?.close();
             }}
           >
-            Cancel
+            {t('common.cancel')}
           </button>
           <button type="submit" className={dangerSolidButton} disabled={busy}>
-            Deactivate
+            {adminUserActionLabel('deactivate', t)}
           </button>
         </div>
       </form>

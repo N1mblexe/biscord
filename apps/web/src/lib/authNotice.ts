@@ -1,4 +1,6 @@
 import type { SessionRevokedReason } from '@hearth/shared';
+import { t } from '../i18n/translate';
+import type { MessageKey } from '../i18n/types';
 import { safeNext } from './redirects';
 
 /**
@@ -7,24 +9,26 @@ import { safeNext } from './redirects';
  */
 export type LoginReason = SessionRevokedReason | 'unauthenticated';
 
-const NOTICES: Record<LoginReason, string> = {
-  logout: 'You have been logged out.',
-  deactivated: 'Your account has been deactivated.',
-  password_changed: 'Your password was changed. Please log in again.',
-  password_reset: 'Your password was reset. Please log in with your new password.',
-  unauthenticated: 'Your session has ended. Please log in again.',
+/** The notice's key for each reason (translated when shown, so it follows the current language). */
+const NOTICES: Record<LoginReason, MessageKey> = {
+  logout: 'auth.notice.logout',
+  deactivated: 'auth.notice.deactivated',
+  password_changed: 'auth.notice.password_changed',
+  password_reset: 'auth.notice.password_reset',
+  unauthenticated: 'auth.notice.unauthenticated',
 };
-
-const GENERIC_NOTICE = 'Please log in again.';
 
 function isLoginReason(value: string): value is LoginReason {
   return Object.hasOwn(NOTICES, value);
 }
 
-/** Human text for `?reason=`; `null` when there is no reason. Unknown reasons get a generic notice. */
+/**
+ * Human text for `?reason=` in the current language; `null` when there is no reason. Unknown
+ * reasons get a generic notice.
+ */
 export function authNoticeText(reason: string | null): string | null {
   if (!reason) return null;
-  return isLoginReason(reason) ? NOTICES[reason] : GENERIC_NOTICE;
+  return t(isLoginReason(reason) ? NOTICES[reason] : 'auth.notice.generic');
 }
 
 /**

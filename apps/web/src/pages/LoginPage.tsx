@@ -7,10 +7,13 @@ import { AuthCard } from '../components/AuthCard';
 import { FormAlert, formString, inlineLinkClass, TextField } from '../components/forms';
 import { ServerStatus } from '../components/ServerStatus';
 import { primaryButton } from '../components/styles';
+import { Trans } from '../i18n/Trans';
+import { useT } from '../i18n/useT';
 import { authNoticeText } from '../lib/authNotice';
 import { safeNext } from '../lib/redirects';
 
 export function LoginPage() {
+  const t = useT();
   const [searchParams] = useSearchParams();
   const notice = authNoticeText(searchParams.get('reason'));
   const next = safeNext(searchParams.get('next'));
@@ -35,22 +38,34 @@ export function LoginPage() {
 
   return (
     <AuthCard
-      title="Welcome back"
-      description="Log in to catch up with your friends."
+      title={t('auth.login.title')}
+      description={t('auth.login.description')}
       footer={
         <div className="flex flex-col items-center gap-4">
           <div className="flex flex-col items-center gap-1.5 text-center text-sm text-muted">
             <p>
-              Have an invite?{' '}
-              <Link to="/register" className={inlineLinkClass}>
-                Create an account
-              </Link>
+              <Trans
+                k="auth.login.haveInvite"
+                components={{
+                  link: (c) => (
+                    <Link to="/register" className={inlineLinkClass}>
+                      {c}
+                    </Link>
+                  ),
+                }}
+              />
             </p>
             <p>
-              Got a reset code?{' '}
-              <Link to="/reset-password" className={inlineLinkClass}>
-                Reset your password
-              </Link>
+              <Trans
+                k="auth.login.gotResetCode"
+                components={{
+                  link: (c) => (
+                    <Link to="/reset-password" className={inlineLinkClass}>
+                      {c}
+                    </Link>
+                  ),
+                }}
+              />
             </p>
           </div>
           <ServerStatus />
@@ -69,7 +84,7 @@ export function LoginPage() {
         <TextField
           id="login-username"
           name="username"
-          label="Username"
+          label={t('auth.username')}
           autoComplete="username"
           autoCapitalize="none"
           spellCheck={false}
@@ -78,7 +93,7 @@ export function LoginPage() {
         <TextField
           id="login-password"
           name="password"
-          label="Password"
+          label={t('auth.password')}
           type="password"
           autoComplete="current-password"
           errors={errors}
@@ -90,7 +105,7 @@ export function LoginPage() {
           disabled={mutation.isPending}
           aria-busy={mutation.isPending}
         >
-          Log in
+          {t('auth.login.submit')}
         </button>
       </form>
     </AuthCard>
