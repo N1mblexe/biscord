@@ -2,7 +2,7 @@ import { useEffect, useEffectEvent, useRef, useState } from 'react';
 import { useT } from '../../i18n/useT';
 import { createCapture, onHidden, stopStream } from '../../lib/capture';
 import { meterLevel, sinkIdFor, thresholdPosition } from '../../lib/voiceSettings';
-import { audioConstraints, canSelectOutput } from '../../voice/devices';
+import { audioConstraints, canSelectOutput, openMic } from '../../voice/devices';
 import { createLevelMeter, LEVEL_FLOOR_DB, type LevelMeter } from '../../voice/levelMeter';
 import type { VoicePrefs } from '../../voice/prefs';
 import { secondaryButton } from '../styles';
@@ -57,7 +57,7 @@ export function MicTest({
     const capture = createCapture<MicCapture>(
       async () => {
         const audio = JSON.parse(constraints) as MediaTrackConstraints;
-        const opened = await navigator.mediaDevices.getUserMedia({ audio });
+        const opened = await openMic(audio);
         try {
           const track = opened.getAudioTracks()[0];
           if (track === undefined) throw new Error('No audio track');

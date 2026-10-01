@@ -31,13 +31,8 @@ import { createVadHysteresis } from './gate';
 import { createLevelMeter, type LevelMeter } from './levelMeter';
 import { publishedVideo, screenPublications, unpublishAndStop, watchLocalVideo } from './localVideo';
 import { useVoicePrefs } from './prefs';
-import {
-  cameraCaptureOptions,
-  isMissingDevice,
-  roomOptionsFromPrefs,
-  withDefaultMic,
-  type ResolvedDevices,
-} from './roomOptions';
+import { isMissingDevice, withDefaultMic } from './devices';
+import { cameraCaptureOptions, roomOptionsFromPrefs, type ResolvedDevices } from './roomOptions';
 import { useVoiceSession } from './session';
 import { energySample, SpeakingMeter } from './speakingMeter';
 import { createVoiceStateSender } from './stateSender';

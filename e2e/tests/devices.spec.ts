@@ -16,16 +16,17 @@ import {
   voiceParticipant,
   voicePanel,
   VOICE_MEDIA_TIMEOUT,
+  VOICE_PREFS_KEY,
   type MediaDeviceView,
   type TestUser,
   type VoiceDebug,
 } from '../fixtures.js';
 import { isFullStack } from '../env.js';
 
-// Engine-level scenarios for voice and video devices (docs/plans/devices.md "Verification → e2e",
-// CONTRACTS B.12). They drive the prefs directly (localStorage `hearth:voice-prefs`) rather than the
-// Settings UI: seeded before the app loads, or changed live with the `storage` event another tab
-// would send. Media runs through the real LiveKit container with Chromium's fake devices (several
+// Voice and video devices (docs/plans/devices.md "Verification → e2e" and "UI contract", CONTRACTS
+// B.12). Scenarios 1–6 are engine-level: they drive the prefs directly (localStorage
+// `hearth:voice-prefs`), seeded before the app loads or changed live with the `storage` event another
+// tab would send. Scenarios 7–10 go through Settings and the voice panel. Media runs through the real LiveKit container with Chromium's fake devices (several
 // fake mics and outputs, a fake camera, a mic that beeps periodically). Every assertion polls;
 // nothing sleeps.
 
@@ -102,6 +103,30 @@ async function realDevices(page: Page, kind: MediaDeviceView['kind']): Promise<M
     (d) =>
       d.kind === kind && d.deviceId !== '' && d.deviceId !== 'default' && d.deviceId !== 'communications',
   );
+}
+
+/** The voice prefs as stored in `page`'s localStorage, or `null` when none are. */
+async function storedPrefs(page: Page): Promise<Record<string, unknown> | null> {
+  const raw = await page.evaluate(
+    (key) =>
+      (globalThis as unknown as { localStorage: { getItem(k: string): string | null } }).localStorage.getItem(
+        key,
+      ),
+    VOICE_PREFS_KEY,
+  );
+  if (raw === null) return null;
+  const parsed: unknown = JSON.parse(raw);
+  if (typeof parsed !== 'object' || parsed === null) throw new Error(`stored voice prefs: ${raw}`);
+  return parsed as Record<string, unknown>;
+}
+
+/**
+ * Polls until the debug hook's `transmitting` is `on`, then checks that the voice panel's
+ * `data-transmitting` says the same.
+ */
+async function expectPanelTransmitting(page: Page, on: boolean): Promise<void> {
+  await pollDebug(page, (d) => d.transmitting, 'transmitting').toBe(on);
+  await expect(voicePanel(page)).toHaveAttribute('data-transmitting', String(on));
 }
 
 /**
@@ -313,22 +338,15 @@ test.describe('devices', { tag: '@voice' }, () => {
     users,
   }) => {
     const { alice, bob } = await aliceAndBobInLounge(users);
-    expect(
-      await alice.page.evaluate(
-        (key) =>
-          (
-            globalThis as unknown as { localStorage: { getItem(k: string): string | null } }
-          ).localStorage.getItem(key),
-        'hearth:voice-prefs',
-      ),
-      'no voice prefs stored',
-    ).toBeNull();
+    expect(await storedPrefs(alice.page), 'no voice prefs stored').toBeNull();
 
     await pollDebug(
       alice.page,
       (d) => [d.transmitting, d.pttActive, d.localMic?.muted],
       'Alice transmits',
     ).toEqual([true, false, false]);
+    await expectPanelTransmitting(alice.page, true);
+    await expect(alice.page.getByTestId('ptt-button')).toHaveCount(0);
     await expectHearing(bob.page, alice.id, 'Alice');
     await expectSeenSpeaking(bob.page, alice.id, 'Alice');
     const mic = (await voiceDebug(alice.page)).localMic;
@@ -348,5 +366,185 @@ test.describe('devices', { tag: '@voice' }, () => {
     await panelButton(alice.page, 'Camera').click();
     await expect(panelButton(alice.page, 'Stop camera')).toBeVisible({ timeout: VOICE_MEDIA_TIMEOUT });
     await pollDebug(alice.page, (d) => d.camera?.width ?? 0, 'Alice’s camera width').toBe(1280);
+  });
+
+  // ---- UI scenarios (docs/plans/devices.md "UI contract") ----
+
+  test('7. Settings lists the fake devices; the mic test meter rises; the camera preview plays; a choice is saved', async ({
+    users,
+  }) => {
+    const { alice } = await users(['alice']);
+    const page = alice.page;
+    await page.goto('/settings#voice');
+    await expectConnected(page);
+    await expect(page.getByTestId('settings-voice-heading')).toHaveText('Voice & video');
+    // The context already has the mic/camera permission, so labels are visible: no Allow access.
+    await expect(page.getByTestId('device-access')).toHaveCount(0);
+
+    const micSelect = page.getByTestId('mic-select');
+    await expect(micSelect).toContainText('Fake Audio Input 1');
+    await expect(micSelect).toContainText('Fake Audio Input 2');
+    await expect(page.getByTestId('speaker-select')).toContainText('Fake Audio Output 1');
+    await expect(page.getByTestId('camera-select')).toContainText('fake_device_0');
+
+    // Choosing a mic saves it (B.12 rule 1).
+    const mic = (await realDevices(page, 'audioinput'))[1];
+    expect(mic, 'a second fake mic').toBeDefined();
+    if (mic === undefined) return;
+    await micSelect.selectOption(mic.deviceId);
+    await expect.poll(async () => (await storedPrefs(page))?.audioInputId).toBe(mic.deviceId);
+
+    // Mic test: the level leaves the floor (the fake mic beeps).
+    const meterToggle = page.getByTestId('mic-meter-toggle');
+    await expect(meterToggle).toHaveText('Test microphone');
+    await meterToggle.click();
+    await expect(meterToggle).toHaveText('Stop testing');
+    await expect
+      .poll(async () => Number(await page.getByTestId('mic-level').getAttribute('data-level')), {
+        message: 'mic-level data-level',
+        timeout: VOICE_MEDIA_TIMEOUT,
+        intervals: [100],
+      })
+      .toBeGreaterThan(-100);
+    await meterToggle.click();
+    await expect(meterToggle).toHaveText('Test microphone');
+
+    // Camera preview: the <video> gets frames.
+    const previewToggle = page.getByTestId('camera-preview-toggle');
+    await expect(previewToggle).toHaveText('Preview camera');
+    await previewToggle.click();
+    await expect(previewToggle).toHaveText('Stop preview');
+    await expect
+      .poll(
+        () =>
+          page
+            .getByTestId('camera-preview')
+            .evaluate((el) => (el as unknown as { videoWidth: number }).videoWidth),
+        { message: 'camera-preview videoWidth', timeout: VOICE_MEDIA_TIMEOUT },
+      )
+      .toBeGreaterThan(0);
+    await previewToggle.click();
+    await expect(previewToggle).toHaveText('Preview camera');
+  });
+
+  test('8. Settings keys: Push to talk with a recorded F8 key is saved and drives push-to-talk in a call', async ({
+    users,
+  }) => {
+    const { alice } = await users(['alice']);
+    await createVoiceChannel(alice.request, 'Lounge');
+    const page = alice.page;
+    await page.goto('/settings#voice');
+    await expectConnected(page);
+
+    await page.getByTestId('input-mode-ptt').check();
+    await expect(page.getByTestId('input-mode-ptt')).toBeChecked();
+    const pttKey = page.getByTestId('ptt-key');
+    await expect(pttKey).toHaveText('Push-to-talk key: `');
+    await pttKey.click();
+    await expect(pttKey).toHaveText('Press a key… (Esc to cancel)');
+    await page.keyboard.press('F8');
+    await expect(pttKey).toHaveText('Push-to-talk key: F8');
+    await expect(page.getByTestId('mute-key')).toHaveText('Toggle mute shortcut: Not set');
+    await expect
+      .poll(async () => {
+        const prefs = await storedPrefs(page);
+        return prefs === null ? null : { inputMode: prefs.inputMode, pttKey: prefs.pttKey };
+      })
+      .toEqual({ inputMode: 'ptt', pttKey: { type: 'key', code: 'F8' } });
+
+    // The saved key works in a call (a fresh load reads it from storage).
+    await page.goto('/');
+    await expectConnected(page);
+    await joinVoice(page, 'Lounge');
+    await expect(page.getByTestId('ptt-hint')).toContainText('F8');
+    await pollDebug(page, (d) => d.transmitting, 'transmitting before F8').toBe(false);
+    await page.keyboard.down('Backquote');
+    expect((await voiceDebug(page)).pttActive, 'the old key does nothing').toBe(false);
+    await page.keyboard.up('Backquote');
+    await page.keyboard.down('F8');
+    await expectPanelTransmitting(page, true);
+    await page.keyboard.up('F8');
+    await expectPanelTransmitting(page, false);
+  });
+
+  test('9. quick menu: picking a mic in Audio options switches the call’s mic; Escape returns focus to ▾', async ({
+    users,
+  }) => {
+    const { alice, bob } = await aliceAndBobInLounge(users);
+    await expectHearing(bob.page, alice.id, 'Alice');
+    const page = alice.page;
+    const before = (await voiceDebug(page)).localMic?.deviceId ?? null;
+
+    const trigger = voicePanel(page).getByTestId('audio-options');
+    await expect(trigger).toHaveAttribute('aria-haspopup', 'menu');
+    await expect(trigger).toHaveAttribute('aria-expanded', 'false');
+    await trigger.click();
+    await expect(trigger).toHaveAttribute('aria-expanded', 'true');
+    const menu = page.getByTestId('audio-options-menu');
+    await expect(menu).toBeVisible();
+
+    const mics = menu.getByTestId('menu-mic').getByRole('menuitemradio');
+    await expect(mics.filter({ hasText: 'Fake Audio Input 2' })).toHaveCount(1);
+    const item = mics.filter({ hasText: 'Fake Audio Input 2' });
+    const value = await item.getAttribute('data-value');
+    expect(value, 'the item’s data-value is a device id').not.toBeNull();
+    expect(value).not.toBe('default');
+    expect(value).not.toBe(before);
+    await item.click();
+    await expect(item).toHaveAttribute('aria-checked', 'true');
+    // Choosing keeps the menu open.
+    await expect(menu).toBeVisible();
+
+    await pollDebug(page, (d) => d.localMic?.deviceId ?? null, 'Alice’s mic device').toBe(value);
+    expect(page.url(), 'Settings was not opened').not.toContain('/settings');
+    await expectHearing(bob.page, alice.id, 'Alice');
+
+    await page.keyboard.press('Escape');
+    await expect(menu).toHaveCount(0);
+    await expect(trigger).toBeFocused();
+    await expect(trigger).toHaveAttribute('aria-expanded', 'false');
+  });
+
+  test('10. PTT hold button: pointer down transmits, pointer up stops after the release delay; panel mirrors it', async ({
+    users,
+  }) => {
+    const RELEASE_MS = 500;
+    const { alice, bob } = await aliceAndBobInLounge(users, {
+      prefs: { inputMode: 'ptt', pttReleaseMs: RELEASE_MS },
+    });
+    const page = alice.page;
+    const button = page.getByTestId('ptt-button');
+    await expect(button).toHaveText(/Push to talk/);
+    await expect(page.getByTestId('ptt-hint')).toHaveText('Hold ` to talk');
+    await expectPanelTransmitting(page, false);
+    await expect(button).toHaveAttribute('aria-pressed', 'false');
+
+    await button.hover();
+    await page.mouse.down();
+    await expectPanelTransmitting(page, true);
+    await expect(button).toHaveAttribute('aria-pressed', 'true');
+    await expect.poll(() => remoteMicMuted(bob.page, alice.id), { timeout: VOICE_MEDIA_TIMEOUT }).toBe(false);
+
+    const releasedAt = Date.now();
+    await page.mouse.up();
+    await expectPanelTransmitting(page, false);
+    expect(Date.now() - releasedAt, 'held for the release delay').toBeGreaterThanOrEqual(RELEASE_MS);
+    await expect(button).toHaveAttribute('aria-pressed', 'false');
+    await expect.poll(() => remoteMicMuted(bob.page, alice.id), { timeout: VOICE_MEDIA_TIMEOUT }).toBe(true);
+    await expect(voiceParticipant(bob.page, alice.id)).toHaveAttribute('data-muted', 'false');
+
+    // Muting: the panel and the debug hook agree on not transmitting, even while held.
+    await panelButton(page, 'Mute').click();
+    await page.mouse.move(0, 0);
+    await button.hover();
+    await page.mouse.down();
+    await expect(button).toHaveAttribute('aria-pressed', 'true');
+    await expectPanelTransmitting(page, false);
+    await expectStays(
+      async () => (await voiceDebug(page)).transmitting,
+      false,
+      'Alice transmitting (muted, PTT held)',
+    );
+    await page.mouse.up();
   });
 });

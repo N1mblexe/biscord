@@ -93,9 +93,39 @@ export function canPromptOutput(): boolean {
   return md !== null && 'selectAudioOutput' in md;
 }
 
-/** A device constraint: `ideal`, so a device that went away falls back instead of failing capture. */
+/** A camera constraint: `ideal`, so a device that went away falls back instead of failing capture. */
 function deviceConstraint(deviceId: string): ConstrainDOMString {
   return { ideal: deviceId };
+}
+
+/**
+ * The mic's device constraint. Chromium ignores an `ideal` (or bare) audio `deviceId` and opens the
+ * system default, so a chosen mic is asked for `exact`ly; capture that fails because it is gone falls
+ * back to the default (`openMic`, and the engine's capture). The system default stays `ideal`.
+ */
+export function micDeviceConstraint(deviceId: string): ConstrainDOMString {
+  return deviceId === 'default' ? { ideal: 'default' } : { exact: deviceId };
+}
+
+/** `constraints` capturing the system default mic instead of their device (the device-gone fallback). */
+export function withDefaultMic<T extends { deviceId?: ConstrainDOMString }>(constraints: T): T {
+  return { ...constraints, deviceId: micDeviceConstraint('default') };
+}
+
+/** Capture failed because the asked-for device isn't there (an `exact` id that went away). */
+export function isMissingDevice(error: unknown): boolean {
+  if (typeof error !== 'object' || error === null || !('name' in error)) return false;
+  return error.name === 'OverconstrainedError' || error.name === 'NotFoundError';
+}
+
+/** `getUserMedia` for a mic test: a chosen mic that is gone falls back to the system default. */
+export async function openMic(audio: MediaTrackConstraints): Promise<MediaStream> {
+  try {
+    return await navigator.mediaDevices.getUserMedia({ audio });
+  } catch (error) {
+    if (!isMissingDevice(error)) throw error;
+    return navigator.mediaDevices.getUserMedia({ audio: withDefaultMic(audio) });
+  }
 }
 
 /** Microphone constraints from the prefs (device `deviceId`, default the preferred one). */
@@ -104,7 +134,7 @@ export function audioConstraints(
   deviceId: string = prefs.audioInputId,
 ): MediaTrackConstraints {
   return {
-    deviceId: deviceConstraint(deviceId),
+    deviceId: micDeviceConstraint(deviceId),
     noiseSuppression: prefs.noiseSuppression,
     echoCancellation: prefs.echoCancellation,
     autoGainControl: prefs.autoGainControl,

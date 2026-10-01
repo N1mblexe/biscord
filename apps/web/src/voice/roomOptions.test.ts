@@ -1,14 +1,7 @@
 import { VideoPresets } from 'livekit-client';
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_VOICE_PREFS } from './prefs';
-import {
-  cameraCaptureOptions,
-  isMissingDevice,
-  micConstraints,
-  micDeviceConstraint,
-  roomOptionsFromPrefs,
-  withDefaultMic,
-} from './roomOptions';
+import { cameraCaptureOptions, micConstraints, roomOptionsFromPrefs } from './roomOptions';
 
 const defaults = { audioinput: 'default', audiooutput: 'default', videoinput: 'default' };
 
@@ -72,22 +65,5 @@ describe('prefs → RoomOptions', () => {
       autoGainControl: true,
       voiceIsolation: true,
     });
-  });
-
-  it('a chosen mic is exact (Chromium ignores an ideal audio deviceId); the default stays ideal', () => {
-    expect(micDeviceConstraint('mic-2')).toEqual({ exact: 'mic-2' });
-    expect(micDeviceConstraint('default')).toEqual({ ideal: 'default' });
-    const chosen = micConstraints(DEFAULT_VOICE_PREFS, 'mic-2');
-    expect(withDefaultMic(chosen)).toEqual({ ...chosen, deviceId: { ideal: 'default' } });
-    expect(chosen.deviceId).toEqual({ exact: 'mic-2' });
-  });
-
-  it('isMissingDevice: only a device that is not there', () => {
-    expect(isMissingDevice(Object.assign(new Error('x'), { name: 'OverconstrainedError' }))).toBe(true);
-    expect(isMissingDevice(new DOMException('gone', 'NotFoundError'))).toBe(true);
-    expect(isMissingDevice(new DOMException('denied', 'NotAllowedError'))).toBe(false);
-    expect(isMissingDevice(new DOMException('busy', 'NotReadableError'))).toBe(false);
-    expect(isMissingDevice('OverconstrainedError')).toBe(false);
-    expect(isMissingDevice(null)).toBe(false);
   });
 });

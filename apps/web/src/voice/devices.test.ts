@@ -3,9 +3,13 @@ import {
   audioConstraints,
   canPromptOutput,
   canSelectOutput,
+  isMissingDevice,
   listDevices,
+  micDeviceConstraint,
+  openMic,
   resolveDevice,
   videoConstraints,
+  withDefaultMic,
   type DeviceOption,
 } from './devices';
 import { DEFAULT_VOICE_PREFS } from './prefs';
@@ -40,7 +44,7 @@ describe('resolveDevice', () => {
 });
 
 describe('constraints', () => {
-  it('audio: device as ideal (never fails capture) plus the processing flags', () => {
+  it('audio: a chosen mic exact (Chromium ignores an ideal one), the default ideal, plus the processing flags', () => {
     expect(audioConstraints(DEFAULT_VOICE_PREFS)).toEqual({
       deviceId: { ideal: 'default' },
       noiseSuppression: true,
@@ -54,12 +58,49 @@ describe('constraints', () => {
       autoGainControl: false,
     };
     expect(audioConstraints(prefs)).toMatchObject({
-      deviceId: { ideal: 'mic-1' },
+      deviceId: { exact: 'mic-1' },
       noiseSuppression: false,
       echoCancellation: true,
       autoGainControl: false,
     });
     expect(audioConstraints(prefs, 'default').deviceId).toEqual({ ideal: 'default' });
+    expect(micDeviceConstraint('mic-2')).toEqual({ exact: 'mic-2' });
+    expect(withDefaultMic(audioConstraints(prefs))).toEqual({
+      ...audioConstraints(prefs),
+      deviceId: { ideal: 'default' },
+    });
+  });
+
+  it('isMissingDevice: only a device that is not there', () => {
+    expect(isMissingDevice(Object.assign(new Error('x'), { name: 'OverconstrainedError' }))).toBe(true);
+    expect(isMissingDevice(new DOMException('gone', 'NotFoundError'))).toBe(true);
+    expect(isMissingDevice(new DOMException('denied', 'NotAllowedError'))).toBe(false);
+    expect(isMissingDevice(new DOMException('busy', 'NotReadableError'))).toBe(false);
+    expect(isMissingDevice('OverconstrainedError')).toBe(false);
+    expect(isMissingDevice(null)).toBe(false);
+  });
+
+  it('openMic falls back to the default mic only when the chosen one is gone', async () => {
+    const calls: unknown[] = [];
+    const fail = (name: string) => {
+      vi.stubGlobal('navigator', {
+        mediaDevices: {
+          getUserMedia: (c: { audio: MediaTrackConstraints }) => {
+            calls.push(c.audio.deviceId);
+            if (calls.length === 1) return Promise.reject(new DOMException('x', name));
+            return Promise.resolve('stream' as unknown as MediaStream);
+          },
+        },
+      });
+    };
+    fail('OverconstrainedError');
+    await expect(openMic({ deviceId: { exact: 'mic-1' } })).resolves.toBe('stream');
+    expect(calls).toEqual([{ exact: 'mic-1' }, { ideal: 'default' }]);
+
+    calls.length = 0;
+    fail('NotAllowedError');
+    await expect(openMic({ deviceId: { exact: 'mic-1' } })).rejects.toThrow();
+    expect(calls).toEqual([{ exact: 'mic-1' }]);
   });
 
   it.each([

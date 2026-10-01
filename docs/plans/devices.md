@@ -98,7 +98,11 @@ export function useMediaDevices(): DeviceLists & {
 export function resolveDevice(list: readonly DeviceOption[], preferredId: string): string; // missing → 'default'; an empty list (no permission yet) keeps the preference
 export function canSelectOutput(): boolean; // HTMLMediaElement.prototype.setSinkId exists
 export function canPromptOutput(): boolean; // navigator.mediaDevices.selectAudioOutput exists
-export function audioConstraints(prefs: VoicePrefs, deviceId?: string): MediaTrackConstraints; // deviceId as { ideal } (a missing device falls back, capture never fails on it)
+export function audioConstraints(prefs: VoicePrefs, deviceId?: string): MediaTrackConstraints; // deviceId via micDeviceConstraint
+export function micDeviceConstraint(deviceId: string): ConstrainDOMString; // a chosen mic { exact } (Chromium ignores an ideal/bare audio deviceId and opens the default); 'default' { ideal }
+export function withDefaultMic<T>(constraints: T): T; // same constraints on { ideal: 'default' }
+export function isMissingDevice(error: unknown): boolean; // OverconstrainedError / NotFoundError
+export function openMic(audio: MediaTrackConstraints): Promise<MediaStream>; // gUM; a gone mic falls back to the default (the engine's capture does the same)
 export function videoConstraints(prefs: VoicePrefs, deviceId?: string): MediaTrackConstraints; // { ideal } device, width, height, frameRate, aspectRatio
 
 // voice/gate.ts (pure)
@@ -164,10 +168,8 @@ export function dbToFraction(db: number): number; // −100…0 → 0…1 for me
 //                  setMicGate(open), restartMic(constraints)
 //   VoiceController: setGate(gate: LocalGate), restartMic(constraints): Promise<void> (both on micQueue)
 //   LocalGate = Omit<GateInput, 'micMuted' | 'deafened'>
-// voice/roomOptions.ts (pure): roomOptionsFromPrefs(prefs, devices), micConstraints, cameraCaptureOptions,
-//   micDeviceConstraint (a chosen mic is { exact }: Chromium ignores an ideal/bare audio deviceId and opens
-//   the default; 'default' stays { ideal }), withDefaultMic + isMissingDevice (the engine retries capture on
-//   the default when an exact mic is gone: OverconstrainedError/NotFoundError)
+// voice/roomOptions.ts (pure): roomOptionsFromPrefs(prefs, devices), micConstraints, cameraCaptureOptions
+//   (the engine's publish and restartMic retry on the default mic when an exact one is gone: isMissingDevice)
 // voice/deviceSync.ts (engine chunk): startDeviceSync(...) — live device/processing/quality changes, device loss
 // debug (e2e): localMic { deviceId, muted, constraints } | null, camera { deviceId, width } | null, audioSinkId: string | null,
 //              transmitting, pttActive
