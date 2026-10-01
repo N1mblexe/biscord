@@ -59,7 +59,7 @@ describe('checkAvatarFile', () => {
     it('explains the rejection in the UI language', () => {
       useLocaleStore.setState({ locale: 'tr' });
       expect(checkAvatarFile({ type: 'image/gif', size: 10 })).toBe(
-        'Avatar PNG, JPEG veya WebP görseli olmalı.',
+        'Avatar PNG, JPEG ya da WebP görseli olmalı.',
       );
       expect(checkAvatarFile({ type: 'image/png', size: LIMITS.avatarMaxBytes + 1 })).toBe(
         'Avatar en fazla 2 MB olabilir.',

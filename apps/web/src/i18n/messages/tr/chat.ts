@@ -6,7 +6,7 @@ export const chat: MessagesOf<'chat'> = {
     dropFiles: 'Eklemek için dosyaları bırakın',
     readOnlyDm: 'Bu konuşma salt okunur.',
     placeholderChannel: '#{channel} kanalına mesaj gönder',
-    placeholderDm: '{name} kişisine mesaj gönder',
+    placeholderDm: '{name} adlı kişiye mesaj gönder',
   },
   composer: {
     label: 'Mesaj',
@@ -58,7 +58,7 @@ export const chat: MessagesOf<'chat'> = {
   },
   empty: {
     noChannelsTitle: 'Henüz kanal yok',
-    noChannelsAdmin: 'Herkesin konuşabileceği bir yer olsun diye ilk metin kanalını oluşturun.',
+    noChannelsAdmin: 'Herkesin konuşabileceği bir yer için ilk metin kanalını oluşturun.',
     noChannelsMember:
       'Bir yönetici henüz metin kanalı oluşturmadı. Yine de üye listesinden birine direkt mesaj gönderebilirsiniz.',
     channelTitle: '#{channel} kanalına hoş geldiniz',

@@ -23,6 +23,17 @@ function leaves(node: unknown, prefix = '', out = new Map<string, string[]>()): 
   return out;
 }
 
+/** Leaf path → its text (a plural leaf: its forms joined, so any untranslated form shows). */
+function leafTexts(node: unknown, prefix = '', out = new Map<string, string>()): Map<string, string> {
+  if (typeof node === 'string') out.set(prefix, node);
+  else if (isPluralForms(node)) out.set(prefix, [node.zero, node.one, node.other].join('|'));
+  else
+    for (const [key, child] of Object.entries(node as Record<string, unknown>)) {
+      leafTexts(child, prefix ? `${prefix}.${key}` : key, out);
+    }
+  return out;
+}
+
 /** Leaf path → its plural forms (empty for a plain string). */
 function pluralForms(node: unknown, prefix = '', out = new Map<string, string[]>()): Map<string, string[]> {
   if (typeof node === 'string') out.set(prefix, []);
@@ -45,6 +56,24 @@ describe('en/tr parity', () => {
 
   it('gives the same plural forms', () => {
     expect(Object.fromEntries(pluralForms(tr))).toEqual(Object.fromEntries(pluralForms(en)));
+  });
+
+  it('translates every text (Turkish equal to English only where it is the same word)', () => {
+    // Brand names, language names, and words or formats Turkish spells the same way.
+    const sameInBoth = new Set([
+      'common.appName',
+      'common.language.en',
+      'common.language.tr',
+      'settings.avatar.heading',
+      'settings.avatar.label',
+      'voice.stage.label',
+      'chat.attachment.fileLabel',
+    ]);
+    const english = leafTexts(en);
+    const untranslated = [...leafTexts(tr)]
+      .filter(([key, text]) => text === english.get(key) && !sameInBoth.has(key))
+      .map(([key]) => key);
+    expect(untranslated).toEqual([]);
   });
 
   it('has no empty text', () => {
