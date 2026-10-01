@@ -1,16 +1,23 @@
 import type { VoiceKickedPayload, VoiceKickedReason } from '@hearth/shared';
-import { NOTICES } from '../stores/notice';
+import { t } from '../i18n/translate';
+import type { MessageKey } from '../i18n/types';
 import type { VoiceConnectionState } from './session';
 
-/**
- * The app notice for each `voice:kicked` reason (CONTRACTS B.7b rule 4). `deactivated` has none: the
- * `session:revoked` that comes with it sends the user to the login page, which ends voice too.
- */
-export const VOICE_KICK_NOTICES: Readonly<Record<VoiceKickedReason, string | null>> = {
-  admin: NOTICES.voiceKickedByAdmin,
-  channel_deleted: NOTICES.voiceChannelDeleted,
+const NOTICE_KEYS: Readonly<Record<VoiceKickedReason, MessageKey | null>> = {
+  admin: 'voice.kicked.admin',
+  channel_deleted: 'voice.kicked.channelDeleted',
   deactivated: null,
 };
+
+/**
+ * The app notice for a `voice:kicked` reason (CONTRACTS B.7b rule 4), in the current UI language.
+ * `deactivated` has none: the `session:revoked` that comes with it sends the user to the login page,
+ * which ends voice too.
+ */
+export function voiceKickNotice(reason: VoiceKickedReason): string | null {
+  const key = NOTICE_KEYS[reason];
+  return key === null ? null : t(key);
+}
 
 export interface VoiceKickContext {
   /** This tab's voice channel (joined or joining), or `null`. */
@@ -35,7 +42,7 @@ export interface VoiceKickPlan {
  * - anything else (another tab of ours was in voice, or we've since joined another channel): nothing.
  */
 export function planVoiceKick(payload: VoiceKickedPayload, ctx: VoiceKickContext): VoiceKickPlan {
-  const notice = VOICE_KICK_NOTICES[payload.reason];
+  const notice = voiceKickNotice(payload.reason);
   if (notice === null) return { leave: false, notice: null };
   if (ctx.channelId === payload.channelId && ctx.state !== 'disconnected') return { leave: true, notice };
   if (ctx.state === 'disconnected' && ctx.lastChannelId === payload.channelId) {

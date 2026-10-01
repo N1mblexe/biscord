@@ -1,5 +1,6 @@
-import { describe, expect, it } from 'vitest';
-import { planVoiceKick, VOICE_KICK_NOTICES } from './kick';
+import { afterEach, describe, expect, it } from 'vitest';
+import { useLocaleStore } from '../i18n/store';
+import { planVoiceKick, voiceKickNotice } from './kick';
 
 const LOUNGE = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const OTHER = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
@@ -8,8 +9,20 @@ const ADMIN = 'You were disconnected from voice by an admin.';
 const DELETED = 'This voice channel was deleted.';
 
 describe('voice:kicked notices', () => {
+  afterEach(() => {
+    useLocaleStore.setState({ locale: 'en' });
+  });
+
   it('maps each reason to the contract text (deactivation is left to session:revoked)', () => {
-    expect(VOICE_KICK_NOTICES).toEqual({ admin: ADMIN, channel_deleted: DELETED, deactivated: null });
+    expect(voiceKickNotice('admin')).toBe(ADMIN);
+    expect(voiceKickNotice('channel_deleted')).toBe(DELETED);
+    expect(voiceKickNotice('deactivated')).toBeNull();
+  });
+
+  it('is in the UI language when the kick arrives', () => {
+    useLocaleStore.setState({ locale: 'tr' });
+    expect(voiceKickNotice('admin')).toBe('Bir yönetici ses bağlantınızı kesti.');
+    expect(voiceKickNotice('channel_deleted')).toBe('Bu ses kanalı silindi.');
   });
 });
 
