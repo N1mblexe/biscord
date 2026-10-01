@@ -1,6 +1,6 @@
 # Push-to-talk while the browser isn't focused — "Hearth PTT" desktop helper (plan)
 
-Status: **proposed 2026-10-01** (user decisions: companion helper, Rust, Windows + Linux X11 + Linux Wayland, portal with evdev fallback). Builds on docs/plans/devices.md.
+Status: **approved 2026-10-01** (user decisions: companion helper, Rust, Windows + Linux X11 + Linux Wayland, portal with evdev fallback). Builds on docs/plans/devices.md.
 
 ## Context
 

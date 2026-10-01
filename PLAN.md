@@ -13,7 +13,7 @@ Hearth is self-hosted, private chat plus voice for one friend group:
 
 **Out of scope for v1:** multiple servers/guilds, group DMs, voice/video calls in DMs, private channels or
 per-channel permissions, `@everyone`, message search, link previews/embeds, bots/webhooks, email (no SMTP),
-native/mobile apps, end-to-end encryption, federation, off-box backups.
+native/mobile apps (exception: the optional desktop push-to-talk helper, `docs/plans/ptt-helper.md`), end-to-end encryption, federation, off-box backups.
 
 ## 2. Users and roles
 
