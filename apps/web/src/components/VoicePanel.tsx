@@ -2,8 +2,12 @@ import { useQuery } from '@tanstack/react-query';
 import { bootstrapQuery } from '../api/chat';
 import { useT, type MessageKey } from '../i18n';
 import { useVoice } from '../voice/context';
-import { useId, type ReactNode } from 'react';
+import { useCallback, useId, useState, type ReactNode } from 'react';
+import { useVoicePrefs } from '../voice/prefs';
 import { useVoiceSession, type PublishState, type VoiceConnectionState } from '../voice/session';
+import { AudioOptionsMenu } from './voice/AudioOptionsMenu';
+import { PttButton } from './voice/PttButton';
+import { VideoOptionsMenu } from './voice/VideoOptionsMenu';
 
 const STATUS: Record<
   Exclude<VoiceConnectionState, 'disconnected'>,
@@ -28,6 +32,14 @@ const panelButton =
   'text-2xs font-semibold ring-1 transition disabled:cursor-not-allowed disabled:opacity-50';
 
 const idle = 'text-text ring-line bg-white/5 hover:bg-white/10';
+
+/**
+ * The icon-only ▾ quick-menu buttons, hugging the button on their left (`-ml-1` cancels most of the
+ * row gap) and narrow, so the Turkish labels keep their room in the 240 px sidebar.
+ */
+const optionsButton =
+  '-ml-1 inline-flex w-[18px] shrink-0 items-center justify-center rounded-control text-muted ring-1 ring-line ' +
+  'bg-white/5 transition hover:bg-white/10 hover:text-text aria-expanded:bg-white/10 aria-expanded:text-text';
 
 /** Camera and screen share buttons: highlighted in accent (not red) while on. */
 function videoClass(on: boolean): string {
@@ -104,6 +116,25 @@ function ScreenIcon() {
   );
 }
 
+/** Lights while our mic is really sending (`data-on`); decorative, so outside the status live region. */
+function TransmitIndicator({ on }: { on: boolean }) {
+  const t = useT();
+  const label = t(on ? 'voice.panel.transmitting' : 'voice.panel.notTransmitting');
+  return (
+    <span
+      aria-hidden="true"
+      title={label}
+      data-testid="transmit-indicator"
+      data-on={on ? 'true' : 'false'}
+      className={`ml-auto inline-flex size-6 shrink-0 items-center justify-center rounded-full ring-2 transition-colors ${
+        on ? 'bg-success/15 text-success ring-success' : 'text-muted/60 ring-transparent'
+      }`}
+    >
+      <MicIcon off={false} />
+    </span>
+  );
+}
+
 /**
  * The voice panel (`data-testid="voice-panel"`, docs/plans/phase-6.md "Web UI contract"): shown
  * while in voice, with `data-state` connecting / connected / reconnecting, the channel name,
@@ -111,6 +142,9 @@ function ScreenIcon() {
  * blocks audio playback it also offers **Click to enable audio** (`data-testid="audio-unblock"`).
  * Phase 7 adds **Camera** / **Stop camera**, **Share screen** / **Stop sharing** (`aria-pressed`, disabled
  * while the browser asks or LiveKit (un)publishes) and the **Share tab audio** checkbox.
+ * Devices (docs/plans/devices.md, "Voice panel"): the **Audio options** / **Video options** quick
+ * menus, the **Push to talk** hold button and hint in push-to-talk mode, and `data-transmitting`
+ * ("true"/"false": the mic is really sending, after the push-to-talk / voice-activity gate).
  */
 export function VoicePanel() {
   const t = useT();
@@ -125,6 +159,16 @@ export function VoicePanel() {
   const shareTabAudio = useVoiceSession((s) => s.shareTabAudio);
   const { toggleMute, toggleDeafen, leave, startAudio, toggleCamera, toggleScreen } = useVoice();
   const tabAudioId = useId();
+  const transmitting = useVoiceSession((s) => s.transmitting);
+  const pttMode = useVoicePrefs((s) => s.prefs.inputMode === 'ptt');
+  const [menu, setMenu] = useState<'audio' | 'video' | null>(null);
+  // A menu closing only clears itself: opening the other one may already have replaced it.
+  const onAudioMenu = useCallback((open: boolean) => {
+    setMenu((m) => (open ? 'audio' : m === 'audio' ? null : m));
+  }, []);
+  const onVideoMenu = useCallback((open: boolean) => {
+    setMenu((m) => (open ? 'video' : m === 'video' ? null : m));
+  }, []);
 
   if (state === 'disconnected' || channelId === null) return null;
   const channelName =
@@ -138,17 +182,21 @@ export function VoicePanel() {
     <section
       data-testid="voice-panel"
       data-state={state}
+      data-transmitting={transmitting ? 'true' : 'false'}
       aria-label={t('voice.panel.label')}
-      className="flex shrink-0 flex-col gap-2 border-t border-line bg-bg/40 px-3 pt-2.5 pb-3"
+      className="relative flex shrink-0 flex-col gap-2 border-t border-line bg-bg/40 px-3 pt-2.5 pb-3"
     >
-      <div className="flex min-w-0 items-center gap-2" role="status">
-        <span aria-hidden="true" className={`size-2 shrink-0 rounded-full ${status.dot}`} />
-        <div className="min-w-0">
-          <p className={`text-xs font-semibold ${status.tone}`}>{t(status.label)}</p>
-          <p className="truncate text-sm text-text" title={channelName}>
-            {channelName}
-          </p>
+      <div className="flex min-w-0 items-center gap-2">
+        <div className="flex min-w-0 items-center gap-2" role="status">
+          <span aria-hidden="true" className={`size-2 shrink-0 rounded-full ${status.dot}`} />
+          <div className="min-w-0">
+            <p className={`text-xs font-semibold ${status.tone}`}>{t(status.label)}</p>
+            <p className="truncate text-sm text-text" title={channelName}>
+              {channelName}
+            </p>
+          </div>
         </div>
+        <TransmitIndicator on={transmitting} />
       </div>
       {live && !canPlaybackAudio && (
         <button
@@ -165,6 +213,11 @@ export function VoicePanel() {
           <MicIcon off={micMuted} />
           {t(micMuted ? 'voice.unmute' : 'voice.mute')}
         </button>
+        <AudioOptionsMenu
+          open={menu === 'audio'}
+          onOpenChange={onAudioMenu}
+          triggerClassName={optionsButton}
+        />
         <button
           type="button"
           aria-pressed={deafened}
@@ -183,6 +236,7 @@ export function VoicePanel() {
           {t('voice.leave')}
         </button>
       </div>
+      {pttMode && <PttButton />}
       <div className="flex gap-1.5">
         <button
           type="button"
@@ -194,6 +248,11 @@ export function VoicePanel() {
           <CameraIcon on={camera === 'on'} />
           {t(camera === 'on' ? 'voice.stopCamera' : 'voice.camera')}
         </button>
+        <VideoOptionsMenu
+          open={menu === 'video'}
+          onOpenChange={onVideoMenu}
+          triggerClassName={optionsButton}
+        />
         <button
           type="button"
           aria-pressed={screen === 'on'}

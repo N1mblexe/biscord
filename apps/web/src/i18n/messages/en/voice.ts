@@ -19,6 +19,36 @@ export const voice = {
     connecting: 'Connecting…',
     connected: 'Voice connected',
     reconnecting: 'Reconnecting…',
+    /** Title of the dot that lights while our mic is really sending (push-to-talk or voice gate open). */
+    transmitting: 'Transmitting',
+    notTransmitting: 'Not transmitting',
+  },
+  /** The voice panel's quick menus (docs/plans/devices.md, "Voice panel"). */
+  options: {
+    audio: 'Audio options',
+    video: 'Video options',
+    inputDevice: 'Input device',
+    outputDevice: 'Output device',
+    camera: 'Camera',
+    quality: 'Video quality',
+    /** The system default device (always the first choice). */
+    default: 'Default',
+    /** A device whose name the browser hides until access is allowed; `{n}` counts from 1. */
+    microphoneN: 'Microphone {n}',
+    speakerN: 'Speaker {n}',
+    cameraN: 'Camera {n}',
+    /** The saved device while the browser lists no devices yet (no permission). */
+    savedDevice: 'Saved device',
+    /** The saved device is not plugged in (the default is used meanwhile). */
+    missingDevice: 'Disconnected device',
+    allowAccess: 'Allow access',
+    settings: 'Voice & video settings',
+  },
+  /** Push-to-talk mode in the voice panel. */
+  ptt: {
+    button: 'Push to talk',
+    /** `{key}` is a key or mouse button name (voice.keys). */
+    hint: 'Hold {key} to talk',
   },
   channel: {
     join: 'Join {name}',

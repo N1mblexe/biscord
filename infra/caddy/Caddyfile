@@ -10,7 +10,7 @@
 	header ?Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' blob: data:; media-src 'self' blob:; connect-src 'self' ws://localhost:7880 http://localhost:7880; font-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'; object-src 'none'"
 	header ?X-Content-Type-Options "nosniff"
 	header ?Referrer-Policy "no-referrer"
-	header ?Permissions-Policy "camera=(self), microphone=(self), display-capture=(self), geolocation=()"
+	header ?Permissions-Policy "camera=(self), microphone=(self), display-capture=(self), speaker-selection=(self), geolocation=()"
 	header ?Cross-Origin-Opener-Policy "same-origin"
 	header -Server
 
