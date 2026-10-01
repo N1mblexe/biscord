@@ -1,13 +1,10 @@
 import { LIMITS } from '@hearth/shared';
-import { describe, expect, it } from 'vitest';
-import {
-  AVATAR_COLORS,
-  AVATAR_SIZE_MESSAGE,
-  AVATAR_TYPE_MESSAGE,
-  avatarColor,
-  checkAvatarFile,
-  initials,
-} from './avatar';
+import { afterEach, describe, expect, it } from 'vitest';
+import { useLocaleStore } from '../i18n/store';
+import { AVATAR_COLORS, avatarColor, checkAvatarFile, initials } from './avatar';
+
+const TYPE_MESSAGE = 'Avatar must be a PNG, JPEG or WebP image.';
+const SIZE_MESSAGE = 'Avatar must be at most 2 MB.';
 
 describe('initials', () => {
   it.each([
@@ -45,13 +42,28 @@ describe('checkAvatarFile', () => {
   });
 
   it('rejects other types', () => {
-    expect(AVATAR_TYPE_MESSAGE).toBe('Avatar must be a PNG, JPEG or WebP image.');
     for (const type of ['image/gif', 'image/svg+xml', 'text/html', '']) {
-      expect(checkAvatarFile({ type, size: 10 })).toBe(AVATAR_TYPE_MESSAGE);
+      expect(checkAvatarFile({ type, size: 10 })).toBe(TYPE_MESSAGE);
     }
   });
 
   it('rejects files over 2 MB', () => {
-    expect(checkAvatarFile({ type: 'image/png', size: LIMITS.avatarMaxBytes + 1 })).toBe(AVATAR_SIZE_MESSAGE);
+    expect(checkAvatarFile({ type: 'image/png', size: LIMITS.avatarMaxBytes + 1 })).toBe(SIZE_MESSAGE);
+  });
+
+  describe('in Turkish', () => {
+    afterEach(() => {
+      useLocaleStore.setState({ locale: 'en' });
+    });
+
+    it('explains the rejection in the UI language', () => {
+      useLocaleStore.setState({ locale: 'tr' });
+      expect(checkAvatarFile({ type: 'image/gif', size: 10 })).toBe(
+        'Avatar PNG, JPEG veya WebP görseli olmalı.',
+      );
+      expect(checkAvatarFile({ type: 'image/png', size: LIMITS.avatarMaxBytes + 1 })).toBe(
+        'Avatar en fazla 2 MB olabilir.',
+      );
+    });
   });
 });

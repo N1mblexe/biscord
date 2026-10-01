@@ -12,7 +12,7 @@ import {
 import { useSocket } from '../socket/context';
 import { useNoticeStore } from '../stores/notice';
 import { VoiceContext, VoiceRoomContext, type VoiceActions } from './context';
-import { VOICE_MESSAGES } from './controller';
+import { voiceMessage } from './controller';
 import { idleVoiceDebug, installVoiceDebug } from './debugHook';
 import type { VoiceEngine } from './engine';
 import { planVoiceKick } from './kick';
@@ -125,7 +125,7 @@ export function VoiceProvider({ children }: { children: ReactNode }) {
           loadingRef.current = false;
           if (pendingJoinRef.current === null) return;
           pendingJoinRef.current = null;
-          useNoticeStore.getState().setNotice(VOICE_MESSAGES.joinFailed);
+          useNoticeStore.getState().setNotice(voiceMessage('joinFailed'));
         },
       );
     };

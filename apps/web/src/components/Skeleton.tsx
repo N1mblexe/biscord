@@ -1,3 +1,5 @@
+import { useT } from '../i18n';
+
 /**
  * Loading placeholders shaped like the content they stand in for. Each list skeleton is one polite
  * `role="status"` with a visually-hidden label, so screen readers hear "Loading messages…" once
@@ -23,13 +25,14 @@ const MESSAGE_ROWS = [
  * Its accessible text is "Loading messages…" (the e2e suite waits for that text to disappear).
  */
 export function MessageListSkeleton({ rows = MESSAGE_ROWS.length }: { rows?: number }) {
+  const t = useT();
   return (
     <div
       data-testid="messages-skeleton"
       role="status"
       className="flex flex-col gap-5 px-4 py-6 motion-safe:animate-skeleton"
     >
-      <span className="sr-only">Loading messages…</span>
+      <span className="sr-only">{t('a11y.loadingMessages')}</span>
       {MESSAGE_ROWS.slice(0, rows).map((row, i) => (
         <div key={i} className="flex gap-3">
           <Skeleton className="size-9 shrink-0 rounded-full" />
@@ -51,13 +54,14 @@ const CHANNEL_WIDTHS = ['w-24', 'w-32', 'w-20', 'w-28'] as const;
  * (`data-testid="channels-skeleton"`, accessible text "Loading channels…").
  */
 export function ChannelListSkeleton() {
+  const t = useT();
   return (
     <div
       data-testid="channels-skeleton"
       role="status"
       className="flex flex-col gap-5 motion-safe:animate-skeleton"
     >
-      <span className="sr-only">Loading channels…</span>
+      <span className="sr-only">{t('a11y.loadingChannels')}</span>
       {[3, 2].map((count, section) => (
         <div key={section} className="flex flex-col gap-2 px-2">
           <Skeleton className="mb-1 h-2.5 w-20 rounded-full" />

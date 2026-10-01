@@ -1,6 +1,7 @@
 import { AVATAR_MIME_TYPES, LIMITS } from '@hearth/shared';
 import { errorMessage, UPLOAD_ERROR_MESSAGES } from '../api/errors';
-import { upper } from '../i18n/format';
+import { formatBytes, upper } from '../i18n/format';
+import { t } from '../i18n/translate';
 
 /**
  * Up to two initials for an avatar without an image: the first letters of the first two words of
@@ -39,15 +40,22 @@ export function avatarColor(seed: string): string {
   return AVATAR_COLORS[hash % AVATAR_COLORS.length] ?? AVATAR_COLORS[0];
 }
 
-export const AVATAR_TYPE_MESSAGE = 'Avatar must be a PNG, JPEG or WebP image.';
-export const AVATAR_SIZE_MESSAGE = 'Avatar must be at most 2 MB.';
+/** "Avatar must be a PNG, JPEG or WebP image.", in the current UI language. */
+export function avatarTypeMessage(): string {
+  return t('a11y.avatar.invalidType');
+}
+
+/** "Avatar must be at most 2 MB.", in the current UI language. */
+export function avatarSizeMessage(): string {
+  return t('a11y.avatar.tooLarge', { size: formatBytes(LIMITS.avatarMaxBytes) });
+}
 
 const AVATAR_TYPES: ReadonlySet<string> = new Set(AVATAR_MIME_TYPES);
 
 /** Client-side pre-check of an avatar file; the alert text, or `null` when it may be uploaded. */
 export function checkAvatarFile(file: { type: string; size: number }): string | null {
-  if (!AVATAR_TYPES.has(file.type)) return AVATAR_TYPE_MESSAGE;
-  if (file.size > LIMITS.avatarMaxBytes) return AVATAR_SIZE_MESSAGE;
+  if (!AVATAR_TYPES.has(file.type)) return avatarTypeMessage();
+  if (file.size > LIMITS.avatarMaxBytes) return avatarSizeMessage();
   return null;
 }
 
@@ -55,7 +63,7 @@ export function checkAvatarFile(file: { type: string; size: number }): string | 
 export function avatarUploadError(err: unknown): string {
   return errorMessage(err, {
     ...UPLOAD_ERROR_MESSAGES,
-    UNSUPPORTED_MEDIA: AVATAR_TYPE_MESSAGE,
-    PAYLOAD_TOO_LARGE: AVATAR_SIZE_MESSAGE,
+    UNSUPPORTED_MEDIA: avatarTypeMessage(),
+    PAYLOAD_TOO_LARGE: avatarSizeMessage(),
   });
 }

@@ -1,4 +1,6 @@
 import type { VoiceStatePayload, VoiceTokenResponse } from '@hearth/shared';
+import { t } from '../i18n/translate';
+import type { Messages } from '../i18n/types';
 import {
   MEDIA_OFF,
   toggleDeafen,
@@ -100,14 +102,13 @@ export interface VoiceController {
 /** A join gives up on a token request that hasn't answered by then. */
 export const VOICE_TOKEN_TIMEOUT_MS = 10_000;
 
-export const VOICE_MESSAGES = {
-  joinFailed: "Couldn't join the voice channel. Try again.",
-  joinTimedOut: 'The voice server took too long to answer. Try joining again.',
-  micUnavailable: 'Microphone unavailable: check the browser permission. You joined muted.',
-  dropped: 'You were disconnected from voice.',
-  cameraBlocked: 'Camera is unavailable or blocked',
-  screenBlocked: 'Screen share was cancelled or blocked',
-} as const;
+/** The controller's notices and page alerts (`voice.messages.*`). */
+export type VoiceMessageId = keyof Messages['voice']['messages'];
+
+/** A voice notice or alert in the current UI language (translated when it is shown, never at load). */
+export function voiceMessage(id: VoiceMessageId): string {
+  return t(`voice.messages.${id}`);
+}
 
 const session = () => useVoiceSession.getState();
 
@@ -251,7 +252,7 @@ export function createVoiceController<P>({
         () => {
           if (gen !== generation) return;
           setVideo(kind, 'off');
-          alert(kind === 'camera' ? VOICE_MESSAGES.cameraBlocked : VOICE_MESSAGES.screenBlocked);
+          alert(kind === 'camera' ? voiceMessage('cameraBlocked') : voiceMessage('screenBlocked'));
         },
       );
       return;
@@ -275,7 +276,7 @@ export function createVoiceController<P>({
       } catch {
         if (gen !== generation || !enable) return;
         session().set({ micMuted: true, mutedBeforeDeafen: false });
-        notify(VOICE_MESSAGES.micUnavailable);
+        notify(voiceMessage('micUnavailable'));
         send();
       }
     });
@@ -288,7 +289,7 @@ export function createVoiceController<P>({
     send();
   };
 
-  const fail = async (gen: number, message: string = VOICE_MESSAGES.joinFailed) => {
+  const fail = async (gen: number, message: string = voiceMessage('joinFailed')) => {
     if (gen !== generation) return;
     generation += 1;
     session().set({
@@ -328,7 +329,7 @@ export function createVoiceController<P>({
         token = await requestToken(channelId);
       } catch (err) {
         await leaving;
-        await fail(gen, err instanceof TokenTimeout ? VOICE_MESSAGES.joinTimedOut : undefined);
+        await fail(gen, err instanceof TokenTimeout ? voiceMessage('joinTimedOut') : undefined);
         return;
       }
       await leaving;
@@ -434,7 +435,7 @@ export function createVoiceController<P>({
         levelSpeaking: {},
         ...MEDIA_OFF,
       });
-      notify(VOICE_MESSAGES.dropped);
+      notify(voiceMessage('dropped'));
     },
   };
 }

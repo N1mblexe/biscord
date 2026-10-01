@@ -5,7 +5,7 @@ import { NavLink } from 'react-router';
 import { meQuery } from '../api/auth';
 import { bootstrapQuery } from '../api/chat';
 import { errorMessage } from '../api/errors';
-import { compare, useLocale } from '../i18n';
+import { compare, useLocale, useT } from '../i18n';
 import { displayUser } from '../lib/bootstrapPatch';
 import { NO_DMS_COPY } from '../lib/emptyStates';
 import { useDrawerStore } from '../stores/drawers';
@@ -48,6 +48,7 @@ function ChannelLink({
   icon?: ReactNode;
   label: string;
 }) {
+  const t = useT();
   const { unread, mentionCount } = useUnreadSummary(channelId);
   const online = useIsOnline(dmUserId);
   const isDm = dmUserId !== undefined;
@@ -77,7 +78,7 @@ function ChannelLink({
       {mentionCount > 0 && (
         <span
           data-testid="mention-badge"
-          title={mentionCount === 1 ? '1 mention' : `${mentionCount} mentions`}
+          title={t('a11y.layout.mentions', { count: mentionCount })}
           className="shrink-0 rounded-full bg-danger px-1.5 text-[11px] leading-4 font-bold text-white"
         >
           {mentionCount}
@@ -111,6 +112,7 @@ function Empty({ children }: { children: ReactNode }) {
 }
 
 function SidebarLists({ boot }: { boot: BootstrapResponse }) {
+  const t = useT();
   const [locale] = useLocale();
   const text = boot.channels.filter((c) => c.type === 'text');
   const voice = boot.channels.filter((c) => c.type === 'voice');
@@ -120,9 +122,9 @@ function SidebarLists({ boot }: { boot: BootstrapResponse }) {
 
   return (
     <>
-      <Section id="sidebar-text" title="Text channels">
+      <Section id="sidebar-text" title={t('a11y.layout.textChannels')}>
         {text.length === 0 ? (
-          <Empty>No text channels yet.</Empty>
+          <Empty>{t('a11y.layout.noTextChannels')}</Empty>
         ) : (
           <ul className="flex flex-col gap-0.5">
             {text.map((channel) => (
@@ -133,9 +135,9 @@ function SidebarLists({ boot }: { boot: BootstrapResponse }) {
           </ul>
         )}
       </Section>
-      <Section id="sidebar-voice" title="Voice channels">
+      <Section id="sidebar-voice" title={t('a11y.layout.voiceChannels')}>
         {voice.length === 0 ? (
-          <Empty>No voice channels yet.</Empty>
+          <Empty>{t('a11y.layout.noVoiceChannels')}</Empty>
         ) : (
           <ul className="flex flex-col gap-0.5">
             {voice.map((channel) => (
@@ -150,7 +152,7 @@ function SidebarLists({ boot }: { boot: BootstrapResponse }) {
           </ul>
         )}
       </Section>
-      <Section id="sidebar-dms" title="Direct messages">
+      <Section id="sidebar-dms" title={t('a11y.layout.directMessages')}>
         {dms.length === 0 ? (
           <EmptyState compact icon="dm" title={NO_DMS_COPY.title}>
             {NO_DMS_COPY.body}
@@ -185,23 +187,29 @@ const mainLinkClass = ({ isActive }: { isActive: boolean }) =>
  * the app header shows from `md` up. Hidden from `md` up, so each link exists once per layout.
  */
 function DrawerHeader() {
+  const t = useT();
   const { data: me } = useQuery(meQuery);
   const close = useDrawerStore((s) => s.close);
   return (
     <div className="flex shrink-0 flex-col gap-2 border-b border-white/5 px-2 py-2 md:hidden">
       <div className="flex items-center justify-between pl-2">
-        <span className="text-base font-semibold tracking-tight">Hearth</span>
-        <button type="button" aria-label="Close navigation" className={drawerIconButton} onClick={close}>
+        <span className="text-base font-semibold tracking-tight">{t('common.appName')}</span>
+        <button
+          type="button"
+          aria-label={t('a11y.closeNavigation')}
+          className={drawerIconButton}
+          onClick={close}
+        >
           <CloseIcon />
         </button>
       </div>
-      <nav aria-label="Main" className="flex items-center gap-1">
+      <nav aria-label={t('a11y.mainNav')} className="flex items-center gap-1">
         <NavLink to="/settings" className={mainLinkClass}>
-          Settings
+          {t('a11y.layout.settings')}
         </NavLink>
         {me?.role === 'admin' && (
           <NavLink to="/admin/invites" className={mainLinkClass}>
-            Admin
+            {t('a11y.layout.admin')}
           </NavLink>
         )}
       </nav>
@@ -214,8 +222,9 @@ function DrawerHeader() {
  * Below `md` it is an off-canvas drawer (`#app-sidebar`), opened by the header's **Open navigation**.
  */
 export function Sidebar() {
+  const t = useT();
   const boot = useQuery(bootstrapQuery);
-  const { ref, open, dialogProps } = useDrawerPanel<HTMLDivElement>('nav', 'Navigation');
+  const { ref, open, dialogProps } = useDrawerPanel<HTMLDivElement>('nav', t('a11y.navigation'));
   return (
     <div
       ref={ref}
@@ -224,7 +233,10 @@ export function Sidebar() {
       className={`flex w-60 shrink-0 flex-col border-r border-white/5 bg-surface outline-none ${drawerClasses('left', open)}`}
     >
       <DrawerHeader />
-      <nav aria-label="Channels" className="flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto px-2 py-4">
+      <nav
+        aria-label={t('a11y.channelsNav')}
+        className="flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto px-2 py-4"
+      >
         {boot.data ? (
           <SidebarLists boot={boot.data} />
         ) : boot.isError ? (

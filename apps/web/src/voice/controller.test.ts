@@ -1,8 +1,9 @@
 import type { VoiceStatePayload, VoiceTokenResponse } from '@hearth/shared';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { useLocaleStore } from '../i18n/store';
 import {
   createVoiceController,
-  VOICE_MESSAGES,
+  voiceMessage,
   type VoiceControllerDeps,
   type VoiceRoomPort,
 } from './controller';
@@ -217,7 +218,7 @@ describe('voice controller', () => {
     await joining;
     expect(signal?.aborted).toBe(true);
     expect(session()).toMatchObject({ channelId: null, state: 'disconnected' });
-    expect(notices).toEqual([VOICE_MESSAGES.joinTimedOut]);
+    expect(notices).toEqual([voiceMessage('joinTimedOut')]);
     expect(log.filter((l) => l.startsWith('connect'))).toEqual([]);
   });
 
@@ -317,7 +318,7 @@ describe('voice controller', () => {
     const { controller, notices } = harness({ fetchToken: () => Promise.reject(new Error('503')) });
     await controller.join(LOUNGE);
     expect(session()).toMatchObject({ channelId: null, state: 'disconnected' });
-    expect(notices).toEqual([VOICE_MESSAGES.joinFailed]);
+    expect(notices).toEqual([voiceMessage('joinFailed')]);
   });
 
   it('deafen self-mutes and undeafen restores the earlier mic state, each sent to the server', async () => {
@@ -385,7 +386,7 @@ describe('voice controller', () => {
     await h.controller.join(LOUNGE);
     await flush();
     expect(session()).toMatchObject({ state: 'connected', micMuted: true });
-    expect(h.notices).toEqual([VOICE_MESSAGES.micUnavailable]);
+    expect(h.notices).toEqual([voiceMessage('micUnavailable')]);
     expect(h.sent.at(-1)).toMatchObject({ selfMute: true, selfDeaf: false });
   });
 
@@ -398,7 +399,7 @@ describe('voice controller', () => {
     expect(session().state).toBe('connected');
     controller.onDisconnected();
     expect(session()).toMatchObject({ channelId: null, state: 'disconnected' });
-    expect(notices).toEqual([VOICE_MESSAGES.dropped]);
+    expect(notices).toEqual([voiceMessage('dropped')]);
   });
 
   it('ignores the disconnect of the old room while switching, and of a room we left', async () => {
@@ -496,7 +497,7 @@ describe('camera and screen share controls', () => {
     await flush();
     expect(session().screen).toBe('off');
     expect(session().state).toBe('connected');
-    expect(h.alerts).toEqual([VOICE_MESSAGES.screenBlocked]);
+    expect(h.alerts).toEqual([voiceMessage('screenBlocked')]);
     // Nothing changed, so nothing new is sent; the last state still says not sharing.
     expect(h.sent.length).toBe(sentBefore);
     expect(lastFlags(h.sent)).toEqual({ camera: false, screen: false });
@@ -508,7 +509,7 @@ describe('camera and screen share controls', () => {
     h.controller.toggleCamera();
     await flush();
     expect(session().camera).toBe('off');
-    expect(h.alerts).toEqual([VOICE_MESSAGES.cameraBlocked]);
+    expect(h.alerts).toEqual([voiceMessage('cameraBlocked')]);
   });
 
   it("the browser's own stop sharing turns the screen off and clears the flag", async () => {
@@ -706,5 +707,28 @@ describe('camera and screen share: what LiveKit really publishes wins', () => {
     expect(h.log).toEqual(['camera off']);
     expect(h.published.camera).toBe(false);
     expect(session().camera).toBe('off');
+  });
+});
+
+describe('voiceMessage', () => {
+  afterEach(() => {
+    useLocaleStore.setState({ locale: 'en' });
+  });
+
+  it('keeps the English notice and alert text', () => {
+    expect(voiceMessage('joinFailed')).toBe("Couldn't join the voice channel. Try again.");
+    expect(voiceMessage('joinTimedOut')).toBe('The voice server took too long to answer. Try joining again.');
+    expect(voiceMessage('micUnavailable')).toBe(
+      'Microphone unavailable: check the browser permission. You joined muted.',
+    );
+    expect(voiceMessage('dropped')).toBe('You were disconnected from voice.');
+    expect(voiceMessage('cameraBlocked')).toBe('Camera is unavailable or blocked');
+    expect(voiceMessage('screenBlocked')).toBe('Screen share was cancelled or blocked');
+  });
+
+  it('is translated when it is shown, not when the module loads', () => {
+    useLocaleStore.setState({ locale: 'tr' });
+    expect(voiceMessage('dropped')).toBe('Ses bağlantınız kesildi.');
+    expect(voiceMessage('screenBlocked')).toBe('Ekran paylaşımı iptal edildi veya engellendi');
   });
 });

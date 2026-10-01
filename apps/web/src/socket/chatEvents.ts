@@ -20,6 +20,7 @@ import { bootstrapQueryKey } from '../api/chat';
 import { removeChannel, replaceChannels, upsertChannel, upsertDm, upsertUser } from '../lib/bootstrapPatch';
 import { recordBootstrapPatch, type BootstrapPatch } from '../lib/liveState';
 import { catchUpAll, receiveCreated, receiveUpdated, setSocketConnected } from '../lib/messageSync';
+import { t } from '../i18n/translate';
 import { maybeNotify } from '../lib/notifications';
 import { useMessageStore } from '../stores/messages';
 import { NOTICES, useNoticeStore } from '../stores/notice';
@@ -133,7 +134,7 @@ export function registerChatEvents(
       navigate('/');
     }
     // Our voice channel: normally `voice:kicked` already took us out, but not while still joining.
-    if (leaveVoiceChannel(channelId)) useNoticeStore.getState().setNotice(NOTICES.voiceChannelDeleted);
+    if (leaveVoiceChannel(channelId)) useNoticeStore.getState().setNotice(t('voice.kicked.channelDeleted'));
     patchBootstrap((boot) => removeChannel(boot, channelId));
     messages().forgetChannel(channelId);
     useReadsStore.getState().forgetChannel(channelId);

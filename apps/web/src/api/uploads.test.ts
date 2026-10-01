@@ -2,7 +2,7 @@ import { AttachmentResponse, CSRF_HEADER, CSRF_HEADER_VALUE } from '@hearth/shar
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ApiError, apiFetch } from './client';
 import { attachmentUploadError, FILE_TOO_LARGE_MESSAGE } from '../lib/attachments';
-import { AVATAR_SIZE_MESSAGE, AVATAR_TYPE_MESSAGE, avatarUploadError } from '../lib/avatar';
+import { avatarUploadError } from '../lib/avatar';
 import { errorMessage } from './errors';
 import { deleteAttachment, parseUploadResponse, uploadAttachment } from './uploads';
 
@@ -74,11 +74,11 @@ describe('disk-fill guard alerts (CONTRACTS B.7a rule 8)', () => {
   it('the other upload alerts are unchanged', () => {
     const tooLarge = catchApiError(() => parseUploadResponse(413, CADDY_413, AttachmentResponse));
     expect(attachmentUploadError(tooLarge)).toBe(FILE_TOO_LARGE_MESSAGE);
-    expect(avatarUploadError(tooLarge)).toBe(AVATAR_SIZE_MESSAGE);
+    expect(avatarUploadError(tooLarge)).toBe('Avatar must be at most 2 MB.');
     const unsupported = catchApiError(() =>
       parseUploadResponse(415, errorBody('UNSUPPORTED_MEDIA', 'Unsupported file type'), AttachmentResponse),
     );
-    expect(avatarUploadError(unsupported)).toBe(AVATAR_TYPE_MESSAGE);
+    expect(avatarUploadError(unsupported)).toBe('Avatar must be a PNG, JPEG or WebP image.');
     const limited = new ApiError(429, 'RATE_LIMITED', 'Too many requests, try again later');
     expect(attachmentUploadError(limited)).toBe('Too many requests, try again later');
   });
