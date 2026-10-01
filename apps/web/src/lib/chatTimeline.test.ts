@@ -57,4 +57,16 @@ describe('timelineMeta', () => {
     expect(meta.map((m) => m.grouped)).toEqual([false, false]);
     expect(timelineMeta([], NOW)).toEqual([]);
   });
+
+  it('labels separators in the given language', () => {
+    const meta = timelineMeta(
+      [
+        { authorId: A, createdAt: at(29, 9) },
+        { authorId: A, createdAt: at(30, 9) },
+      ],
+      NOW,
+      'tr',
+    );
+    expect(meta.map((m) => m.separator)).toEqual(['Dün', 'Bugün']);
+  });
 });

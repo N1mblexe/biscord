@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
+import { useLocaleStore } from '../i18n/store';
 import { emptyChannelCopy, NO_DMS_COPY, noChannelsCopy } from './emptyStates';
 
 describe('noChannelsCopy', () => {
@@ -33,5 +34,19 @@ describe('emptyChannelCopy', () => {
 describe('NO_DMS_COPY', () => {
   it('explains how to start a DM', () => {
     expect(NO_DMS_COPY.body).toMatch(/Message button/);
+  });
+});
+
+describe('in Turkish', () => {
+  afterEach(() => {
+    useLocaleStore.setState({ locale: 'en' });
+  });
+
+  it('translates when called, not at module load', () => {
+    useLocaleStore.setState({ locale: 'tr' });
+    expect(emptyChannelCopy('genel', false).title).toBe('#genel kanalına hoş geldiniz');
+    expect(emptyChannelCopy('Bob', true).title).toBe('Bob ile konuşmanızın başlangıcı');
+    expect(noChannelsCopy(true).title).toBe('Henüz kanal yok');
+    expect(NO_DMS_COPY.title).toBe('Henüz konuşma yok');
   });
 });

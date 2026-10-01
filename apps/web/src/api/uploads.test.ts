@@ -1,7 +1,7 @@
 import { AttachmentResponse, CSRF_HEADER, CSRF_HEADER_VALUE } from '@hearth/shared';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ApiError, apiFetch } from './client';
-import { attachmentUploadError, FILE_TOO_LARGE_MESSAGE } from '../lib/attachments';
+import { attachmentUploadError, fileTooLargeMessage } from '../lib/attachments';
 import { AVATAR_SIZE_MESSAGE, AVATAR_TYPE_MESSAGE, avatarUploadError } from '../lib/avatar';
 import { errorMessage } from './errors';
 import { deleteAttachment, parseUploadResponse, uploadAttachment } from './uploads';
@@ -73,7 +73,7 @@ describe('disk-fill guard alerts (CONTRACTS B.7a rule 8)', () => {
 
   it('the other upload alerts are unchanged', () => {
     const tooLarge = catchApiError(() => parseUploadResponse(413, CADDY_413, AttachmentResponse));
-    expect(attachmentUploadError(tooLarge)).toBe(FILE_TOO_LARGE_MESSAGE);
+    expect(attachmentUploadError(tooLarge)).toBe(fileTooLargeMessage());
     expect(avatarUploadError(tooLarge)).toBe(AVATAR_SIZE_MESSAGE);
     const unsupported = catchApiError(() =>
       parseUploadResponse(415, errorBody('UNSUPPORTED_MEDIA', 'Unsupported file type'), AttachmentResponse),

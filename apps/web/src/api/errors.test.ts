@@ -1,6 +1,14 @@
-import { describe, expect, it } from 'vitest';
+import { ErrorCode } from '@hearth/shared';
+import { afterEach, describe, expect, it } from 'vitest';
+import { useLocaleStore } from '../i18n/store';
 import { ApiError } from './client';
-import { fieldErrors, formAlertMessage, friendlyValidationMessage } from './errors';
+import {
+  errorMessage,
+  fieldErrors,
+  formAlertMessage,
+  friendlyValidationMessage,
+  UPLOAD_ERROR_MESSAGES,
+} from './errors';
 
 const validation = (fieldErrors: Record<string, string[]>, formErrors: string[] = []) =>
   new ApiError(400, 'VALIDATION', 'Invalid request', { formErrors, fieldErrors });
@@ -76,5 +84,72 @@ describe('formAlertMessage', () => {
       'Wrong username or password.',
     );
     expect(formAlertMessage(null, ['name'])).toBeNull();
+  });
+});
+
+describe('errorMessage', () => {
+  afterEach(() => {
+    useLocaleStore.setState({ locale: 'en' });
+  });
+
+  it('keeps the server message in English, except for the fixed codes', () => {
+    expect(errorMessage(new ApiError(404, 'NOT_FOUND', 'Channel not found'))).toBe('Channel not found');
+    expect(errorMessage(new ApiError(404, 'NOT_FOUND', ''))).toBe('Not found. It may have been deleted.');
+    expect(errorMessage(new ApiError(400, 'INVITE_INVALID', 'x'))).toBe(
+      'This invite is invalid, expired, or already used.',
+    );
+    expect(errorMessage(new ApiError(0, 'INTERNAL', 'x'))).toBe(
+      'Could not reach the server. Check your connection and try again.',
+    );
+    expect(errorMessage(new Error('boom'))).toBe('Something went wrong. Please try again.');
+  });
+
+  it('maps every code to Turkish text and ignores the English server message', () => {
+    useLocaleStore.setState({ locale: 'tr' });
+    expect(errorMessage(new ApiError(404, 'NOT_FOUND', 'Channel not found'))).toBe(
+      'Bulunamadı. Silinmiş olabilir.',
+    );
+    expect(errorMessage(new ApiError(401, 'INVALID_CREDENTIALS', 'x'))).toBe(
+      'Kullanıcı adı veya şifre yanlış.',
+    );
+    expect(errorMessage(new ApiError(0, 'INTERNAL', 'x'))).toBe(
+      'Sunucuya ulaşılamadı. Bağlantınızı kontrol edip tekrar deneyin.',
+    );
+    expect(errorMessage(new ApiError(409, 'CONFLICT', 'x'), { CONFLICT: 'Ad alınmış.' })).toBe('Ad alınmış.');
+    expect(errorMessage(new Error('boom'))).toBe('Bir şeyler ters gitti. Lütfen tekrar deneyin.');
+    for (const code of ErrorCode.options) {
+      expect(errorMessage(new ApiError(400, code, 'English')), code).not.toBe('English');
+    }
+  });
+
+  it('translates the upload texts whenever they are read', () => {
+    expect(UPLOAD_ERROR_MESSAGES.STORAGE_FULL).toBe('The server is out of storage space. Tell an admin.');
+    useLocaleStore.setState({ locale: 'tr' });
+    expect({ ...UPLOAD_ERROR_MESSAGES }.STORAGE_FULL).toBe(
+      'Sunucuda depolama alanı kalmadı. Bir yöneticiye haber verin.',
+    );
+  });
+
+  it('gives Turkish validation messages', () => {
+    useLocaleStore.setState({ locale: 'tr' });
+    expect(friendlyValidationMessage('Invalid input: expected string, received undefined')).toBe('Zorunlu');
+    expect(friendlyValidationMessage('Too big: expected string to have <=32 characters')).toBe(
+      'En fazla 32 karakter olmalı',
+    );
+    expect(friendlyValidationMessage('Too big: expected array to have <=10 items')).toBe(
+      'En fazla 10 öğe olmalı',
+    );
+    expect(friendlyValidationMessage('Invalid option: expected one of "text"|"voice"')).toBe(
+      'Şunlardan biri olmalı: text, voice',
+    );
+  });
+
+  it('keeps the English item plural', () => {
+    expect(friendlyValidationMessage('Too small: expected array to have >=2 items')).toBe(
+      'Must have at least 2 items',
+    );
+    expect(friendlyValidationMessage('Too big: expected array to have <=1 items')).toBe(
+      'Must have at most 1 item',
+    );
   });
 });

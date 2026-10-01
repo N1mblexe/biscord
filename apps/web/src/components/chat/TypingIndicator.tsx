@@ -1,4 +1,5 @@
 import type { PublicUser } from '@hearth/shared';
+import { useLocale } from '../../i18n';
 import { authorName } from '../../lib/bootstrapPatch';
 import { NOBODY_TYPING, typingText, useTypingStore } from '../../stores/typing';
 
@@ -13,6 +14,8 @@ interface TypingIndicatorProps {
  * typing). The row keeps its height so the history doesn't jump.
  */
 export function TypingIndicator({ channelId, meId, usersById }: TypingIndicatorProps) {
+  // Re-renders on a language change (`typingText` reads the current language).
+  useLocale();
   const userIds = useTypingStore((s) => s.byChannel[channelId] ?? NOBODY_TYPING);
   const names = userIds.filter((id) => id !== meId).map((id) => authorName(usersById.get(id)));
   const text = typingText(names);

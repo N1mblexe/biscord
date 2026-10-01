@@ -1,6 +1,7 @@
 import { INLINE_IMAGE_MIME_TYPES, LIMITS, type Attachment } from '@hearth/shared';
 import { errorMessage, UPLOAD_ERROR_MESSAGES } from '../api/errors';
 import { formatBytes } from '../i18n/format';
+import { t } from '../i18n/translate';
 
 // ---- Display ----
 
@@ -29,17 +30,27 @@ export function isAttachmentUrl(url: string): boolean {
 
 /** The download link's text: `<filename> (<size>)`. */
 export function fileLabel(attachment: Pick<Attachment, 'filename' | 'sizeBytes'>): string {
-  return `${attachment.filename} (${formatBytes(attachment.sizeBytes)})`;
+  return t('chat.attachment.fileLabel', {
+    filename: attachment.filename,
+    size: formatBytes(attachment.sizeBytes),
+  });
 }
 
 // ---- Composer chips ----
 
-export const FILE_TOO_LARGE_MESSAGE = 'File is too large (max 25 MB).';
-export const TOO_MANY_FILES_MESSAGE = `You can attach at most ${LIMITS.attachmentsPerMessage} files to a message.`;
+/** "File is too large (max 25 MB).", in the UI language. */
+export function fileTooLargeMessage(): string {
+  return t('chat.attachment.tooLarge', { max: formatBytes(LIMITS.uploadMaxBytes) });
+}
+
+/** "You can attach at most 10 files to a message.", in the UI language. */
+export function tooManyFilesMessage(): string {
+  return t('chat.attachment.tooMany', { max: LIMITS.attachmentsPerMessage });
+}
 
 /** The page alert for a failed attachment upload (POST /attachments). */
 export function attachmentUploadError(err: unknown): string {
-  return errorMessage(err, { ...UPLOAD_ERROR_MESSAGES, PAYLOAD_TOO_LARGE: FILE_TOO_LARGE_MESSAGE });
+  return errorMessage(err, { ...UPLOAD_ERROR_MESSAGES, PAYLOAD_TOO_LARGE: fileTooLargeMessage() });
 }
 
 export type ChipState = 'uploading' | 'ready' | 'failed';
@@ -124,9 +135,9 @@ export function selectFiles<F extends SelectedFile>(
   const accepted = fitting.slice(0, room);
   const error =
     fitting.length < files.length
-      ? FILE_TOO_LARGE_MESSAGE
+      ? fileTooLargeMessage()
       : accepted.length < fitting.length
-        ? TOO_MANY_FILES_MESSAGE
+        ? tooManyFilesMessage()
         : null;
   return { accepted, error };
 }

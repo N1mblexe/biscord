@@ -1,5 +1,6 @@
 import { LIMITS } from '@hearth/shared';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { useLocaleStore } from '../i18n/store';
 import { typingText, useTypingStore } from './typing';
 
 const CH = '11111111-1111-4111-8111-111111111111';
@@ -71,5 +72,16 @@ describe('typingText', () => {
     expect(typingText(['Alice'])).toBe('Alice is typing…');
     expect(typingText(['Alice', 'Bob'])).toBe('Alice and Bob are typing…');
     expect(typingText(['Alice', 'Bob', 'Carol'])).toBe('Several people are typing…');
+  });
+
+  it('uses Turkish grammar in Turkish', () => {
+    useLocaleStore.setState({ locale: 'tr' });
+    try {
+      expect(typingText(['Ayşe'])).toBe('Ayşe yazıyor…');
+      expect(typingText(['Ayşe', 'Mehmet'])).toBe('Ayşe ve Mehmet yazıyor…');
+      expect(typingText(['Ayşe', 'Mehmet', 'Can'])).toBe('Birkaç kişi yazıyor…');
+    } finally {
+      useLocaleStore.setState({ locale: 'en' });
+    }
   });
 });

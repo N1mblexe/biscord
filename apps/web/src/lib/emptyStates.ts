@@ -1,4 +1,6 @@
-/** Copy for the friendly empty states (components/EmptyState.tsx). */
+import { t } from '../i18n/translate';
+
+/** Copy for the friendly empty states (components/EmptyState.tsx), in the UI language. */
 export interface EmptyCopy {
   title: string;
   body: string;
@@ -6,15 +8,10 @@ export interface EmptyCopy {
 
 /** The server has no text channels yet. Admins can fix that; members can only ask (or DM). */
 export function noChannelsCopy(isAdmin: boolean): EmptyCopy {
-  return isAdmin
-    ? {
-        title: 'No channels yet',
-        body: 'Create the first text channel so everyone has somewhere to talk.',
-      }
-    : {
-        title: 'No channels yet',
-        body: 'An admin hasn’t created any text channels yet. You can still message someone directly from the members list.',
-      };
+  return {
+    title: t('chat.empty.noChannelsTitle'),
+    body: isAdmin ? t('chat.empty.noChannelsAdmin') : t('chat.empty.noChannelsMember'),
+  };
 }
 
 /**
@@ -23,15 +20,24 @@ export function noChannelsCopy(isAdmin: boolean): EmptyCopy {
  */
 export function emptyChannelCopy(name: string, isDm: boolean): EmptyCopy {
   return isDm
-    ? {
-        title: `This is the start of your conversation with ${name}`,
-        body: 'Say hi — only the two of you can see this.',
-      }
-    : { title: `Welcome to #${name}`, body: 'Nothing here yet. Be the first to say something!' };
+    ? { title: t('chat.empty.dmTitle', { name }), body: t('chat.empty.dmBody') }
+    : { title: t('chat.empty.channelTitle', { channel: name }), body: t('chat.empty.channelBody') };
 }
 
-/** No direct messages yet (sidebar). */
+/** No direct messages yet (sidebar), in the UI language. */
+export function noDmsCopy(): EmptyCopy {
+  return { title: t('chat.empty.noDmsTitle'), body: t('chat.empty.noDmsBody') };
+}
+
+/**
+ * The same as `noDmsCopy()`, kept for existing callers: the getters translate on every read, so
+ * `NO_DMS_COPY.title` is always in the current language.
+ */
 export const NO_DMS_COPY: EmptyCopy = {
-  title: 'No conversations yet',
-  body: 'Start one with the Message button next to someone in the members list.',
+  get title() {
+    return t('chat.empty.noDmsTitle');
+  },
+  get body() {
+    return t('chat.empty.noDmsBody');
+  },
 };

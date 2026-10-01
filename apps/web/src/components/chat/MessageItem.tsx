@@ -2,7 +2,7 @@ import type { Message, PublicUser } from '@hearth/shared';
 import { useEffect, useRef, useState, type FocusEvent, type KeyboardEvent } from 'react';
 import { deleteMessage, editMessage } from '../../api/chat';
 import { errorMessage } from '../../api/errors';
-import { formatDateTime, formatTime, useLocale } from '../../i18n';
+import { formatDateTime, formatTime, useLocale, useT } from '../../i18n';
 import { useMessageStore, type PendingMessage } from '../../stores/messages';
 import { MESSAGE_INPUT_MAX_LENGTH, messageTooLong } from '../../lib/messageLength';
 import { deliverPending } from '../../lib/messageSync';
@@ -100,6 +100,7 @@ export function MessageItem({
   onError,
 }: MessageItemProps) {
   const [locale] = useLocale();
+  const t = useT();
   const [editing, setEditing] = useState(false);
   const [busy, setBusy] = useState(false);
   // Opened with Enter/Space on the message, or the "⋯" button (touch devices).
@@ -188,7 +189,7 @@ export function MessageItem({
   };
 
   const onDelete = async () => {
-    if (!window.confirm('Delete this message?')) return;
+    if (!window.confirm(t('chat.message.confirmDelete'))) return;
     onError(null);
     setBusy(true);
     // Focus moves to the neighbouring message (or the composer) instead of getting lost on <body>.
@@ -289,7 +290,7 @@ export function MessageItem({
                 title={formatDateTime(message.editedAt, locale)}
                 className="text-[11px] text-muted"
               >
-                (edited)
+                {t('chat.edited')}
               </span>
             )}
           </div>
@@ -329,7 +330,7 @@ export function MessageItem({
                   setEditing(true);
                 }}
               >
-                Edit
+                {t('chat.message.edit')}
               </button>
             )}
             {canDelete && (
@@ -343,15 +344,15 @@ export function MessageItem({
                   void onDelete();
                 }}
               >
-                Delete
+                {t('chat.message.delete')}
               </button>
             )}
           </div>
           {/* Only on devices without hover (display:none elsewhere, so not in the a11y tree). */}
           <button
             type="button"
-            aria-label="Message actions"
-            title="Message actions"
+            aria-label={t('chat.message.actions')}
+            title={t('chat.message.actions')}
             aria-expanded={actionsOpen}
             tabIndex={actionTabIndex}
             className={moreButton}
@@ -383,6 +384,7 @@ function EditForm({
   onDone: () => void;
   onError: ErrorSink;
 }) {
+  const t = useT();
   const [draft, setDraft] = useState(message.content);
   const [saving, setSaving] = useState(false);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -432,7 +434,7 @@ function EditForm({
     >
       <textarea
         ref={inputRef}
-        aria-label="Edit message"
+        aria-label={t('chat.message.editLabel')}
         className={`${inputClass} max-h-64 resize-none`}
         rows={2}
         maxLength={MESSAGE_INPUT_MAX_LENGTH}
@@ -445,12 +447,12 @@ function EditForm({
       />
       <div className="flex items-center gap-2 text-xs text-muted">
         <button type="submit" className={actionButton} disabled={saving}>
-          Save
+          {t('chat.message.save')}
         </button>
         <button type="button" className={actionButton} onClick={onDone}>
-          Cancel
+          {t('chat.message.cancel')}
         </button>
-        <span>Enter to save · Escape to cancel</span>
+        <span>{t('chat.message.editHint')}</span>
       </div>
     </form>
   );
@@ -472,6 +474,7 @@ export function PendingItem({
   usernames: ReadonlySet<string>;
   onError: ErrorSink;
 }) {
+  const t = useT();
   const failed = pending.status === 'failed';
   const retry = () => {
     onError(null);
@@ -502,7 +505,7 @@ export function PendingItem({
             {authorName}
           </span>
           <span className="shrink-0 text-xs whitespace-nowrap text-muted">
-            {failed ? 'Not sent' : 'Sending…'}
+            {failed ? t('chat.message.notSent') : t('chat.message.sending')}
           </span>
         </div>
         <div
@@ -518,11 +521,11 @@ export function PendingItem({
           <div className="mt-1 flex items-center gap-1">
             {grouped && (
               <span aria-hidden="true" className="mr-1 text-xs text-muted">
-                Not sent
+                {t('chat.message.notSent')}
               </span>
             )}
             <button type="button" className={actionButton} onClick={retry}>
-              Retry
+              {t('chat.message.retry')}
             </button>
             <button
               type="button"
@@ -531,7 +534,7 @@ export function PendingItem({
                 useMessageStore.getState().discardPending(pending.nonce);
               }}
             >
-              Discard
+              {t('chat.message.discard')}
             </button>
           </div>
         )}

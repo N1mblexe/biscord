@@ -1,16 +1,17 @@
 import { LIMITS, type Attachment } from '@hearth/shared';
 import { describe, expect, it } from 'vitest';
+import { useLocaleStore } from '../i18n/store';
 import {
   attachmentView,
   chipsReducer,
-  FILE_TOO_LARGE_MESSAGE,
+  fileTooLargeMessage,
   fileLabel,
   formatBytes,
   isAttachmentUrl,
   isUploading,
   readyAttachments,
   selectFiles,
-  TOO_MANY_FILES_MESSAGE,
+  tooManyFilesMessage,
   type Chip,
 } from './attachments';
 
@@ -150,15 +151,27 @@ describe('selectFiles', () => {
     const ok = file('ok');
     const res = selectFiles(0, [file('huge', LIMITS.uploadMaxBytes + 1), ok]);
     expect(res.accepted).toEqual([ok]);
-    expect(res.error).toBe(FILE_TOO_LARGE_MESSAGE);
-    expect(FILE_TOO_LARGE_MESSAGE).toBe('File is too large (max 25 MB).');
+    expect(res.error).toBe(fileTooLargeMessage());
+    expect(fileTooLargeMessage()).toBe('File is too large (max 25 MB).');
   });
 
   it('accepts only as many files as still fit', () => {
     const files = Array.from({ length: 4 }, (_, i) => file(`f${i}`));
     const res = selectFiles(8, files);
     expect(res.accepted.map((f) => f.name)).toEqual(['f0', 'f1']);
-    expect(res.error).toBe(TOO_MANY_FILES_MESSAGE);
-    expect(selectFiles(10, [file('x')])).toEqual({ accepted: [], error: TOO_MANY_FILES_MESSAGE });
+    expect(res.error).toBe(tooManyFilesMessage());
+    expect(selectFiles(10, [file('x')])).toEqual({ accepted: [], error: tooManyFilesMessage() });
+    expect(tooManyFilesMessage()).toBe('You can attach at most 10 files to a message.');
+  });
+
+  it('is translated when called', () => {
+    useLocaleStore.setState({ locale: 'tr' });
+    try {
+      expect(fileTooLargeMessage()).toBe('Dosya çok büyük (en fazla 25 MB).');
+      expect(tooManyFilesMessage()).toBe('Bir mesaja en fazla 10 dosya ekleyebilirsiniz.');
+      expect(fileLabel(attachment({ filename: 'rapor.pdf', sizeBytes: 1536 }))).toBe('rapor.pdf (1,5 KB)');
+    } finally {
+      useLocaleStore.setState({ locale: 'en' });
+    }
   });
 });

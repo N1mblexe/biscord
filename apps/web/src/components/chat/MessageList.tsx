@@ -10,6 +10,7 @@ import {
   type ReactNode,
 } from 'react';
 import { errorMessage } from '../../api/errors';
+import { useLocale, useT } from '../../i18n';
 import { authorName } from '../../lib/bootstrapPatch';
 import { timelineMeta, type TimelineInput } from '../../lib/chatTimeline';
 import { emptyChannelCopy } from '../../lib/emptyStates';
@@ -55,6 +56,8 @@ interface MessageListProps {
 }
 
 export function MessageList({ channelId, boot, me, isDm, name, canReact, onError }: MessageListProps) {
+  const t = useT();
+  const [locale] = useLocale();
   const entry = useMessageStore((s) => s.channels[channelId]);
   const allPending = useMessageStore((s) => s.pending);
   const pending = useMemo(
@@ -250,9 +253,9 @@ export function MessageList({ channelId, boot, me, isDm, name, canReact, onError
       ...messages.map((message) => ({ ...message, row: { kind: 'message' as const, message } })),
       ...pending.map((p) => ({ ...p, row: { kind: 'pending' as const, pending: p } })),
     ];
-    const meta = timelineMeta(items);
+    const meta = timelineMeta(items, new Date(), locale);
     return items.map((item, i) => ({ ...item.row, ...(meta[i] ?? { separator: null, grouped: false }) }));
-  }, [ids, entry, pending]);
+  }, [ids, entry, pending, locale]);
 
   return (
     <div className="relative flex min-h-0 flex-1 flex-col">
@@ -260,7 +263,7 @@ export function MessageList({ channelId, boot, me, isDm, name, canReact, onError
         ref={scrollRef}
         onScroll={onScroll}
         className="min-h-0 flex-1 overflow-y-auto [overflow-anchor:none]"
-        aria-label="Chat history"
+        aria-label={t('chat.history.label')}
         role="region"
       >
         <div ref={topRef} aria-hidden="true" className="h-px" />
@@ -274,15 +277,15 @@ export function MessageList({ channelId, boot, me, isDm, name, canReact, onError
                 requestOlder(ids[0]);
               }}
             >
-              Load older messages
+              {t('chat.history.loadOlder')}
             </button>
           </div>
         )}
         {!loaded && loadError !== null ? (
           <div className="flex flex-wrap items-center gap-3 px-4 py-6 text-sm text-muted">
-            <p data-testid="messages-load-error">Couldn’t load messages: {loadError}</p>
+            <p data-testid="messages-load-error">{t('chat.history.loadError', { error: loadError })}</p>
             <button type="button" className={secondaryButton} onClick={retryLoad}>
-              Retry
+              {t('chat.history.retry')}
             </button>
           </div>
         ) : !loaded ? (
@@ -290,9 +293,7 @@ export function MessageList({ channelId, boot, me, isDm, name, canReact, onError
         ) : ids.length === 0 && pending.length === 0 ? (
           <EmptyChannel name={name} isDm={isDm} />
         ) : (
-          !hasOlder && (
-            <p className="px-4 pt-6 pb-2 text-xs text-muted">This is the beginning of the conversation.</p>
-          )
+          !hasOlder && <p className="px-4 pt-6 pb-2 text-xs text-muted">{t('chat.history.beginning')}</p>
         )}
         <ol ref={listRef} className="flex flex-col pb-2">
           {rows.map((row) => {
@@ -346,13 +347,13 @@ export function MessageList({ channelId, boot, me, isDm, name, canReact, onError
           className="absolute bottom-3 left-1/2 flex max-w-[calc(100%-2rem)] -translate-x-1/2 items-center gap-2 rounded-full bg-accent px-4 py-1.5 text-sm font-semibold whitespace-nowrap text-bg shadow-lg ring-1 ring-black/20 transition hover:brightness-110 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
         >
           <span>
-            {newCount > 99 ? '99+' : newCount} new {newCount === 1 ? 'message' : 'messages'}
+            {t('chat.history.newMessages', { count: newCount, shown: newCount > 99 ? '99+' : newCount })}
           </span>
           {/* Narrow screens show just the count and the arrow; the name always says what it does. */}
           <span aria-hidden="true" className="hidden sm:inline">
             ·
           </span>
-          <span className="sr-only sm:not-sr-only">Jump to latest</span>
+          <span className="sr-only sm:not-sr-only">{t('chat.history.jumpToLatest')}</span>
           <svg aria-hidden="true" viewBox="0 0 16 16" className="size-3.5" fill="none">
             <path
               d="M8 3v10M3.5 8.5 8 13l4.5-4.5"

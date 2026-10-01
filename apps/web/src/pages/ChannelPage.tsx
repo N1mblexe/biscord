@@ -10,12 +10,10 @@ import { useAttachmentUploads } from '../components/chat/useAttachmentUploads';
 import { PageAlert } from '../components/forms';
 import { MembersPanel } from '../components/MembersPanel';
 import { usePageAlert } from '../components/usePageAlert';
+import { useT } from '../i18n';
 import { authorName, channelViewState } from '../lib/bootstrapPatch';
 import { useMessageStore } from '../stores/messages';
 import { NOTICES, useNoticeStore } from '../stores/notice';
-
-/** The composer's caption in a DM with a deactivated user (docs/plans/phase-8.md, "Web UI contract"). */
-export const READ_ONLY_DM = 'This conversation is read-only.';
 
 /** `/channels/:channelId` — a text channel or a DM. Access is checked by the route loader. */
 export function ChannelPage() {
@@ -25,6 +23,7 @@ export function ChannelPage() {
 }
 
 function ChannelView({ channelId }: { channelId: string }) {
+  const t = useT();
   const { data: boot } = useQuery(bootstrapQuery);
   const { data: me } = useQuery(meQuery);
   const { message: alert, setAlert, dismiss: dismissAlert } = usePageAlert();
@@ -53,9 +52,12 @@ function ChannelView({ channelId }: { channelId: string }) {
   // A deactivated DM partner shows as "Deleted user" (CONTRACTS B.7b rule 5).
   const dmTitle = isDm ? authorName(resolved.otherUser) : '';
   const title = isDm ? dmTitle : `#${resolved.channel.name}`;
-  const placeholder = isDm ? `Message ${dmTitle}` : `Message #${resolved.channel.name}`;
+  const placeholder = isDm
+    ? t('chat.channel.placeholderDm', { name: dmTitle })
+    : t('chat.channel.placeholderChannel', { channel: resolved.channel.name });
   // A DM with a deactivated (or unknown) user is read-only; the server enforces it too.
-  const disabledReason = isDm && (resolved.otherUser?.deactivated ?? true) ? READ_ONLY_DM : null;
+  const disabledReason =
+    isDm && (resolved.otherUser?.deactivated ?? true) ? t('chat.channel.readOnlyDm') : null;
 
   const canPost = disabledReason === null;
 
@@ -71,7 +73,7 @@ function ChannelView({ channelId }: { channelId: string }) {
             aria-hidden="true"
             className="pointer-events-none absolute inset-2 z-10 flex items-center justify-center rounded-xl border-2 border-dashed border-accent bg-bg/80 text-sm font-semibold text-accent"
           >
-            Drop files to attach
+            {t('chat.channel.dropFiles')}
           </div>
         )}
         <header className="flex h-12 shrink-0 items-center border-b border-white/5 px-4">

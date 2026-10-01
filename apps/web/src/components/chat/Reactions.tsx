@@ -1,5 +1,6 @@
 import { EMOJI_PALETTE, type Message, type PublicUser } from '@hearth/shared';
 import { useLayoutEffect, useRef, useState, type RefObject } from 'react';
+import { useT } from '../../i18n';
 import { authorName } from '../../lib/bootstrapPatch';
 
 /** Gap between the trigger and the palette, and the minimum distance from the viewport edges. */
@@ -17,9 +18,10 @@ interface ReactionBarProps {
 
 /** One `reaction` toggle button per emoji under a message (`<emoji> <count>`, pressed when mine). */
 export function ReactionBar({ message, meId, usersById, disabled, onToggle }: ReactionBarProps) {
+  const t = useT();
   if (message.reactions.length === 0) return null;
   return (
-    <ul aria-label="Reactions" className="mt-1 flex flex-wrap gap-1">
+    <ul aria-label={t('chat.reactions.label')} className="mt-1 flex flex-wrap gap-1">
       {message.reactions.map(({ emoji, userIds }) => {
         const mine = userIds.includes(meId);
         const who = userIds.map((id) => authorName(usersById.get(id))).join(', ');
@@ -78,6 +80,7 @@ export function AddReaction({
   tabIndex?: number;
   onPick: (emoji: string) => void;
 }) {
+  const t = useT();
   const [open, setOpen] = useState(false);
   const triggerRef = useRef<HTMLButtonElement>(null);
   return (
@@ -85,8 +88,8 @@ export function AddReaction({
       <button
         ref={triggerRef}
         type="button"
-        aria-label="Add reaction"
-        title="Add reaction"
+        aria-label={t('chat.reactions.add')}
+        title={t('chat.reactions.add')}
         aria-haspopup="dialog"
         aria-expanded={open}
         tabIndex={tabIndex}
@@ -137,6 +140,7 @@ function ReactionPalette({
   /** The dialog closed (picked, Escape, click outside). */
   onClosed: () => void;
 }) {
+  const t = useT();
   const dialogRef = useRef<HTMLDialogElement>(null);
 
   // A native modal <dialog>: top layer (never clipped by the scrolling history), inert background,
@@ -159,7 +163,7 @@ function ReactionPalette({
     <dialog
       ref={dialogRef}
       role="dialog"
-      aria-label="Add reaction"
+      aria-label={t('chat.reactions.add')}
       // pointer-events-auto: the message toolbar that holds the trigger turns pointer events off
       // while hidden, and pointer-events is inherited.
       className="pointer-events-auto fixed inset-auto m-0 rounded-lg bg-surface-raised p-0 text-text shadow-xl ring-1 ring-white/10 backdrop:bg-transparent"

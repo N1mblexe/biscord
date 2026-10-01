@@ -1,4 +1,56 @@
 /** Client-side text for server error codes, CONTRACTS B.11 rule 4 (English, the source of truth). */
 export const errors = {
   generic: 'Something went wrong. Please try again.',
+  network: 'Could not reach the server. Check your connection and try again.',
+  unexpectedStatus: 'The server returned an unexpected error ({status}).',
+  unexpectedResponse: 'The server sent an unexpected response.',
+  /**
+   * One text per `ErrorCode` (`api/errors.ts`). In English the server's own message is shown when it
+   * has one, except for INVITE_INVALID and INVALID_CREDENTIALS, which always use these.
+   */
+  code: {
+    VALIDATION: 'The request was invalid. Check it and try again.',
+    UNAUTHENTICATED: 'Please log in again.',
+    INVALID_CREDENTIALS: 'Wrong username or password.',
+    FORBIDDEN: 'You don’t have permission to do that.',
+    NOT_FOUND: 'Not found. It may have been deleted.',
+    CONFLICT: 'That conflicts with something that already exists.',
+    USERNAME_TAKEN: 'That username is already taken.',
+    INVITE_INVALID: 'This invite is invalid, expired, or already used.',
+    USER_LIMIT: 'This server has reached its user limit.',
+    LAST_ADMIN: 'The server must keep at least one active admin.',
+    CHANNEL_LIMIT: 'The server has reached its channel limit.',
+    UPLOAD_QUOTA: 'Too many files waiting to be sent. Send or remove some first.',
+    PAYLOAD_TOO_LARGE: 'The file is too large.',
+    UNSUPPORTED_MEDIA: 'This file type isn’t supported.',
+    RATE_LIMITED: 'Too many requests. Wait a moment and try again.',
+    LIVEKIT_UNAVAILABLE: 'The voice server is unavailable. Try again later.',
+    STORAGE_FULL: 'The server is out of storage space. Tell an admin.',
+    INTERNAL: 'Something went wrong. Please try again.',
+  },
+  /** Plain replacements for zod's default VALIDATION messages (`friendlyValidationMessage`). */
+  validation: {
+    required: 'Required',
+    wholeNumber: 'Must be a whole number',
+    number: 'Must be a number',
+    text: 'Must be text',
+    invalidValue: 'Invalid value',
+    minChars: 'Must be at least {n} characters',
+    moreThanChars: 'Must be more than {n} characters',
+    maxChars: 'Must be at most {n} characters',
+    fewerThanChars: 'Must be fewer than {n} characters',
+    exactChars: 'Must be exactly {n} characters',
+    min: 'Must be at least {n}',
+    greaterThan: 'Must be greater than {n}',
+    max: 'Must be at most {n}',
+    lessThan: 'Must be less than {n}',
+    minItems: { one: 'Must have at least {count} item', other: 'Must have at least {count} items' },
+    maxItems: { one: 'Must have at most {count} item', other: 'Must have at most {count} items' },
+    invalidId: 'Invalid ID',
+    email: 'Must be a valid email address',
+    dateTime: 'Must be a valid date and time',
+    format: 'Invalid format',
+    oneOf: 'Must be one of: {options}',
+    unexpectedField: 'Unexpected field',
+  },
 } as const;

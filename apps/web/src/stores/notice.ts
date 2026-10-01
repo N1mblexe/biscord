@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { t } from '../i18n/translate';
 
 /**
  * The app-wide notice (`data-testid="app-notice"`), e.g. "This channel was deleted.".
@@ -21,12 +22,27 @@ export const useNoticeStore = create<NoticeState>()((set) => ({
   },
 }));
 
+/**
+ * The notice texts, in the UI language: each getter translates when it is read, so read one right
+ * before `setNotice` (a copy taken at module load would stay in the language of that moment). A
+ * notice already shown keeps its language when the language changes.
+ */
 export const NOTICES = {
-  channelDeleted: 'This channel was deleted.',
-  channelUnavailable: "That channel doesn't exist or you don't have access to it.",
-  voiceChannelNoText: 'Voice channels have no text chat. Click one in the sidebar to join it.',
+  get channelDeleted(): string {
+    return t('chat.notice.channelDeleted');
+  },
+  get channelUnavailable(): string {
+    return t('chat.notice.channelUnavailable');
+  },
+  get voiceChannelNoText(): string {
+    return t('chat.notice.voiceChannelNoText');
+  },
   /** `voice:kicked` (CONTRACTS B.7b rule 4), reason `admin`. */
-  voiceKickedByAdmin: 'You were disconnected from voice by an admin.',
+  get voiceKickedByAdmin(): string {
+    return t('chat.notice.voiceKickedByAdmin');
+  },
   /** `voice:kicked`, reason `channel_deleted`. */
-  voiceChannelDeleted: 'This voice channel was deleted.',
-} as const;
+  get voiceChannelDeleted(): string {
+    return t('chat.notice.voiceChannelDeleted');
+  },
+};

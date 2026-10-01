@@ -1,5 +1,6 @@
 import { useRef, useState, type ClipboardEvent, type KeyboardEvent } from 'react';
 import { errorMessage } from '../../api/errors';
+import { useT, type MessageKey } from '../../i18n';
 import { formatBytes, isUploading, readyAttachments, type Chip } from '../../lib/attachments';
 import { MESSAGE_INPUT_MAX_LENGTH, messageTooLong } from '../../lib/messageLength';
 import { deliverPending } from '../../lib/messageSync';
@@ -38,6 +39,7 @@ export function Composer({
   uploads,
   onError,
 }: ComposerProps) {
+  const t = useT();
   const [draft, setDraft] = useState('');
   const inputRef = useRef<HTMLTextAreaElement>(null);
   useAutoGrow(inputRef, draft);
@@ -98,7 +100,7 @@ export function Composer({
       }}
     >
       <label htmlFor="composer-input" className="sr-only">
-        Message
+        {t('chat.composer.label')}
       </label>
       {disabled && (
         <p id="composer-disabled-reason" className="mb-2 text-xs text-muted">
@@ -106,7 +108,7 @@ export function Composer({
         </p>
       )}
       {chips.length > 0 && (
-        <ul aria-label="Attachments" className="mb-2 flex flex-wrap gap-2">
+        <ul aria-label={t('chat.composer.attachments')} className="mb-2 flex flex-wrap gap-2">
           {chips.map((chip) => (
             <AttachmentChip
               key={chip.key}
@@ -134,13 +136,13 @@ export function Composer({
         />
         <label
           htmlFor="composer-files"
-          title="Attach files"
+          title={t('chat.composer.attachFiles')}
           className={`flex size-9 shrink-0 cursor-pointer items-center justify-center rounded-lg text-muted ring-1 ring-white/10 transition hover:bg-white/10 hover:text-text peer-focus-visible:outline-2 peer-focus-visible:outline-accent ${
             disabled ? 'pointer-events-none opacity-60' : ''
           }`}
         >
           <PaperclipIcon />
-          <span className="sr-only">Attach files</span>
+          <span className="sr-only">{t('chat.composer.attachFiles')}</span>
         </label>
         <div className="relative min-w-0 flex-1">
           <textarea
@@ -178,7 +180,7 @@ export function Composer({
           )}
         </div>
         <button type="submit" className={`${primaryButton} shrink-0`} disabled={disabled || uploading}>
-          Send
+          {t('chat.composer.send')}
         </button>
       </div>
     </form>
@@ -211,15 +213,18 @@ const CHIP_TONE: Record<Chip['state'], string> = {
   failed: 'text-danger ring-danger/40',
 };
 
-const CHIP_STATUS: Record<Chip['state'], string> = {
-  uploading: 'Uploading…',
-  ready: '',
-  failed: 'Failed',
+const CHIP_STATUS: Record<Chip['state'], MessageKey | null> = {
+  uploading: 'chat.composer.chipUploading',
+  ready: null,
+  failed: 'chat.composer.chipFailed',
 };
 
 /** One pending file: `attachment-chip` with `data-state` and a **Remove <filename>** button. */
 function AttachmentChip({ chip, onRemove }: { chip: Chip; onRemove: () => void }) {
-  const status = CHIP_STATUS[chip.state];
+  const t = useT();
+  const statusKey = CHIP_STATUS[chip.state];
+  const status = statusKey === null ? '' : t(statusKey);
+  const removeLabel = t('chat.composer.removeFile', { filename: chip.filename });
   return (
     <li
       data-testid="attachment-chip"
@@ -233,8 +238,8 @@ function AttachmentChip({ chip, onRemove }: { chip: Chip; onRemove: () => void }
       <span className="shrink-0 text-muted">{status || formatBytes(chip.sizeBytes)}</span>
       <button
         type="button"
-        aria-label={`Remove ${chip.filename}`}
-        title={`Remove ${chip.filename}`}
+        aria-label={removeLabel}
+        title={removeLabel}
         className="shrink-0 rounded px-1.5 text-sm leading-5 text-muted hover:bg-white/10 hover:text-text focus-visible:outline-2 focus-visible:outline-accent"
         onClick={onRemove}
       >

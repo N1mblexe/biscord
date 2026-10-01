@@ -6,12 +6,13 @@ import {
   type Attachment,
   type Me,
 } from '@hearth/shared';
+import { t } from '../i18n';
 import {
   API_PREFIX,
   ApiError,
   apiFetch,
   errorFromResponse,
-  NETWORK_ERROR_MESSAGE,
+  networkError,
   type ResponseSchema,
 } from './client';
 
@@ -37,7 +38,7 @@ export function parseUploadResponse<T>(status: number, body: string, schema: Res
   const json = parseJson(body);
   if (status < 200 || status >= 300) throw errorFromResponse(status, json);
   const parsed = json === undefined ? undefined : schema.safeParse(json);
-  if (!parsed?.success) throw new ApiError(status, 'INTERNAL', 'The server sent an unexpected response.');
+  if (!parsed?.success) throw new ApiError(status, 'INTERNAL', t('errors.unexpectedResponse'));
   return parsed.data;
 }
 
@@ -96,7 +97,7 @@ export function uploadFile<T>(
     });
     xhr.addEventListener('error', () => {
       cleanup();
-      reject(new ApiError(0, 'INTERNAL', NETWORK_ERROR_MESSAGE));
+      reject(networkError());
     });
     xhr.addEventListener('abort', () => {
       cleanup();

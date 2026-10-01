@@ -1,5 +1,6 @@
 import { LIMITS } from '@hearth/shared';
 import { create } from 'zustand';
+import { t } from '../i18n/translate';
 
 /**
  * Who is typing where (CONTRACTS B.5a rule 5): each `typing` event shows the user for
@@ -76,11 +77,14 @@ export const useTypingStore = create<TypingState>()((set, get) => ({
   },
 }));
 
-/** The typing indicator text (docs/plans/phase-4.md, "Web UI contract"); `null` when nobody types. */
+/**
+ * The typing indicator text (docs/plans/phase-4.md, "Web UI contract") in the UI language; `null`
+ * when nobody types.
+ */
 export function typingText(names: readonly string[]): string | null {
   const [first, second] = names;
   if (first === undefined) return null;
-  if (second === undefined) return `${first} is typing…`;
-  if (names.length === 2) return `${first} and ${second} are typing…`;
-  return 'Several people are typing…';
+  if (second === undefined) return t('chat.typing.one', { a: first });
+  if (names.length === 2) return t('chat.typing.two', { a: first, b: second });
+  return t('chat.typing.several');
 }

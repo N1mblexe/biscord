@@ -6,7 +6,9 @@
  *   list is by the same author, on the same day, and at most `GROUP_WINDOW_MS` older.
  */
 
+import type { Locale } from '@hearth/shared';
 import { dayLabel } from '../i18n/format';
+import { getLocale } from '../i18n/store';
 
 /** Consecutive messages by one author this close together share one header. */
 export const GROUP_WINDOW_MS = 5 * 60_000;
@@ -31,8 +33,12 @@ function localDayKey(date: Date): string {
 /** "Today", "Yesterday" or the full local date, relative to `now`, in the UI language. */
 export { dayLabel };
 
-/** Separator and grouping for each item of a history in display (ascending) order. */
-export function timelineMeta(items: readonly TimelineInput[], now: Date = new Date()): TimelineMeta[] {
+/** Separator (labelled in `locale`) and grouping for each item of a history in display (ascending) order. */
+export function timelineMeta(
+  items: readonly TimelineInput[],
+  now: Date = new Date(),
+  locale: Locale = getLocale(),
+): TimelineMeta[] {
   const out: TimelineMeta[] = [];
   let prev: { authorId: string; time: number; day: string } | null = null;
   for (const item of items) {
@@ -46,7 +52,7 @@ export function timelineMeta(items: readonly TimelineInput[], now: Date = new Da
       prev.authorId === item.authorId &&
       time >= prev.time &&
       time - prev.time <= GROUP_WINDOW_MS;
-    out.push({ separator: newDay ? dayLabel(date, now) : null, grouped });
+    out.push({ separator: newDay ? dayLabel(date, now, locale) : null, grouped });
     prev = { authorId: item.authorId, time, day };
   }
   return out;

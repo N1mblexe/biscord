@@ -1,4 +1,5 @@
 import { ApiErrorBody, CSRF_HEADER, CSRF_HEADER_VALUE, type ErrorCode } from '@hearth/shared';
+import { t } from '../i18n';
 
 /** Every REST path in CONTRACTS B.4 is relative to this prefix. */
 export const API_PREFIX = '/api';
@@ -46,11 +47,14 @@ export function errorFromResponse(status: number, json: unknown): ApiError {
     const { code, message, details } = parsed.data.error;
     return new ApiError(status, code, message, details);
   }
-  if (status === 413) return new ApiError(status, 'PAYLOAD_TOO_LARGE', 'The file is too large.');
-  return new ApiError(status, 'INTERNAL', `The server returned an unexpected error (${status}).`);
+  if (status === 413) return new ApiError(status, 'PAYLOAD_TOO_LARGE', t('errors.code.PAYLOAD_TOO_LARGE'));
+  return new ApiError(status, 'INTERNAL', t('errors.unexpectedStatus', { status }));
 }
 
-export const NETWORK_ERROR_MESSAGE = 'Could not reach the server. Check your connection and try again.';
+/** The error for a request that never reached the server (status 0), in the UI language. */
+export function networkError(): ApiError {
+  return new ApiError(0, 'INTERNAL', t('errors.network'));
+}
 
 function isAbort(err: unknown, signal: AbortSignal | undefined): boolean {
   return signal?.aborted === true || (err instanceof DOMException && err.name === 'AbortError');
@@ -97,7 +101,7 @@ export async function apiFetch<T>(
     });
   } catch (err) {
     if (isAbort(err, signal)) throw err;
-    throw new ApiError(0, 'INTERNAL', NETWORK_ERROR_MESSAGE);
+    throw networkError();
   }
 
   if (!res.ok) {
@@ -110,7 +114,7 @@ export async function apiFetch<T>(
   const json = res.status === 204 ? undefined : await readJson(res);
   const parsed = json?.ok ? schema.safeParse(json.value) : undefined;
   if (!parsed?.success) {
-    throw new ApiError(res.status, 'INTERNAL', 'The server sent an unexpected response.');
+    throw new ApiError(res.status, 'INTERNAL', t('errors.unexpectedResponse'));
   }
   return parsed.data;
 }

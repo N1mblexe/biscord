@@ -1,4 +1,5 @@
 import { LIMITS } from '@hearth/shared';
+import { t } from '../i18n/translate';
 
 /**
  * A message's length as the server counts it: in Unicode code points (Postgres `char_length`), so
@@ -10,10 +11,10 @@ export function messageLength(content: string): number {
   return [...content].length;
 }
 
-/** The error text for a message over the limit, or `null` when it fits. */
+/** The error text for a message over the limit (in the UI language), or `null` when it fits. */
 export function messageTooLong(content: string): string | null {
   return messageLength(content) > LIMITS.messageMaxChars
-    ? `Messages can be at most ${LIMITS.messageMaxChars} characters.`
+    ? t('chat.message.tooLong', { max: LIMITS.messageMaxChars })
     : null;
 }
 
