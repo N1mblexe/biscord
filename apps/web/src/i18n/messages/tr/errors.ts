@@ -7,8 +7,8 @@ export const errors: MessagesOf<'errors'> = {
   unexpectedResponse: 'Sunucu beklenmeyen bir yanıt gönderdi.',
   code: {
     VALIDATION: 'İstek geçersiz. Kontrol edip tekrar deneyin.',
-    UNAUTHENTICATED: 'Lütfen yeniden giriş yapın.',
-    INVALID_CREDENTIALS: 'Kullanıcı adı veya şifre yanlış.',
+    UNAUTHENTICATED: 'Lütfen tekrar giriş yapın.',
+    INVALID_CREDENTIALS: 'Kullanıcı adı ya da şifre yanlış.',
     FORBIDDEN: 'Bunu yapma izniniz yok.',
     NOT_FOUND: 'Bulunamadı. Silinmiş olabilir.',
     CONFLICT: 'Bu, zaten var olan bir şeyle çakışıyor.',

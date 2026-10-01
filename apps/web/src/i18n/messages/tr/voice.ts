@@ -25,7 +25,7 @@ export const voice: MessagesOf<'voice'> = {
     participants: '{name} kanalındakiler',
   },
   participant: {
-    muted: 'Sessizde',
+    muted: 'Sessize alınmış',
     deafened: 'Sağırlaştırılmış',
     cameraOn: 'Kamera açık',
     live: 'CANLI',
@@ -46,10 +46,11 @@ export const voice: MessagesOf<'voice'> = {
   messages: {
     joinFailed: 'Ses kanalına katılınamadı. Tekrar deneyin.',
     joinTimedOut: 'Ses sunucusu zamanında yanıt vermedi. Yeniden katılmayı deneyin.',
-    micUnavailable: 'Mikrofon kullanılamıyor: tarayıcı iznini kontrol edin. Sessizde katıldınız.',
+    micUnavailable:
+      'Mikrofon kullanılamıyor: tarayıcı iznini kontrol edin. Sessize alınmış olarak katıldınız.',
     dropped: 'Ses bağlantınız kesildi.',
-    cameraBlocked: 'Kamera kullanılamıyor veya engellendi',
-    screenBlocked: 'Ekran paylaşımı iptal edildi veya engellendi',
+    cameraBlocked: 'Kamera kullanılamıyor ya da engellendi',
+    screenBlocked: 'Ekran paylaşımı iptal edildi ya da engellendi',
   },
   kicked: {
     admin: 'Bir yönetici ses bağlantınızı kesti.',

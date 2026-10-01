@@ -110,7 +110,7 @@ describe('errorMessage', () => {
       'Bulunamadı. Silinmiş olabilir.',
     );
     expect(errorMessage(new ApiError(401, 'INVALID_CREDENTIALS', 'x'))).toBe(
-      'Kullanıcı adı veya şifre yanlış.',
+      'Kullanıcı adı ya da şifre yanlış.',
     );
     expect(errorMessage(new ApiError(0, 'INTERNAL', 'x'))).toBe(
       'Sunucuya ulaşılamadı. Bağlantınızı kontrol edip tekrar deneyin.',

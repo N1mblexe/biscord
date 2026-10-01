@@ -7,6 +7,8 @@ export const common: MessagesOf<'common'> = {
   cancel: 'İptal',
   save: 'Kaydet',
   dismissError: 'Hatayı kapat',
+  deletedUser: 'Silinmiş kullanıcı',
+  unknownUser: 'Bilinmeyen kullanıcı',
   language: {
     label: 'Dil',
     en: 'English',

@@ -1,4 +1,5 @@
 import type { BootstrapResponse, Channel, DmChannel, PublicUser } from '@hearth/shared';
+import { t } from '../i18n';
 
 /**
  * Pure updates of the cached `['bootstrap']` data for socket events and mutation responses.
@@ -40,13 +41,22 @@ export function upsertUser(boot: BootstrapResponse, user: PublicUser): Bootstrap
 
 // ---- Display helpers ----
 
-export const DELETED_USER = 'Deleted user';
-export const UNKNOWN_USER = 'Unknown user';
+/**
+ * "Deleted user" / "Unknown user" in the current UI language. Functions, not constants, so the text
+ * follows a language switch (callers render inside components subscribed to the locale).
+ */
+export function deletedUserName(): string {
+  return t('common.deletedUser');
+}
+
+export function unknownUserName(): string {
+  return t('common.unknownUser');
+}
 
 /** Author label: the display name, "Deleted user" when deactivated (CONTRACTS B.7b rule 5). */
 export function authorName(user: PublicUser | undefined): string {
-  if (!user) return UNKNOWN_USER;
-  return user.deactivated ? DELETED_USER : user.displayName;
+  if (!user) return unknownUserName();
+  return user.deactivated ? deletedUserName() : user.displayName;
 }
 
 /** How a user is shown next to their content (messages, DMs, voice). */
@@ -60,8 +70,8 @@ export interface UserDisplay {
 
 /** A user's name and avatar as displayed; unknown users show as "Unknown user". */
 export function displayUser(user: PublicUser | undefined): UserDisplay {
-  if (!user) return { name: UNKNOWN_USER, avatarUrl: null, deleted: false };
-  if (user.deactivated) return { name: DELETED_USER, avatarUrl: null, deleted: true };
+  if (!user) return { name: unknownUserName(), avatarUrl: null, deleted: false };
+  if (user.deactivated) return { name: deletedUserName(), avatarUrl: null, deleted: true };
   return { name: user.displayName, avatarUrl: user.avatarUrl, deleted: false };
 }
 

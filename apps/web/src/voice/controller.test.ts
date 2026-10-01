@@ -729,6 +729,6 @@ describe('voiceMessage', () => {
   it('is translated when it is shown, not when the module loads', () => {
     useLocaleStore.setState({ locale: 'tr' });
     expect(voiceMessage('dropped')).toBe('Ses bağlantınız kesildi.');
-    expect(voiceMessage('screenBlocked')).toBe('Ekran paylaşımı iptal edildi veya engellendi');
+    expect(voiceMessage('screenBlocked')).toBe('Ekran paylaşımı iptal edildi ya da engellendi');
   });
 });

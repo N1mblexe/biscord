@@ -1,5 +1,6 @@
 import type { BootstrapResponse, Channel, PublicUser } from '@hearth/shared';
 import { describe, expect, it } from 'vitest';
+import { useLocaleStore } from '../i18n/store';
 import {
   authorName,
   channelViewState,
@@ -90,6 +91,17 @@ describe('bootstrap patches', () => {
     expect(authorName(user(BOB, 'Bob'))).toBe('Bob');
     expect(authorName(user(BOB, 'Bob', { deactivated: true }))).toBe('Deleted user');
     expect(authorName(undefined)).toBe('Unknown user');
+  });
+
+  it('translates "Deleted user" / "Unknown user" when used, following a language switch', () => {
+    try {
+      useLocaleStore.setState({ locale: 'tr' });
+      expect(authorName(user(BOB, 'Bob', { deactivated: true }))).toBe('Silinmiş kullanıcı');
+      expect(displayUser(undefined).name).toBe('Bilinmeyen kullanıcı');
+    } finally {
+      useLocaleStore.setState({ locale: 'en' });
+    }
+    expect(authorName(user(BOB, 'Bob', { deactivated: true }))).toBe('Deleted user');
   });
 
   it('shows a deactivated user as "Deleted user" with the neutral avatar, never their name or picture', () => {

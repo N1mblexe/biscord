@@ -7,7 +7,7 @@ export const auth: MessagesOf<'auth'> = {
   passwordHint: 'En az 10 karakter.',
   login: {
     title: 'Tekrar hoş geldiniz',
-    description: 'Arkadaşlarınıza yetişmek için giriş yapın.',
+    description: 'Arkadaşlarınızla sohbete katılmak için giriş yapın.',
     haveInvite: 'Davetiniz mi var? <link>Hesap oluşturun</link>',
     gotResetCode: 'Sıfırlama kodunuz mu var? <link>Şifrenizi sıfırlayın</link>',
     submit: 'Giriş yap',
@@ -17,7 +17,8 @@ export const auth: MessagesOf<'auth'> = {
     description: 'Yöneticilerden birinden davet kodu almanız gerekir.',
     haveAccount: 'Zaten hesabınız var mı? <link>Giriş yapın</link>',
     inviteCode: 'Davet kodu',
-    usernameHint: '3–32 küçük harf (a–z), rakam ya da alt çizgi. Arkadaşlarınız sizden bununla @bahseder.',
+    usernameHint:
+      '3–32 küçük harf (a–z), rakam ya da alt çizgi. Arkadaşlarınız sizden bahsederken bunu @ ile yazar.',
     usernameRule: '3–32 küçük harf (a–z), rakam ya da alt çizgi kullanın',
     displayName: 'Görünen ad',
     displayNameHint: 'Herkesin gördüğü ad. Daha sonra Ayarlar’dan değiştirebilirsiniz.',

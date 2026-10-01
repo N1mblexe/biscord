@@ -1,10 +1,10 @@
 import type { MessagesOf } from '../en';
 
 export const a11y: MessagesOf<'a11y'> = {
-  openNavigation: 'Gezinmeyi aç',
-  closeNavigation: 'Gezinmeyi kapat',
-  navigation: 'Gezinme',
-  closeMembers: 'Üyeleri kapat',
+  openNavigation: 'Menüyü aç',
+  closeNavigation: 'Menüyü kapat',
+  navigation: 'Menü',
+  closeMembers: 'Üye listesini kapat',
   mainNav: 'Ana menü',
   channelsNav: 'Kanallar',
   online: 'Çevrimiçi',
@@ -39,7 +39,7 @@ export const a11y: MessagesOf<'a11y'> = {
     unreachable: 'Sunucu: ulaşılamıyor',
   },
   avatar: {
-    invalidType: 'Avatar PNG, JPEG veya WebP görseli olmalı.',
+    invalidType: 'Avatar PNG, JPEG ya da WebP görseli olmalı.',
     tooLarge: 'Avatar en fazla {size} olabilir.',
   },
 };

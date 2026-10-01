@@ -6,6 +6,10 @@ export const common = {
   cancel: 'Cancel',
   save: 'Save',
   dismissError: 'Dismiss error',
+  /** A deactivated user's name everywhere (CONTRACTS B.7b rule 5; e2e matches it). */
+  deletedUser: 'Deleted user',
+  /** A user missing from the bootstrap. */
+  unknownUser: 'Unknown user',
   language: {
     label: 'Language',
     // Each language is always shown in its own name, whatever the UI language.
