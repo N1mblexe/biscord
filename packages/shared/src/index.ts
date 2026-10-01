@@ -12,5 +12,6 @@ export * from './schemas/channels.js';
 export * from './schemas/messages.js';
 export * from './schemas/attachments.js';
 export * from './schemas/voice.js';
+export * from './schemas/voicePrefs.js';
 export * from './schemas/admin.js';
 export * from './schemas/bootstrap.js';

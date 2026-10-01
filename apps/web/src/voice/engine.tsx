@@ -7,7 +7,9 @@ import {
   RoomEvent,
   ScreenSharePresets,
   Track,
-  VideoPresets,
+  TrackEvent,
+  type AudioCaptureOptions,
+  type LocalAudioTrack,
   type LocalTrackPublication,
   type Participant,
   type RemoteTrack,
@@ -21,10 +23,15 @@ import { useNoticeStore } from '../stores/notice';
 import { usePageAlertStore } from '../stores/pageAlert';
 import { useVoiceStore } from '../stores/voice';
 import { applyUserVolume } from './applyVolume';
-import type { VoiceActions } from './context';
+import type { EngineVoiceActions } from './context';
 import { createVoiceController, type VoiceController } from './controller';
 import { voiceDebug } from './debug';
+import { micTrack, preferredDevices, startDeviceSync } from './deviceSync';
+import { createVadHysteresis } from './gate';
+import { createLevelMeter, type LevelMeter } from './levelMeter';
 import { publishedVideo, screenPublications, unpublishAndStop, watchLocalVideo } from './localVideo';
+import { useVoicePrefs } from './prefs';
+import { cameraCaptureOptions, roomOptionsFromPrefs, type ResolvedDevices } from './roomOptions';
 import { useVoiceSession } from './session';
 import { energySample, SpeakingMeter } from './speakingMeter';
 import { createVoiceStateSender } from './stateSender';
@@ -72,6 +79,107 @@ async function pollSpeaking(room: Room, meter: SpeakingMeter): Promise<string[]>
   return meter.speaking(Date.now());
 }
 
+function isLive(): boolean {
+  const { state } = useVoiceSession.getState();
+  return state === 'connected' || state === 'reconnecting';
+}
+
+/**
+ * Feeds the controller's gate: the input mode and VAD settings from the prefs, `pttActive` from the
+ * session (VoiceProvider's push-to-talk), and voice activity from a level meter on (a clone of) the
+ * published mic, which runs only in voice-activity mode with the gate on and is rebuilt whenever the
+ * mic track is replaced (device switch, processing change). Returns the stop function.
+ */
+function startLocalGate(room: Room, controller: VoiceController): () => void {
+  const prefs = () => useVoicePrefs.getState().prefs;
+  const hysteresis = createVadHysteresis();
+  let vadOpen = false;
+  let meter: LevelMeter | null = null;
+  let meterFor: MediaStreamTrack | null = null;
+  let meterToken = 0;
+  let watched: LocalAudioTrack | undefined;
+
+  const pushGate = () => {
+    const p = prefs();
+    controller.setGate({
+      inputMode: p.inputMode,
+      pttActive: useVoiceSession.getState().pttActive,
+      vadGate: p.vadGate,
+      vadOpen,
+    });
+  };
+  const stopMeter = () => {
+    meterToken += 1;
+    meter?.stop();
+    meter = null;
+    meterFor = null;
+  };
+  const evaluate = () => {
+    const p = prefs();
+    const track = micTrack(room);
+    if (watched !== track) {
+      watched?.off(TrackEvent.Restarted, evaluate);
+      track?.on(TrackEvent.Restarted, evaluate);
+      watched = track;
+    }
+    const wanted = p.inputMode === 'voice' && p.vadGate && isLive() && track ? track.mediaStreamTrack : null;
+    if (wanted === meterFor) return;
+    stopMeter();
+    if (wanted === null) {
+      hysteresis.reset();
+      if (vadOpen) {
+        vadOpen = false;
+        pushGate();
+      }
+      return;
+    }
+    meterFor = wanted;
+    const token = meterToken;
+    createLevelMeter(wanted).then(
+      (created) => {
+        if (token !== meterToken) {
+          created.stop();
+          return;
+        }
+        meter = created;
+        created.subscribe((db) => {
+          const open = hysteresis.update(db, prefs().vadThresholdDb, performance.now());
+          if (open === vadOpen) return;
+          vadOpen = open;
+          pushGate();
+        });
+      },
+      () => {
+        if (token !== meterToken) return;
+        // No Web Audio here: fail open rather than never transmitting.
+        vadOpen = true;
+        pushGate();
+      },
+    );
+  };
+
+  const unsubscribePrefs = useVoicePrefs.subscribe((s, prev) => {
+    if (s.prefs === prev.prefs) return;
+    pushGate();
+    evaluate();
+  });
+  const unsubscribeSession = useVoiceSession.subscribe((s, prev) => {
+    if (s.pttActive !== prev.pttActive) pushGate();
+    if (s.state !== prev.state) evaluate();
+  });
+  room.on(RoomEvent.LocalTrackPublished, evaluate).on(RoomEvent.LocalTrackUnpublished, evaluate);
+  pushGate();
+  evaluate();
+
+  return () => {
+    unsubscribePrefs();
+    unsubscribeSession();
+    room.off(RoomEvent.LocalTrackPublished, evaluate).off(RoomEvent.LocalTrackUnpublished, evaluate);
+    watched?.off(TrackEvent.Restarted, evaluate);
+    stopMeter();
+  };
+}
+
 function sameKeys(a: Record<string, true>, ids: readonly string[]): boolean {
   const keys = Object.keys(a);
   return keys.length === ids.length && ids.every((id) => a[id] === true);
@@ -95,7 +203,7 @@ function voiceStateSender(socket: HearthSocket, resend: () => void): (payload: V
   );
 }
 
-function createController(room: Room, socket: HearthSocket): VoiceController {
+function createController(room: Room, socket: HearthSocket, devices: ResolvedDevices): VoiceController {
   const lp = () => room.localParticipant;
   // The sender's rate-limit retry re-sends the controller's current state (created just below).
   let controller: VoiceController | null = null;
@@ -106,14 +214,35 @@ function createController(room: Room, socket: HearthSocket): VoiceController {
     room: {
       connect: (url, token) => room.connect(url, token),
       disconnect: () => room.disconnect(),
-      setMicrophoneEnabled: async (enabled) => {
+      setMicrophoneEnabled: async (enabled, transmit) => {
+        const published = micTrack(room);
+        if (enabled && !transmit && published) {
+          // Unmuting while the gate is closed: the mic stays muted until push-to-talk or voice
+          // activity opens it.
+          await published.mute();
+          return;
+        }
         await lp().setMicrophoneEnabled(enabled);
+        // A first publish while the gate is closed: mute it straight away.
+        if (enabled && !transmit) await micTrack(room)?.mute();
       },
-      // Presets: CONTRACTS B.6b rule 3 (camera 720p30 with LiveKit's default simulcast).
+      setMicGate: async (open) => {
+        const track = micTrack(room);
+        if (!track) return;
+        if (open) await track.unmute();
+        else await track.mute();
+      },
+      restartMic: async (constraints) => {
+        // Our constraints (voice/roomOptions.ts micConstraints) hold plain booleans for the
+        // processing flags, which is all LiveKit's capture options add over MediaTrackConstraints.
+        await micTrack(room)?.restartTrack(constraints as AudioCaptureOptions);
+      },
+      // Presets: CONTRACTS B.6b rule 3 (camera at the chosen quality and device, 30 fps, with
+      // LiveKit's default simulcast).
       setCameraEnabled: async (enabled) => {
         const pub = await lp().setCameraEnabled(
           enabled,
-          enabled ? { resolution: VideoPresets.h720.resolution } : undefined,
+          enabled ? cameraCaptureOptions(useVoicePrefs.getState().prefs, devices.videoinput) : undefined,
         );
         return enabled && pub ? [pub] : [];
       },
@@ -158,16 +287,21 @@ export interface VoiceEngine {
   /** The app's one LiveKit room (adaptive stream, dynacast), shared with the video stage. */
   room: Room;
   controller: VoiceController;
-  actions: VoiceActions;
+  /** The devices in use per kind (kept up to date by the device sync). */
+  devices: ResolvedDevices;
+  actions: EngineVoiceActions;
   /** `window.__hearthDebug.voice()` for this room (e2e builds only, else `null`). */
   debug: (() => Promise<HearthVoiceDebug>) | null;
 }
 
 /** Creates the room, its controller and the voice actions (once per signed-in session). */
 export function createVoiceEngine(socket: HearthSocket): VoiceEngine {
-  const room = new Room({ adaptiveStream: true, dynacast: true });
-  const controller = createController(room, socket);
-  const actions: VoiceActions = {
+  // Capture options from the voice prefs (docs/plans/devices.md); the defaults equal LiveKit's own.
+  const prefs = useVoicePrefs.getState().prefs;
+  const devices = preferredDevices(prefs);
+  const room = new Room({ adaptiveStream: true, dynacast: true, ...roomOptionsFromPrefs(prefs, devices) });
+  const controller = createController(room, socket, devices);
+  const actions: EngineVoiceActions = {
     join: (channelId) => {
       void controller.join(channelId);
     },
@@ -193,7 +327,7 @@ export function createVoiceEngine(socket: HearthSocket): VoiceEngine {
     },
   };
   const debug = import.meta.env.VITE_E2E === 'true' ? () => voiceDebug(room) : null;
-  return { room, controller, actions, debug };
+  return { room, controller, devices, actions, debug };
 }
 
 /**
@@ -206,7 +340,7 @@ export function createVoiceEngine(socket: HearthSocket): VoiceEngine {
  * a join is in progress).
  */
 export function VoiceEngineView({ engine }: { engine: VoiceEngine }) {
-  const { room, controller } = engine;
+  const { room, controller, devices } = engine;
   const deafened = useVoiceSession((s) => s.deafened);
   const meId = useQuery(meQuery).data?.id;
 
@@ -309,6 +443,23 @@ export function VoiceEngineView({ engine }: { engine: VoiceEngine }) {
       if (mine) controller.syncState(mine);
     });
   }, [controller, meId]);
+
+  // Devices, processing and camera quality follow the prefs live; lost devices fall back to default.
+  useEffect(
+    () =>
+      startDeviceSync({
+        room,
+        controller,
+        devices,
+        notify: (message) => {
+          useNoticeStore.getState().setNotice(message);
+        },
+      }),
+    [room, controller, devices],
+  );
+
+  // The local gate (CONTRACTS B.12 rule 2): push-to-talk or voice activity, applied by the controller.
+  useEffect(() => startLocalGate(room, controller), [room, controller]);
 
   // Microphones and screen-share audio; deafen mutes both.
   return <RoomAudioRenderer room={room} muted={deafened} />;

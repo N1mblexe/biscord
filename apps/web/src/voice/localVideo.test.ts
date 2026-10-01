@@ -102,6 +102,8 @@ function setup() {
       connect: () => Promise.resolve(),
       disconnect: () => Promise.resolve(),
       setMicrophoneEnabled: () => Promise.resolve(),
+      setMicGate: () => Promise.resolve(),
+      restartMic: () => Promise.resolve(),
       setCameraEnabled: (enabled) => {
         if (!enabled) {
           room.unpublish(Track.Source.Camera);

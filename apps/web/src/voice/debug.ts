@@ -100,6 +100,42 @@ async function remoteDebug(p: RemoteParticipant): Promise<HearthVoiceDebugRemote
   };
 }
 
+/** Our published mic as the device specs see it, or `null` when none is published. */
+export function localMicDebug(room: Room): HearthVoiceDebug['localMic'] {
+  const track = room.localParticipant.getTrackPublication(Track.Source.Microphone)?.track;
+  if (!track) return null;
+  const media = track.mediaStreamTrack;
+  return {
+    deviceId: media.getSettings().deviceId ?? null,
+    muted: track.isMuted,
+    constraints: media.getConstraints(),
+  };
+}
+
+/** Our published, unmuted camera (device and capture width), or `null`. */
+export function cameraDebug(room: Room): HearthVoiceDebug['camera'] {
+  const pub = room.localParticipant.getTrackPublication(Track.Source.Camera);
+  const track = pub?.track;
+  if (!track || pub.isMuted) return null;
+  const settings = track.mediaStreamTrack.getSettings();
+  return { deviceId: settings.deviceId ?? null, width: settings.width ?? 0 };
+}
+
+/**
+ * Where remote audio plays: the `sinkId` of the first element a remote audio track is attached to
+ * (`''` = the system default), else the output the room will use for new tracks, else `null`.
+ */
+export function audioSinkDebug(room: Room): string | null {
+  for (const p of room.remoteParticipants.values()) {
+    for (const pub of p.audioTrackPublications.values()) {
+      for (const el of pub.track?.attachedElements ?? []) {
+        if ('sinkId' in el && typeof el.sinkId === 'string') return el.sinkId;
+      }
+    }
+  }
+  return room.options.audioOutput?.deviceId ?? null;
+}
+
 /** The e2e voice report for `room` (installed by debugHook.ts while the voice engine is loaded). */
 export async function voiceDebug(room: Room): Promise<HearthVoiceDebug> {
   const s = useVoiceSession.getState();
@@ -121,5 +157,10 @@ export async function voiceDebug(room: Room): Promise<HearthVoiceDebug> {
       camera: inRoom && room.localParticipant.isCameraEnabled,
       screen: inRoom && room.localParticipant.isScreenShareEnabled,
     },
+    transmitting: s.transmitting,
+    pttActive: s.pttActive,
+    localMic: inRoom ? localMicDebug(room) : null,
+    camera: inRoom ? cameraDebug(room) : null,
+    audioSinkId: audioSinkDebug(room),
   };
 }

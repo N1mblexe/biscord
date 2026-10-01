@@ -39,6 +39,9 @@ export function toggleDeafen(s: MicState): MicState {
  */
 export type PublishState = 'off' | 'starting' | 'on' | 'stopping';
 
+/** Not transmitting and push-to-talk released (leaving or losing the room). */
+export const GATE_OFF = { transmitting: false, pttActive: false } as const;
+
 /** Camera and screen share both off (leaving or losing the room unpublishes everything). */
 export const MEDIA_OFF = { camera: 'off', screen: 'off' } as const satisfies {
   camera: PublishState;
@@ -61,6 +64,13 @@ export interface VoiceSessionState extends MicState {
   screen: PublishState;
   /** The **Share tab audio** checkbox (default on): ask the browser for tab audio when sharing. */
   shareTabAudio: boolean;
+  /**
+   * Our mic is really sending (CONTRACTS B.12 rule 2): in a room, not muted or deafened, and the
+   * local gate (push-to-talk held, or voice activity above the threshold) open. Local only.
+   */
+  transmitting: boolean;
+  /** The push-to-talk key or hold button is held (any source; VoiceProvider owns it). */
+  pttActive: boolean;
 
   set: (patch: Partial<Omit<VoiceSessionState, 'set' | 'reset'>>) => void;
   reset: () => void;
@@ -79,6 +89,8 @@ const initialState = {
   camera: 'off' as PublishState,
   screen: 'off' as PublishState,
   shareTabAudio: true,
+  transmitting: false,
+  pttActive: false,
 };
 
 export const useVoiceSession = create<VoiceSessionState>()((set) => ({
@@ -116,7 +128,9 @@ export function leaveVoiceChannel(channelId: string): boolean {
   if (current !== channelId || state === 'disconnected') return false;
   if (activeLeave) activeLeave();
   else
-    useVoiceSession.getState().set({ channelId: null, roomName: null, state: 'disconnected', ...MEDIA_OFF });
+    useVoiceSession
+      .getState()
+      .set({ channelId: null, roomName: null, state: 'disconnected', ...MEDIA_OFF, ...GATE_OFF });
   return true;
 }
 

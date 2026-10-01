@@ -19,6 +19,11 @@ export function idleVoiceDebug(): HearthVoiceDebug {
     speaking: [],
     remotes: [],
     local: { camera: false, screen: false },
+    transmitting: false,
+    pttActive: s.pttActive,
+    localMic: null,
+    camera: null,
+    audioSinkId: null,
   };
 }
 

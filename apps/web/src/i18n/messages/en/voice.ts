@@ -53,6 +53,20 @@ export const voice = {
     dropped: 'You were disconnected from voice.',
     cameraBlocked: 'Camera is unavailable or blocked',
     screenBlocked: 'Screen share was cancelled or blocked',
+    micLost: 'Microphone disconnected — using the default device.',
+    cameraLost: 'Camera disconnected — using the default device.',
+    outputLost: 'Output device disconnected — using the default device.',
+    switchFailed: "Couldn't switch to that device.",
+  },
+  /** Key and mouse button names for the push-to-talk and shortcut bindings (voice/ptt.ts). */
+  keys: {
+    none: 'Not set',
+    space: 'Space',
+    /** A mouse button, numbered from 1 (`{n}` = 4 is the back button). */
+    mouse: 'Mouse {n}',
+    /** `{key}` is Shift, Ctrl, Alt or Meta. */
+    left: 'Left {key}',
+    right: 'Right {key}',
   },
   /** `voice:kicked` notices (CONTRACTS B.7b rule 4). */
   kicked: {

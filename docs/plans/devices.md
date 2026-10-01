@@ -41,7 +41,7 @@ There are no server changes. Everything is stored per browser (B.12).
 ## Module APIs (binding for the parallel agents)
 
 ```ts
-// voice/prefs.ts
+// voice/prefs.ts (the zod field schemas live in @hearth/shared: VoicePrefsFields, KeyBinding, InputMode, CameraQuality)
 export const VOICE_PREFS_KEY = 'hearth:voice-prefs';
 export type KeyBinding = { type: 'key'; code: string } | { type: 'mouse'; button: 3 | 4 };
 export type InputMode = 'voice' | 'ptt';
@@ -94,11 +94,11 @@ export function useMediaDevices(): DeviceLists & {
   refresh: () => void;
   requestAccess: (kinds: { audio?: boolean; video?: boolean }) => Promise<boolean>; // gUM once, stop, refresh
 };
-export function resolveDevice(list: readonly DeviceOption[], preferredId: string): string; // missing → 'default'
+export function resolveDevice(list: readonly DeviceOption[], preferredId: string): string; // missing → 'default'; an empty list (no permission yet) keeps the preference
 export function canSelectOutput(): boolean; // HTMLMediaElement.prototype.setSinkId exists
 export function canPromptOutput(): boolean; // navigator.mediaDevices.selectAudioOutput exists
-export function audioConstraints(prefs: VoicePrefs, deviceId?: string): MediaTrackConstraints;
-export function videoConstraints(prefs: VoicePrefs, deviceId?: string): MediaTrackConstraints;
+export function audioConstraints(prefs: VoicePrefs, deviceId?: string): MediaTrackConstraints; // deviceId as { ideal } (a missing device falls back, capture never fails on it)
+export function videoConstraints(prefs: VoicePrefs, deviceId?: string): MediaTrackConstraints; // { ideal } device, width, height, frameRate, aspectRatio
 
 // voice/gate.ts (pure)
 export interface GateInput {
@@ -120,12 +120,15 @@ export function createVadHysteresis(releaseMs?: number): {
 export function isEditableTarget(target: EventTarget | null): boolean;
 export function isPrintingKey(code: string): boolean; // letters, digits, punctuation, Space, Backquote…
 export function matchesBinding(b: KeyBinding | null, e: KeyboardEvent | MouseEvent): boolean;
+export const PAGE_SOURCE = 'page';
 export interface PushToTalk {
-  press: () => void;
-  release: () => void;
-  releaseNow: () => void;
+  // Named sources ('page' = this tab's key/mouse/hold button; later 'helper', docs/plans/ptt-helper.md §3).
+  // Active while any source holds it; a press during a pending release keeps it.
+  press: (source?: string) => void; // default 'page'
+  release: (source?: string, opts?: { immediate?: boolean }) => void; // after releaseMs, or at once with immediate (the helper owns its delay)
+  releaseNow: () => void; // every source, at once
   active: () => boolean;
-  dispose: () => void;
+  dispose: () => void; // clears without calling onChange
 }
 export function createPushToTalk(opts: {
   releaseMs: () => number;
@@ -140,9 +143,9 @@ export function bindVoiceShortcuts(
     onToggleMute: () => void;
     onToggleDeafen: () => void;
   },
-): () => void; // keydown/keyup/pointerdown/pointerup/blur/visibilitychange
+): () => void; // keydown/keyup/pointerdown/pointerup (+ mouseup to swallow side-button navigation)/blur/visibilitychange; blur and hide release only 'page', at once
 export function recordBinding(win: Window, signal?: AbortSignal): Promise<KeyBinding | null>; // Escape → null
-export function bindingLabel(b: KeyBinding | null, layout?: ReadonlyMap<string, string>): string;
+export function bindingLabel(b: KeyBinding | null, layout?: ReadonlyMap<string, string>): string; // translated (voice.keys.*): '`', 'A', 'Left Shift', 'Mouse 4', 'Not set'
 
 // voice/levelMeter.ts
 export interface LevelMeter {
@@ -153,9 +156,18 @@ export function createLevelMeter(track: MediaStreamTrack): Promise<LevelMeter>; 
 export function rmsToDb(rms: number): number; // floor −100
 export function dbToFraction(db: number): number; // −100…0 → 0…1 for meters
 
-// voice/session.ts additions: transmitting: boolean; pttActive: boolean (both reset on leave)
-// voice/context.ts additions: pttPress(): void; pttRelease(): void
-// debug (e2e): localMic { deviceId, muted, constraints }, camera { deviceId, width } | null, audioSinkId
+// voice/session.ts additions: transmitting: boolean; pttActive: boolean (both reset on leave); GATE_OFF
+// voice/context.ts additions: pttPress(): void; pttRelease(): void; EngineVoiceActions = VoiceActions without those two
+// voice/controller.ts additions:
+//   VoiceRoomPort: setMicrophoneEnabled(enabled, transmit) (publishes/unmutes but stays muted while the gate is closed),
+//                  setMicGate(open), restartMic(constraints)
+//   VoiceController: setGate(gate: LocalGate), restartMic(constraints): Promise<void> (both on micQueue)
+//   LocalGate = Omit<GateInput, 'micMuted' | 'deafened'>
+// voice/roomOptions.ts (pure): roomOptionsFromPrefs(prefs, devices), micConstraints, cameraCaptureOptions
+// voice/deviceSync.ts (engine chunk): startDeviceSync(...) — live device/processing/quality changes, device loss
+// debug (e2e): localMic { deviceId, muted, constraints } | null, camera { deviceId, width } | null, audioSinkId: string | null,
+//              transmitting, pttActive
+// i18n: voice.messages.{micLost, cameraLost, outputLost, switchFailed}, voice.keys.{none, space, mouse, left, right}
 ```
 
 ## UI contract (English copy; e2e runs in en-US)

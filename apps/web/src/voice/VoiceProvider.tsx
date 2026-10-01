@@ -16,6 +16,8 @@ import { voiceMessage } from './controller';
 import { idleVoiceDebug, installVoiceDebug } from './debugHook';
 import type { VoiceEngine } from './engine';
 import { planVoiceKick } from './kick';
+import { useVoicePrefs } from './prefs';
+import { bindVoiceShortcuts, createPushToTalk, PAGE_SOURCE, type PushToTalk } from './ptt';
 import { registerVoiceLeave, toggleDeafen, toggleMute, useVoiceSession } from './session';
 import { useVolumeStore } from './volume';
 
@@ -40,7 +42,9 @@ export function loadVoiceEngine(): Promise<EngineModule> {
  * the first **join** and then kept, with one `Room`, until the protected layout unmounts (logout,
  * revoked session), when we leave the room. Until then the actions only touch local state.
  *
- * Also handles `voice:kicked` (CONTRACTS B.7b rule 4): leave cleanly and show why.
+ * Also handles `voice:kicked` (CONTRACTS B.7b rule 4): leave cleanly and show why, and owns
+ * push-to-talk (CONTRACTS B.12 rule 3): the PTT machine and the page's key, mouse-button and
+ * mute/deafen shortcuts, bound only while connected. It writes `pttActive`; the engine gates the mic.
  */
 export function VoiceProvider({ children }: { children: ReactNode }) {
   const { socket } = useSocket();
@@ -50,6 +54,15 @@ export function VoiceProvider({ children }: { children: ReactNode }) {
   const loadingRef = useRef(false);
   const pendingJoinRef = useRef<string | null>(null);
   const aliveRef = useRef(false);
+  const [ptt] = useState<PushToTalk>(() =>
+    createPushToTalk({
+      releaseMs: () => useVoicePrefs.getState().prefs.pttReleaseMs,
+      onChange: (active) => {
+        if (useVoiceSession.getState().pttActive !== active)
+          useVoiceSession.getState().set({ pttActive: active });
+      },
+    }),
+  );
 
   // Leave on logout / revoked session (lib/session.ts) and when the layout unmounts. The engine's
   // own effects only attach listeners, so StrictMode's re-run can't cut a join short.
@@ -100,6 +113,47 @@ export function VoiceProvider({ children }: { children: ReactNode }) {
       socket.off('voice:kicked', onKicked);
     };
   }, [socket]);
+
+  // Push-to-talk and the shortcut keys: bound only while connected; everything is released when we
+  // stop being connected or leave push-to-talk mode.
+  useEffect(() => {
+    const isConnected = () => useVoiceSession.getState().state === 'connected';
+    let unbind: (() => void) | null = null;
+    const sync = () => {
+      if (isConnected()) {
+        unbind ??= bindVoiceShortcuts(window, {
+          prefs: () => useVoicePrefs.getState().prefs,
+          enabled: isConnected,
+          ptt,
+          // Connected implies the engine is loaded.
+          onToggleMute: () => {
+            engineRef.current?.actions.toggleMute();
+          },
+          onToggleDeafen: () => {
+            engineRef.current?.actions.toggleDeafen();
+          },
+        });
+      } else {
+        unbind?.();
+        unbind = null;
+        ptt.releaseNow();
+      }
+    };
+    const unsubscribeSession = useVoiceSession.subscribe((s, prev) => {
+      if (s.state !== prev.state) sync();
+    });
+    const unsubscribePrefs = useVoicePrefs.subscribe((s, prev) => {
+      if (s.prefs.inputMode !== prev.prefs.inputMode && s.prefs.inputMode !== 'ptt') ptt.releaseNow();
+    });
+    sync();
+    return () => {
+      unsubscribeSession();
+      unsubscribePrefs();
+      unbind?.();
+      ptt.dispose();
+      if (useVoiceSession.getState().pttActive) useVoiceSession.getState().set({ pttActive: false });
+    };
+  }, [ptt]);
 
   useEffect(
     () => installVoiceDebug(() => engineRef.current?.debug?.() ?? Promise.resolve(idleVoiceDebug())),
@@ -168,8 +222,16 @@ export function VoiceProvider({ children }: { children: ReactNode }) {
       startAudio: () => {
         engine()?.startAudio();
       },
+      pttPress: () => {
+        if (useVoiceSession.getState().state !== 'connected') return;
+        if (useVoicePrefs.getState().prefs.inputMode !== 'ptt') return;
+        ptt.press(PAGE_SOURCE);
+      },
+      pttRelease: () => {
+        ptt.release(PAGE_SOURCE);
+      },
     };
-  }, [socket]);
+  }, [socket, ptt]);
 
   return (
     <VoiceContext value={actions}>

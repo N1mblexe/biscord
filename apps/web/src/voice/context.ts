@@ -15,7 +15,14 @@ export interface VoiceActions {
   setUserVolume: (userId: string, volume: number) => void;
   /** Resumes audio playback the browser blocked (must run in a click handler). */
   startAudio: () => void;
+  /** The on-screen **Push to talk** hold button went down (push-to-talk mode, while connected). */
+  pttPress: () => void;
+  /** …and up: released after the release delay, like the key. */
+  pttRelease: () => void;
 }
+
+/** The actions the voice engine implements; VoiceProvider adds push-to-talk itself. */
+export type EngineVoiceActions = Omit<VoiceActions, 'pttPress' | 'pttRelease'>;
 
 export const VoiceContext = createContext<VoiceActions | null>(null);
 

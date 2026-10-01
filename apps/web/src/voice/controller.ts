@@ -1,7 +1,9 @@
 import type { VoiceStatePayload, VoiceTokenResponse } from '@hearth/shared';
 import { t } from '../i18n/translate';
 import type { Messages } from '../i18n/types';
+import { shouldTransmit, type GateInput } from './gate';
 import {
+  GATE_OFF,
   MEDIA_OFF,
   toggleDeafen,
   toggleMute,
@@ -24,9 +26,18 @@ export interface VoiceRoomPort<P = unknown> {
   connect: (url: string, token: string) => Promise<void>;
   /** Leaves the room; resolves once disconnected. Harmless when not connected. */
   disconnect: () => Promise<void>;
-  setMicrophoneEnabled: (enabled: boolean) => Promise<void>;
   /**
-   * Publishes (720p, simulcast) or stops our camera; a start resolves with what it published. Rejects
+   * `false` = the user's mute (mutes the published mic). `true` = publish or unmute the mic; when
+   * `transmit` is false (push-to-talk not held, voice activity below the threshold) the mic is
+   * published but left muted, so nothing is sent before the gate opens.
+   */
+  setMicrophoneEnabled: (enabled: boolean, transmit: boolean) => Promise<void>;
+  /** The local gate: mutes or unmutes the published mic (no-op without one). Never called while muted. */
+  setMicGate: (open: boolean) => Promise<void>;
+  /** Restarts the published mic with new constraints (device, processing); no-op without one. */
+  restartMic: (constraints: MediaTrackConstraints) => Promise<void>;
+  /**
+   * Publishes (at the chosen quality, simulcast) or stops our camera; a start resolves with what it published. Rejects
    * when the camera is unavailable or denied.
    */
   setCameraEnabled: (enabled: boolean) => Promise<readonly P[]>;
@@ -53,6 +64,12 @@ export interface ServerVoiceView {
   screen: boolean;
 }
 
+/** The local gate's inputs besides the user's own mute and deafen (CONTRACTS B.12 rule 2). */
+export type LocalGate = Omit<GateInput, 'micMuted' | 'deafened'>;
+
+/** Until the engine says otherwise: always transmit (voice activity, no VAD gate). */
+export const OPEN_GATE: LocalGate = { inputMode: 'voice', pttActive: false, vadGate: false, vadOpen: false };
+
 /** Our two video sources. */
 export type LocalVideoKind = 'camera' | 'screen';
 
@@ -76,6 +93,16 @@ export interface VoiceController {
   leave: () => Promise<void>;
   toggleMute: () => void;
   toggleDeafen: () => void;
+  /**
+   * The local gate changed (push-to-talk, voice activity, input mode): applied to the published mic
+   * in order with mute changes, and never unmuting it while the user is muted or deafened.
+   */
+  setGate: (gate: LocalGate) => void;
+  /**
+   * Restarts the published mic with `constraints` (device or processing change), in order with mute
+   * and gate changes. Rejects when the restart fails; a no-op while not in a room.
+   */
+  restartMic: (constraints: MediaTrackConstraints) => Promise<void>;
   /**
    * The server lists us as `server`: first align camera/screen with what LiveKit really publishes
    * (never re-assert a flag the server's reconcile rightly cleared), then re-send our state if it
@@ -161,6 +188,20 @@ export function createVoiceController<P>({
   };
   /** Mic changes run one at a time, each applying the latest desired state. */
   let micQueue: Promise<void> = Promise.resolve();
+  let gate: LocalGate = OPEN_GATE;
+
+  /** Whether the gate alone (ignoring mute/deafen) lets the mic through. */
+  const gateOpen = () => shouldTransmit({ ...gate, micMuted: false, deafened: false });
+  /** Whether our mic should be sending right now (CONTRACTS B.12 rule 2). */
+  const transmitNow = () => {
+    const s = session();
+    return shouldTransmit({ ...gate, micMuted: s.micMuted, deafened: s.deafened });
+  };
+  /** Mirrors `transmitNow()` into the session (`transmitting`) while in a room. */
+  const syncTransmitting = () => {
+    const transmitting = isLive() && transmitNow();
+    if (session().transmitting !== transmitting) session().set({ transmitting });
+  };
 
   const setVideo = (kind: LocalVideoKind, state: PublishState) => {
     session().set(kind === 'camera' ? { camera: state } : { screen: state });
@@ -272,19 +313,35 @@ export function createVoiceController<P>({
       if (gen !== generation || !isLive()) return;
       const enable = !session().micMuted;
       try {
-        await room.setMicrophoneEnabled(enable);
+        await room.setMicrophoneEnabled(enable, transmitNow());
       } catch {
         if (gen !== generation || !enable) return;
         session().set({ micMuted: true, mutedBeforeDeafen: false });
+        syncTransmitting();
         notify(voiceMessage('micUnavailable'));
         send();
       }
     });
   };
 
+  /**
+   * Applies the gate to the published mic. While the user is muted or deafened it does nothing:
+   * `applyMic` keeps the mic muted then, and unmuting goes through `applyMic`, which applies the gate.
+   */
+  const applyGate = () => {
+    const gen = generation;
+    micQueue = micQueue.then(async () => {
+      if (gen !== generation || !isLive()) return;
+      const s = session();
+      if (s.micMuted || s.deafened) return;
+      await room.setMicGate(transmitNow()).catch(() => undefined);
+    });
+  };
+
   const setMic = (next: MicState) => {
     session().set(next);
     if (!isLive()) return;
+    syncTransmitting();
     applyMic();
     send();
   };
@@ -299,6 +356,7 @@ export function createVoiceController<P>({
       speaking: {},
       levelSpeaking: {},
       ...MEDIA_OFF,
+      ...GATE_OFF,
     });
     notify(message);
     await room.disconnect().catch(() => undefined);
@@ -317,6 +375,7 @@ export function createVoiceController<P>({
         speaking: {},
         levelSpeaking: {},
         ...MEDIA_OFF,
+        ...GATE_OFF,
       });
 
       // Leave the old room now (one voice channel at a time), while the token is fetched: from the
@@ -345,6 +404,7 @@ export function createVoiceController<P>({
       }
       if (gen !== generation) return;
       session().set({ state: 'connected' });
+      syncTransmitting();
       applyMic();
       send();
     },
@@ -360,6 +420,7 @@ export function createVoiceController<P>({
         speaking: {},
         levelSpeaking: {},
         ...MEDIA_OFF,
+        ...GATE_OFF,
       });
       await room.disconnect().catch(() => undefined);
     },
@@ -370,6 +431,23 @@ export function createVoiceController<P>({
 
     toggleDeafen: () => {
       setMic(toggleDeafen(session()));
+    },
+
+    setGate: (next) => {
+      const wasOpen = gateOpen();
+      gate = { ...next };
+      syncTransmitting();
+      if (gateOpen() !== wasOpen && isLive()) applyGate();
+    },
+
+    restartMic: (constraints) => {
+      const gen = generation;
+      const run = micQueue.then(async () => {
+        if (gen !== generation || !isLive()) return;
+        await room.restartMic(constraints);
+      });
+      micQueue = run.catch(() => undefined);
+      return run;
     },
 
     syncState: (server) => {
@@ -434,6 +512,7 @@ export function createVoiceController<P>({
         speaking: {},
         levelSpeaking: {},
         ...MEDIA_OFF,
+        ...GATE_OFF,
       });
       notify(voiceMessage('dropped'));
     },

@@ -10,6 +10,11 @@ export default defineConfig({
     // Consume @hearth/shared from its TypeScript source (see CLAUDE.md, "Shared package resolution").
     conditions: ['hearth-src', ...defaultClientConditions],
   },
+  build: {
+    // Script assets (the level meter's AudioWorklet, voice/levelWorklet.js) must stay same-origin
+    // files: the CSP is `script-src 'self'`, which blocks data: URLs.
+    assetsInlineLimit: (file) => (file.endsWith('.js') ? false : undefined),
+  },
   server: {
     port: Number(process.env.WEB_PORT ?? 5173),
     strictPort: true,

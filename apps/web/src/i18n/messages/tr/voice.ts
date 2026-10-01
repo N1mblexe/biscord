@@ -51,6 +51,17 @@ export const voice: MessagesOf<'voice'> = {
     dropped: 'Ses bağlantınız kesildi.',
     cameraBlocked: 'Kamera kullanılamıyor ya da engellendi',
     screenBlocked: 'Ekran paylaşımı iptal edildi ya da engellendi',
+    micLost: 'Mikrofonun bağlantısı kesildi — varsayılan cihaz kullanılıyor.',
+    cameraLost: 'Kameranın bağlantısı kesildi — varsayılan cihaz kullanılıyor.',
+    outputLost: 'Çıkış cihazının bağlantısı kesildi — varsayılan cihaz kullanılıyor.',
+    switchFailed: 'Bu cihaza geçilemedi.',
+  },
+  keys: {
+    none: 'Ayarlanmadı',
+    space: 'Boşluk',
+    mouse: 'Fare {n}',
+    left: 'Sol {key}',
+    right: 'Sağ {key}',
   },
   kicked: {
     admin: 'Bir yönetici ses bağlantınızı kesti.',

@@ -68,6 +68,22 @@ interface HearthVoiceDebug {
   remotes: HearthVoiceDebugRemote[];
   /** What this page publishes: camera on, screen shared. */
   local: { camera: boolean; screen: boolean };
+  /** Our mic is sending: in a room, not muted or deafened, and the push-to-talk/voice-activity gate open. */
+  transmitting: boolean;
+  /** The push-to-talk key or hold button is held. */
+  pttActive: boolean;
+  /**
+   * Our published mic, or `null` when none is published: the capture device (`getSettings().deviceId`),
+   * whether the track is muted (our mute or the gate), and its `getConstraints()` (device and processing).
+   */
+  localMic: { deviceId: string | null; muted: boolean; constraints: MediaTrackConstraints } | null;
+  /** Our published, unmuted camera: capture device and width (`getSettings()`), else `null`. */
+  camera: { deviceId: string | null; width: number } | null;
+  /**
+   * Remote audio's output: the `sinkId` of an element remote audio plays through (`''` = system
+   * default), else the output configured for new tracks, else `null`.
+   */
+  audioSinkId: string | null;
 }
 
 interface Window {

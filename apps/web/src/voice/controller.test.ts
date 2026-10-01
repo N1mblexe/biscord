@@ -4,6 +4,7 @@ import { useLocaleStore } from '../i18n/store';
 import {
   createVoiceController,
   voiceMessage,
+  type LocalGate,
   type VoiceControllerDeps,
   type VoiceRoomPort,
 } from './controller';
@@ -73,9 +74,17 @@ function harness(
         published.screen = false;
         return Promise.resolve();
       },
-      setMicrophoneEnabled: (enabled) => {
-        log.push(`mic ${enabled ? 'on' : 'off'}`);
+      setMicrophoneEnabled: (enabled, transmit) => {
+        log.push(`mic ${enabled ? 'on' : 'off'}${enabled && !transmit ? ' gated' : ''}`);
         return micFails && enabled ? Promise.reject(new Error('NotAllowedError')) : Promise.resolve();
+      },
+      setMicGate: (open) => {
+        log.push(`gate ${open ? 'open' : 'closed'}`);
+        return Promise.resolve();
+      },
+      restartMic: (constraints) => {
+        log.push(`restart ${JSON.stringify(constraints)}`);
+        return Promise.resolve();
       },
       setCameraEnabled: async (enabled) => {
         log.push(`camera ${enabled ? 'on' : 'off'}`);
@@ -710,6 +719,158 @@ describe('camera and screen share: what LiveKit really publishes wins', () => {
   });
 });
 
+const PTT_IDLE: LocalGate = { inputMode: 'ptt', pttActive: false, vadGate: false, vadOpen: false };
+const PTT_HELD: LocalGate = { ...PTT_IDLE, pttActive: true };
+
+describe('local gate and mic restarts (CONTRACTS B.12 rule 2)', () => {
+  it('defaults: always transmitting while in a room; resets on leave', async () => {
+    const { controller, log } = harness();
+    expect(session().transmitting).toBe(false);
+    await controller.join(LOUNGE);
+    await flush();
+    expect(log.at(-1)).toBe('mic on');
+    expect(session().transmitting).toBe(true);
+    await controller.leave();
+    expect(session()).toMatchObject({ transmitting: false, pttActive: false });
+  });
+
+  it('push-to-talk set before joining: the first publish stays muted until the key is held', async () => {
+    const { controller, log } = harness();
+    controller.setGate(PTT_IDLE);
+    await controller.join(LOUNGE);
+    await flush();
+    expect(log.filter((l) => l.startsWith('mic') || l.startsWith('gate'))).toEqual(['mic on gated']);
+    expect(session().transmitting).toBe(false);
+
+    controller.setGate(PTT_HELD);
+    expect(session().transmitting).toBe(true);
+    await flush();
+    controller.setGate(PTT_IDLE);
+    await flush();
+    expect(log.slice(-2)).toEqual(['gate open', 'gate closed']);
+    expect(session().transmitting).toBe(false);
+  });
+
+  it('an input change that does not change the gate is not applied again', async () => {
+    const { controller, log } = harness();
+    await controller.join(LOUNGE);
+    await flush();
+    log.length = 0;
+    controller.setGate({ inputMode: 'voice', pttActive: true, vadGate: false, vadOpen: false });
+    controller.setGate({ inputMode: 'voice', pttActive: false, vadGate: true, vadOpen: true });
+    await flush();
+    expect(log).toEqual([]);
+  });
+
+  it('the gate never unmutes the mic while muted or deafened', async () => {
+    const { controller, log, sent } = harness();
+    await controller.join(LOUNGE);
+    controller.setGate(PTT_IDLE);
+    await flush();
+    controller.toggleMute();
+    await flush();
+    log.length = 0;
+
+    // Muted: holding the key changes nothing on the track and doesn't transmit.
+    controller.setGate(PTT_HELD);
+    await flush();
+    expect(log).toEqual([]);
+    expect(session().transmitting).toBe(false);
+
+    // Unmuting with the key held transmits; letting go gates it again.
+    controller.toggleMute();
+    await flush();
+    expect(log).toEqual(['mic on']);
+    expect(session().transmitting).toBe(true);
+
+    // Deafened (self-mutes): the gate toggling stays out of it.
+    controller.toggleDeafen();
+    controller.setGate(PTT_IDLE);
+    controller.setGate(PTT_HELD);
+    await flush();
+    expect(log).toEqual(['mic on', 'mic off']);
+    expect(session().transmitting).toBe(false);
+
+    // Undeafen with the key released: published again, but gated.
+    controller.setGate(PTT_IDLE);
+    controller.toggleDeafen();
+    await flush();
+    expect(log.at(-1)).toBe('mic on gated');
+    expect(session().transmitting).toBe(false);
+    // The gate is local only: voice:state still says unmuted.
+    expect(sent.at(-1)).toMatchObject({ selfMute: false, selfDeaf: false });
+  });
+
+  it('restartMic is serialized with mute toggles and the gate', async () => {
+    const gates: Deferred<undefined>[] = [];
+    const h = harness({
+      room: {
+        setMicrophoneEnabled: async (enabled, transmit) => {
+          h.log.push(`mic ${enabled ? 'on' : 'off'}${enabled && !transmit ? ' gated' : ''} start`);
+          const d = deferred<undefined>();
+          gates.push(d);
+          await d.promise;
+          h.log.push(`mic ${enabled ? 'on' : 'off'} done`);
+        },
+        restartMic: (constraints) => {
+          h.log.push(`restart ${JSON.stringify(constraints.echoCancellation)}`);
+          return Promise.resolve();
+        },
+      },
+    });
+    const join = h.controller.join(LOUNGE);
+    await join;
+    await flush();
+    gates.shift()?.resolve(undefined);
+    await flush();
+    h.log.length = 0;
+
+    // A mute is in flight (LiveKit hasn't answered): the restart and the unmute wait their turn.
+    h.controller.toggleMute();
+    await flush();
+    const restarted = h.controller.restartMic({ echoCancellation: false });
+    h.controller.toggleMute();
+    await flush();
+    expect(h.log).toEqual(['mic off start']);
+    gates.shift()?.resolve(undefined);
+    await flush();
+    expect(h.log).toEqual(['mic off start', 'mic off done', 'restart false', 'mic on start']);
+    gates.shift()?.resolve(undefined);
+    await restarted;
+    await flush();
+    expect(h.log.at(-1)).toBe('mic on done');
+  });
+
+  it('a failed restart rejects but the mic queue keeps going; outside a room it is a no-op', async () => {
+    const h = harness({
+      room: {
+        restartMic: () => {
+          h.log.push('restart');
+          return Promise.reject(new Error('NotReadableError'));
+        },
+      },
+    });
+    await h.controller.restartMic({});
+    expect(h.log).toEqual([]);
+
+    await h.controller.join(LOUNGE);
+    await flush();
+    h.log.length = 0;
+    await expect(h.controller.restartMic({})).rejects.toThrow('NotReadableError');
+    h.controller.toggleMute();
+    await flush();
+    expect(h.log).toEqual(['restart', 'mic off']);
+  });
+
+  it('an unavailable mic stops transmitting', async () => {
+    const h = harness();
+    h.failMic();
+    await h.controller.join(LOUNGE);
+    await flush();
+    expect(session()).toMatchObject({ micMuted: true, transmitting: false });
+  });
+});
+
 describe('voiceMessage', () => {
   afterEach(() => {
     useLocaleStore.setState({ locale: 'en' });
@@ -724,6 +885,8 @@ describe('voiceMessage', () => {
     expect(voiceMessage('dropped')).toBe('You were disconnected from voice.');
     expect(voiceMessage('cameraBlocked')).toBe('Camera is unavailable or blocked');
     expect(voiceMessage('screenBlocked')).toBe('Screen share was cancelled or blocked');
+    expect(voiceMessage('micLost')).toBe('Microphone disconnected — using the default device.');
+    expect(voiceMessage('switchFailed')).toBe("Couldn't switch to that device.");
   });
 
   it('is translated when it is shown, not when the module loads', () => {
