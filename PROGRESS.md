@@ -2,7 +2,7 @@
 
 Updated at the end of every phase (see CLAUDE.md → Workflow).
 
-## Status at a glance (2026-09-30)
+## Status at a glance (2026-10-01)
 
 - **Done:** Phases 1–8 (the whole v1 feature set: accounts, text channels, DMs, presence, reactions, mentions,
   notifications, uploads, avatars, voice, camera, screen share, admin tools and hardening), each with its
@@ -10,12 +10,53 @@ Updated at the end of every phase (see CLAUDE.md → Workflow).
 - **Phase 9 (production):** all the artifacts are done and were dry-run locally (prod compose, Caddy, LiveKit
   config, backup/restore/deploy/status scripts, `docs/DEPLOY.md`). The real VM deploy hasn't happened yet.
 - **Done:** the polish pass (`docs/plans/polish.md`): mobile layout, chat UX, visual system and accessibility, and docs (README).
+- **Done:** language switching, English + Turkish, saved per account (`docs/plans/i18n.md`, CONTRACTS B.11).
+- **Next:** voice and video devices, push-to-talk and audio settings (`docs/plans/devices.md`, CONTRACTS B.12), planned and approved.
 - **Pending, needs you:**
   1. **Oracle VM deploy:** create the VM and the DuckDNS name, then follow `docs/DEPLOY.md` → Production on Oracle
      Cloud. Acceptance is listed under Phase 9 → Pending below (valid HTTPS, voice/camera/screen share between two
      networks with one on mobile data, LiveKit's connection test, the restore drill, surviving a reboot).
   2. **LAN phone test:** join voice from a real phone or laptop on the same Wi-Fi (`pnpm lan:up`, then
      `docs/DEPLOY.md` → LAN testing). Only fake-media browsers have been tested so far.
+  3. **Turkish copy skim** by a native speaker (see "Language switching → Known issues").
+
+## Language switching (English + Turkish) ✅ (2026-10-01)
+
+### Built
+
+- **Data:** `users.locale` (`en`|`tr`, default `en`, check constraint; migration `0002_user_locale`), `Me.locale`
+  (never on `PublicUser`), `RegisterRequest.locale?`, `UpdateMeRequest {displayName?, locale?}` (at least one). A
+  locale-only `PATCH /me` emits no `user:updated`.
+- **Web i18n core** (`apps/web/src/i18n/`, no dependency): typed `en` dictionaries per namespace (`common`, `auth`,
+  `settings`, `admin`, `chat`, `voice`, `errors`, `a11y`) with `tr` typed against them; `t()`/`useT()`, plurals via
+  `Intl.PluralRules`, `<Trans>` for markup, `format.ts` (dates, day labels, bytes, numbers, collation, upper-case)
+  replacing every ad-hoc `toLocale*`/`localeCompare`; detection (`hearth:language` → `navigator.language` → `en`),
+  `<html lang>` sync, `useAccountLocale` (the account wins after login).
+- **UI:** every screen translated; Settings → **Language** section (saves to the account, "Language updated.");
+  a **Language** picker in the login/register/reset card footer; register sends the language shown. Every
+  `ErrorCode` has translated text (English keeps the server's message where it has one).
+
+### Tested (run for real on 2026-10-01)
+
+- `pnpm typecheck`, `lint`, `format:check` green; `pnpm test`: shared 76, web 432, server 465 — all pass
+  (parity tests: same keys, placeholders and plural forms in `en` and `tr`; no untranslated `tr` value).
+- e2e: new `e2e/tests/i18n.spec.ts` (5 scenarios); full suite 52 passed / 0 failed / 0 flaky (6 full-stack-only
+  header checks skipped) ×6 runs, in `en-US`.
+- Turkish screenshots at 390 px and 1280 px (login, register, channel, settings, admin users, voice): no clipping
+  or overflow.
+
+### Known issues / notes
+
+- Voice-panel buttons wrap to two lines in Turkish in the 240 px sidebar ("Sessize al", "Sağırlığı kaldır",
+  "Kamerayı kapat", "Paylaşımı durdur"); nothing is cut off.
+- The browser's own file input ("Choose File") follows the browser language, not the app's.
+- Words to confirm in the native-speaker skim: "Yönetim" (Admin link), "Bağlantı" (presence column), "Vazgeç",
+  "Sese bağlı", "Sağırlığı kaldır".
+- Notices and page alerts are translated when shown; switching language while one is visible doesn't re-translate it.
+
+### Next step
+
+Voice and video devices, push-to-talk and audio settings: `docs/plans/devices.md`.
 
 ## Polish pass ✅ (2026-09-30)
 
