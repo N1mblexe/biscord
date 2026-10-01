@@ -7,7 +7,11 @@ import type { MessageKey } from '../i18n/types';
 
 function describe(error: unknown): { title: MessageKey; detail: MessageKey; notFound?: true } {
   if (isRouteErrorResponse(error) && error.status === 404) {
-    return { title: 'common.routeError.notFoundTitle', detail: 'common.routeError.notFoundDetail', notFound: true };
+    return {
+      title: 'common.routeError.notFoundTitle',
+      detail: 'common.routeError.notFoundDetail',
+      notFound: true,
+    };
   }
   if (error instanceof ApiError && error.status === 0) {
     return { title: 'common.routeError.unreachableTitle', detail: 'common.routeError.unreachableDetail' };

@@ -151,9 +151,7 @@ export function AdminChannelsPage() {
 
   // The page's single alert slot, shared with the app-wide camera and screen share errors. While the
   // delete dialog is open (modal, the rest of the page is inert) it shows the slot instead.
-  const slot = usePageAlert(
-    createMutation.isError ? channelFormAlert(createMutation.error, t) : alert,
-  );
+  const slot = usePageAlert(createMutation.isError ? channelFormAlert(createMutation.error, t) : alert);
   const errors = fieldErrors(createMutation.error);
 
   return (

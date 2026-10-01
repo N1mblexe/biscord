@@ -1,10 +1,6 @@
 import type { MessagesOf } from '../en';
 
 export const admin: MessagesOf<'admin'> = {
-  role: {
-    admin: 'Yönetici',
-    member: 'Üye',
-  },
   nav: {
     label: 'Yönetim bölümleri',
     invites: 'Davetler',
@@ -43,12 +39,12 @@ export const admin: MessagesOf<'admin'> = {
       user: 'Kullanıcı',
       role: 'Rol',
       status: 'Durum',
-      presence: 'Çevrim içi',
+      presence: 'Bağlantı',
       actions: 'İşlemler',
     },
     you: '(siz)',
-    online: 'Çevrim içi',
-    offline: 'Çevrim dışı',
+    online: 'Çevrimiçi',
+    offline: 'Çevrimdışı',
     role: {
       admin: 'yönetici',
       member: 'üye',
@@ -71,7 +67,8 @@ export const admin: MessagesOf<'admin'> = {
     errors: {
       lastAdmin: 'Son yöneticiyi kaldıramazsınız.',
       userLimit: 'Hesap sınırına ulaşıldı.',
-      voiceDisconnect: 'LiveKit bağlantının kesildiğini doğrulamadı; kullanıcının bağlantısı zaten kesilmiş olabilir.',
+      voiceDisconnect:
+        'LiveKit bağlantının kesildiğini doğrulamadı; kullanıcının bağlantısı zaten kesilmiş olabilir.',
     },
   },
   channels: {

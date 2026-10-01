@@ -1,10 +1,5 @@
 /** Admin pages: channels, invites and users (English, the source of truth). */
 export const admin = {
-  /** A role's name as a title ("Admin"); the users table shows `users.role` instead. */
-  role: {
-    admin: 'Admin',
-    member: 'Member',
-  },
   nav: {
     label: 'Admin sections',
     invites: 'Invites',

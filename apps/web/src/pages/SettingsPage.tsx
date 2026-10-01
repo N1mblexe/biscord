@@ -113,8 +113,7 @@ export function SettingsPage() {
           ? { form: 'language', message: errorMessage(language.error) }
           : null;
   const slot = usePageAlert(own?.message ?? null);
-  const alertFor = (form: Form) =>
-    !slot.shared && own?.form === form ? slot.message : null;
+  const alertFor = (form: Form) => (!slot.shared && own?.form === form ? slot.message : null);
 
   if (!me) return null;
   return (
