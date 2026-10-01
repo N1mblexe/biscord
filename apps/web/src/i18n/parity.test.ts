@@ -66,6 +66,9 @@ describe('en/tr parity', () => {
       'common.language.tr',
       'settings.avatar.heading',
       'settings.avatar.label',
+      'settings.voice.decibels',
+      'settings.voice.milliseconds',
+      'settings.voice.video',
       'voice.stage.label',
       'chat.attachment.fileLabel',
     ]);

@@ -8,12 +8,14 @@ import {
   type UpdateMeRequest,
 } from '@hearth/shared';
 import { useMutation, useQuery, useQueryClient, type UseMutationResult } from '@tanstack/react-query';
-import { useState, type ChangeEvent, type SubmitEvent } from 'react';
+import { useEffect, useState, type ChangeEvent, type SubmitEvent } from 'react';
+import { useLocation } from 'react-router';
 import { changePassword, meQuery, updateMe } from '../api/auth';
 import { bootstrapQueryKey } from '../api/chat';
 import { errorMessage, fieldErrors, formAlertMessage } from '../api/errors';
 import { removeAvatar, setAvatar } from '../api/uploads';
 import { Avatar } from '../components/Avatar';
+import { VoiceVideoSection, type VoiceAlertPart } from '../components/settings/VoiceVideoSection';
 import {
   FormAlert,
   FormSuccess,
@@ -44,7 +46,7 @@ type PasswordMutation = UseMutationResult<undefined, Error, ChangePasswordReques
 type AvatarMutation = UseMutationResult<Me, Error, File>;
 type RemoveAvatarMutation = UseMutationResult<Me, Error, void>;
 type LanguageMutation = UseMutationResult<Me, Error, Locale, { previous: Locale }>;
-type Form = 'profile' | 'password' | 'avatar' | 'language';
+type Form = 'profile' | 'password' | 'avatar' | 'language' | 'voice';
 
 export function SettingsPage() {
   const t = useT();
@@ -84,12 +86,15 @@ export function SettingsPage() {
   });
   // The avatar pre-check's alert (wrong type or too big), shown instead of a request.
   const [avatarCheck, setAvatarCheck] = useState<string | null>(null);
+  // Voice & video's alert (mic or camera blocked, access denied…) and the part it belongs to.
+  const [voiceError, setVoiceError] = useState<{ part: VoiceAlertPart; message: string } | null>(null);
 
   const resetAllBut = (keep: Form) => {
     if (keep !== 'profile') profile.reset();
     if (keep !== 'password') password.reset();
     if (keep !== 'avatar') setAvatarCheck(null);
     if (keep !== 'language') language.reset();
+    if (keep !== 'voice') setVoiceError(null);
     avatarSet.reset();
     avatarRemove.reset();
   };
@@ -111,9 +116,25 @@ export function SettingsPage() {
         ? { form: 'avatar', message: avatarMessage }
         : language.isError
           ? { form: 'language', message: errorMessage(language.error) }
-          : null;
+          : voiceError !== null
+            ? { form: 'voice', message: voiceError.message }
+            : null;
   const slot = usePageAlert(own?.message ?? null);
   const alertFor = (form: Form) => (!slot.shared && own?.form === form ? slot.message : null);
+
+  // `/settings#voice` (the voice panel's "Voice & video settings" link) opens at that section.
+  const { hash } = useLocation();
+  const loaded = me !== undefined;
+  useEffect(() => {
+    if (!loaded || hash.length < 2) return;
+    const section = document.getElementById(decodeURIComponent(hash.slice(1)));
+    if (section === null) return;
+    section.scrollIntoView({ block: 'start' });
+    // Keyboard and screen reader users land on its heading too.
+    const headingId = section.getAttribute('aria-labelledby');
+    const heading = headingId === null ? null : document.getElementById(headingId);
+    if (heading?.tabIndex === -1) heading.focus({ preventScroll: true });
+  }, [loaded, hash]);
 
   if (!me) return null;
   return (
@@ -153,6 +174,18 @@ export function SettingsPage() {
         alert={alertFor('language')}
         onSubmitStart={() => {
           resetAllBut('language');
+        }}
+      />
+      <VoiceVideoSection
+        alert={alertFor('voice')}
+        alertPart={voiceError?.part ?? null}
+        onStart={() => {
+          resetAllBut('voice');
+          setVoiceError(null);
+        }}
+        onError={(part, message) => {
+          resetAllBut('voice');
+          setVoiceError({ part, message });
         }}
       />
     </div>
