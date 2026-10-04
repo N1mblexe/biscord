@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128" role="img" aria-label="Hearth logo">
+  <title>Hearth</title>
+  <defs>
+    <linearGradient id="flame" x1="0" y1="1" x2="0" y2="0">
+      <stop offset="0" stop-color="#f97316"/>
+      <stop offset="0.55" stop-color="#f59e0b"/>
+      <stop offset="1" stop-color="#fcd34d"/>
+    </linearGradient>
+    <linearGradient id="core" x1="0" y1="1" x2="0" y2="0">
+      <stop offset="0" stop-color="#fde68a"/>
+      <stop offset="1" stop-color="#fffbeb"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0.5" cy="0.72" r="0.5">
+      <stop offset="0" stop-color="#f59e0b" stop-opacity="0.45"/>
+      <stop offset="1" stop-color="#f59e0b" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect width="128" height="128" rx="30" fill="#1e1f22"/>
+  <rect width="128" height="128" rx="30" fill="url(#glow)"/>
+  <!-- The hearth: an arch over a floor line. -->
+  <path d="M30 104V62a34 34 0 0 1 68 0v42" fill="none" stroke="#f59e0b" stroke-opacity="0.45" stroke-width="6" stroke-linecap="round"/>
+  <path d="M20 106h88" stroke="#f59e0b" stroke-width="6" stroke-linecap="round"/>
+  <!-- The flame. -->
+  <path d="M64 34c5 13 22 23 22 44 0 13-10 22-22 22s-22-9-22-22c0-11 7-17 10-26 3 7 6 10 9 11-2-9-1-19 3-29z" fill="url(#flame)"/>
+  <path d="M64 68c3 7 10 11 10 19 0 6-4 10-10 10s-10-4-10-10c0-5 3-8 5-12 2 3 3 4 4 4 0-4 0-8 1-11z" fill="url(#core)"/>
+</svg>
