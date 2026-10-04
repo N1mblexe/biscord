@@ -11,15 +11,15 @@ People in a voice channel can:
 - Share a screen, window or tab (1080p30, with optional tab audio).
 - Watch any of the videos in a grid or a focused view.
 
-Everyone else sees a LIVE badge in the sidebar. No server media code and no new endpoints: the LiveKit grants already allow `CAMERA`, `SCREEN_SHARE` and `SCREEN_SHARE_AUDIO` (B.6).
+Everyone else sees a LIVE badge in the dfgsidebar. No server media code and no new endpoints: the LiveKit grants already allow `CAMERA`, `SCREEN_SHARE` and `SCREEN_SHARE_AUDIO` (B.6).
 
 ## In scope
 
-| Area        | Contract                                                                                                                                                                                                             |
-| ----------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Publishing  | Client only: `setCameraEnabled(true, { resolution: VideoPresets.h720.resolution })` and `setScreenShareEnabled(true, { audio: true, resolution: ScreenSharePresets.h1080fps30.resolution, contentHint: 'detail' })`. |
-| State flags | `voice:state { camera, screen }` (already in B.5) → `voice:updated` → sidebar badges                                                                                                                                 |
-| Server      | Nothing new, except as noted under contract clarifications                                                                                                                                                           |
+| Area        | Contract                                                                                                                                                                                                            |
+| ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Publishing  | Client only:`setCameraEnabled(true, { resolution: VideoPresets.h720.resolution })` and `setScreenShareEnabled(true, { audio: true, resolution: ScreenSharePresets.h1080fps30.resolution, contentHint: 'detail' })`. |
+| State flags | `voice:state { camera, screen }` (already in B.5) → `voice:updated` → sidebar badges                                                                                                                                |
+| Server      | Nothing new, except as noted under contract clarifications                                                                                                                                                          |
 
 ## Contract clarifications (CONTRACTS.md, in the same commit)
 
@@ -46,7 +46,7 @@ Everyone else sees a LIVE badge in the sidebar. No server media code and no new 
 
 | Where       | Contract                                                                                                                                                                                                                |
 | ----------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Voice panel | Buttons **Camera** / **Stop camera** and **Share screen** / **Stop sharing** (`aria-pressed`), checkbox **Share tab audio**.                                                                                            |
+| Voice panel | Buttons**Camera** / **Stop camera** and **Share screen** / **Stop sharing** (`aria-pressed`), checkbox **Share tab audio**.                                                                                             |
 | Video stage | `data-testid="video-stage"`. Tiles `data-testid="video-tile"` with `data-user-id`, `data-source` = `camera` / `screen_share`, and `data-focused="true"` on the focused tile. Tile label = display name (+ " (screen)"). |
 | Sidebar     | `voice-participant` gets `data-camera="true"` and `data-live="screen"`.                                                                                                                                                 |
 
